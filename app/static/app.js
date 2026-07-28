@@ -526,7 +526,9 @@ async function uploadRepo() {
   try {
     const results = await api("/api/repo/upload", { method: "POST", body: form });
     const total = results.reduce((s, r) => s + r.items_count, 0);
+    const failed = results.filter((r) => r.note);
     toast(`✅ خُزّن ${results.length} ملفاً واستُخرج ${total} بنداً مسعّراً`);
+    if (failed.length) setTimeout(() => toast(`⚠️ ${failed[0].filename.slice(0, 35)}: ${failed[0].note}`, true), 2500);
     repoFiles = []; renderRepoFiles();
     loadRepo();
   } catch (err) {
