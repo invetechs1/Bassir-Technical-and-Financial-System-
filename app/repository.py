@@ -42,10 +42,60 @@ def _match_col(header_cells: list, keywords: tuple) -> list[int]:
     return out
 
 
+# تحويل الأرقام العربية والفواصل العربية
+_AR_TRANS = str.maketrans("٠١٢٣٤٥٦٧٨٩٫", "0123456789.")
+_NUM_RE = re.compile(r"\d+(?:[,،]\d{3})*(?:\.\d+)?")
+_UNITS = ("م2", "م3", "م²", "م³", "م.ط", "مط", "متر مربع", "متر طولي", "متر مكعب",
+          "عدد", "بالعدد", "مقطوعية", "لس", "شهر", "سنة", "يوم", "نقطة", "طن",
+          "m2", "m3", "m²", "no", "nos", "ls", "item", "mrun", "lm", "kg")
+_TOTAL_WORDS = ("إجمالي", "الاجمالي", "الإجمالي", "مجموع", "total", "subtotal", "الاجمالى")
+
+
+def parse_text_boq(text: str) -> list[dict]:
+    """استخراج البنود المسعّرة من نص مستخرج (PDF/Word/نص) — سطر يحمل وصفاً
+    وثلاثة أرقام تحقق الكمية × سعر الوحدة = الإجمالي (بأي اتجاه قراءة)."""
+    items, seen = [], set()
+    for raw_line in text.splitlines():
+        line = raw_line.translate(_AR_TRANS)
+        matches = _NUM_RE.findall(line)
+        if len(matches) < 3:
+            continue
+        nums = []
+        for m in matches:
+            try:
+                nums.append(float(m.replace(",", "").replace("،", "")))
+            except ValueError:
+                pass
+        desc = _clean(_NUM_RE.sub(" ", line).replace("|", " ").replace("/", " "))
+        desc = re.sub(r"^[\W_]+|[\W_]+$", "", desc)
+        if len(desc) < 8 or any(w in desc for w in _TOTAL_WORDS):
+            continue
+        qty = rate = None
+        for i in range(len(nums) - 2):
+            a, b, c = nums[i], nums[i + 1], nums[i + 2]
+            # الترتيب الطبيعي: كمية × سعر = إجمالي
+            if a > 0 and b > 0 and c > 0 and abs(a * b - c) <= max(1.0, 0.02 * c):
+                qty, rate = a, b
+                break
+            # الترتيب المعكوس (استخراج RTL): إجمالي، سعر، كمية
+            if abs(c * b - a) <= max(1.0, 0.02 * a) and c > 0 and b > 0 and a > 0:
+                qty, rate = c, b
+                break
+        if rate is None or rate <= 0 or rate > 50_000_000:
+            continue
+        unit = next((u for u in _UNITS if u in raw_line or u in line.lower()), "")
+        key = (desc[:60], rate)
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append({"name": desc[:200], "unit": unit, "qty": qty, "unit_price": rate})
+    return items
+
+
 def parse_boq_items(content: bytes, filename: str) -> list[dict]:
-    """استخراج البنود المسعّرة من ملف Excel بأي تخطيط أعمدة (اكتشاف تلقائي للرؤوس)."""
+    """استخراج البنود المسعّرة: Excel باكتشاف الأعمدة، وPDF/Word/نص بمحلل الأسطر."""
     if Path(filename).suffix.lower() not in (".xlsx", ".xlsm"):
-        return []
+        return parse_text_boq(extract_text(filename, content))
     from openpyxl import load_workbook
     try:
         wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
@@ -129,10 +179,23 @@ def find_relevant_repo_texts(query: str, top_n: int = 2) -> list[dict]:
 
 
 def ingest_file(filename: str, content: bytes, source_type: str, company: str, notes: str) -> dict:
-    """تحليل ملف مرفوع وتخزينه في المستودع: نص كامل + بنود مسعّرة."""
+    """تحليل ملف مرفوع وتخزينه في المستودع: نص كامل + بنود مسعّرة + تشخيص."""
     from .database import create_repo_file
     text = extract_text(filename, content)
-    items = parse_boq_items(content, filename)
+    if Path(filename).suffix.lower() in (".xlsx", ".xlsm"):
+        items = parse_boq_items(content, filename)
+    else:
+        items = parse_text_boq(text)
     meta = {"filename": filename, "source_type": source_type, "company": company, "notes": notes}
     record = create_repo_file(meta, text, items)
+
+    # تشخيص واضح عندما لا تُستخرج بنود
+    if not items:
+        clean_len = len(re.sub(r"\s", "", text))
+        if text.startswith("[تعذر") or clean_len < 150:
+            record["note"] = ("لم يُعثر على نص قابل للقراءة — الملف غالباً مصور (سكان). "
+                              "ارفع نسخة Excel أو PDF نصياً لاستخراج الأسعار.")
+        else:
+            record["note"] = ("خُزّن النص للاستفادة المعرفية، لكن لم تُرصد أسطر مسعّرة "
+                              "(كمية × سعر = إجمالي). إن كان الملف يحوي أسعاراً بصيغة مختلفة أرسله لنا لضبط المحلل.")
     return record
