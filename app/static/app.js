@@ -39,12 +39,28 @@ async function api(url, opts = {}) {
     delete opts.json;
   }
   const res = await fetch(url, opts);
+  if (res.status === 401) { location.href = "/login"; throw new Error("انتهت الجلسة"); }
   if (!res.ok) {
     let detail = res.statusText;
     try { detail = (await res.json()).detail || detail; } catch {}
     throw new Error(detail);
   }
   return res.json();
+}
+
+async function logout() {
+  await fetch("/api/logout", { method: "POST" });
+  location.href = "/login";
+}
+
+async function savePassword() {
+  const oldPw = $("#pwOld").value, newPw = $("#pwNew").value;
+  if (!oldPw || !newPw) return toast("أدخل كلمة المرور الحالية والجديدة", true);
+  try {
+    await api("/api/password", { method: "POST", json: { old: oldPw, new: newPw } });
+    toast("تم تغيير كلمة المرور ✅");
+    $("#pwOld").value = ""; $("#pwNew").value = "";
+  } catch (err) { toast(err.message, true); }
 }
 
 /* ---------- لوحة التحكم ---------- */

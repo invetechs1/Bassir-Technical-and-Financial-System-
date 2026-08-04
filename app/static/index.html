@@ -24,6 +24,7 @@
     <button class="nav-btn" data-page="docs">📄 وثائق الشركة</button>
     <button class="nav-btn" data-page="analytics">📈 التحليلات</button>
     <button class="nav-btn" data-page="settings">⚙️ الإعدادات</button>
+    <button class="nav-btn" onclick="logout()" style="margin-top:auto">🚪 تسجيل الخروج</button>
     <div class="engine-badge" id="engineBadge">…</div>
   </aside>
 
@@ -314,6 +315,9 @@
           <div><label>العنوان</label><input type="text" id="stAddr" data-key="company_address"></div>
           <div><label>الهاتف</label><input type="text" id="stPhone" data-key="company_phone"></div>
           <div><label>البريد الإلكتروني</label><input type="text" id="stEmail" data-key="company_email"></div>
+          <div><label>البنك</label><input type="text" data-key="company_bank"></div>
+          <div><label>الآيبان</label><input type="text" data-key="company_iban"></div>
+          <div><label>عضوية الغرفة التجارية</label><input type="text" data-key="company_chamber_no"></div>
           <div><label>رقم الهوية لدخول اعتماد (نفاذ) — يُحفظ محلياً فقط</label><input type="text" data-key="etimad_national_id" placeholder="10XXXXXXXX"></div>
         </div>
       </div>
@@ -330,6 +334,14 @@
         <label>شروط الدفع القياسية</label>
         <textarea data-key="payment_terms"></textarea>
         <div class="mt"><button class="btn" onclick="saveSettings()">حفظ الإعدادات</button></div>
+      </div>
+      <div class="panel">
+        <h3>🔐 تغيير كلمة المرور</h3>
+        <div class="grid-2">
+          <div><label>كلمة المرور الحالية</label><input type="password" id="pwOld" autocomplete="current-password"></div>
+          <div><label>كلمة المرور الجديدة (8 أحرف فأكثر)</label><input type="password" id="pwNew" autocomplete="new-password"></div>
+        </div>
+        <div class="mt"><button class="btn" onclick="savePassword()">تغيير كلمة المرور</button></div>
       </div>
     </section>
 
