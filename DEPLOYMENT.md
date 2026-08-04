@@ -71,9 +71,19 @@ server {
 }
 ```
 
-> ⚠️ The current build has **no authentication layer** — do not expose it to
-> the public internet without one. Options: keep it on a VPN/private network,
-> add nginx basic-auth, or put it behind an SSO proxy (e.g. oauth2-proxy).
+### 4. Authentication (built in)
+
+The system requires login. First-run default credentials:
+
+```
+username: azoom
+password: Azoom@2026
+```
+
+**Change the password immediately** after first login (الإعدادات → تغيير كلمة
+المرور). Sessions are HMAC-signed HttpOnly cookies valid for 12 hours;
+passwords are stored as PBKDF2-SHA256 hashes. Still serve the app over HTTPS
+(nginx config above) so credentials never travel in plaintext.
 
 ## Data & backups
 
