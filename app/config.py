@@ -14,13 +14,16 @@ for d in (DATA_DIR, UPLOADS_DIR, EXPORTS_DIR):
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 CLAUDE_MODEL = "claude-opus-4-8"
 
-# الهوية البصرية لشركة عزوم
+# الهوية البصرية الرسمية — AZOOM United Co. (الشعار السداسي الأخضر)
 BRAND = {
-    "name_ar": "شركة عزوم",
-    "name_en": "AZOOM",
-    "primary": "10263F",   # كحلي عميق
-    "accent": "C79A3C",    # ذهبي
-    "light": "F5F1E8",     # رملي فاتح
+    "name_ar": "شركة عزوم المتحدة للمقاولات",
+    "name_en": "AZOOM United Co.",
+    "primary": "1E6B3C",   # أخضر مؤسسي عميق
+    "accent": "2E9E5B",    # أخضر الشعار
+    "light": "EAF4EC",     # أخضر فاتح
+    "footer_phone": "+966114880122",
+    "footer_address": "Saudi Arabia - Riyadh - 12623 Post Code",
+    "footer_cr": "1010467099",
 }
 
 # القيم الافتراضية المالية (قابلة للتعديل من شاشة الإعدادات)

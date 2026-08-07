@@ -115,6 +115,28 @@ def _table(doc, headers, rows, widths=None, money_cols=()):
     return table
 
 
+def _page_footer(doc):
+    """تذييل رسمي في كل الصفحات — كما في عروض عزوم المطبوعة."""
+    footer_text = f'{BRAND["footer_phone"]}   |   {BRAND["footer_address"]}   |   C.R. {BRAND["footer_cr"]}'
+    for section in doc.sections:
+        footer = section.footer
+        footer.is_linked_to_previous = False
+        p = footer.paragraphs[0]
+        p.text = ""
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        pPr = p._p.get_or_add_pPr()
+        borders = OxmlElement("w:pBdr")
+        top = OxmlElement("w:top")
+        top.set(qn("w:val"), "single")
+        top.set(qn("w:sz"), "8")
+        top.set(qn("w:color"), BRAND["accent"])
+        borders.append(top)
+        pPr.append(borders)
+        _run(p, BRAND["name_en"], size=9, bold=True, color=PRIMARY)
+        _run(p, "   —   ", size=9, color=ACCENT)
+        _run(p, footer_text, size=9, color=RGBColor(0x66, 0x66, 0x66))
+
+
 def _cover_page(doc, proposal, settings):
     for _ in range(4):
         doc.add_paragraph()
@@ -145,6 +167,7 @@ def export_proposal_docx(proposal: dict, settings: dict, path: str):
         section.right_margin = Cm(2.2)
         section.left_margin = Cm(2.2)
 
+    _page_footer(doc)
     _cover_page(doc, proposal, settings)
 
     # ---------- الجزء الأول: العرض الفني ----------
