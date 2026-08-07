@@ -113,24 +113,24 @@ LOGIN_PAGE = """<!DOCTYPE html>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:"Segoe UI",Tahoma,sans-serif;min-height:100vh;display:flex;align-items:center;
-  justify-content:center;background:linear-gradient(160deg,#10263F,#1B3A5C)}
+  justify-content:center;background:linear-gradient(160deg,#175934,#2E9E5B)}
 .box{background:#fff;border-radius:18px;padding:40px 36px;width:min(400px,92vw);
   box-shadow:0 20px 60px rgba(0,0,0,.35);text-align:center}
-.logo{width:64px;height:64px;margin:0 auto 12px;border-radius:17px;background:#C79A3C;color:#10263F;
+.logo{width:64px;height:64px;margin:0 auto 12px;border-radius:17px;background:#EAF4EC;color:#175934;
   display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:800}
-h1{font-size:22px;color:#10263F;letter-spacing:1px}
+h1{font-size:22px;color:#175934;letter-spacing:1px}
 p.sub{color:#888;font-size:12.5px;margin:6px 0 24px}
 input{width:100%;padding:12px 14px;border:1px solid #ddd;border-radius:10px;font-family:inherit;
   font-size:14.5px;margin-bottom:12px;background:#faf8f4}
-input:focus{outline:2px solid #C79A3C;border-color:transparent}
-button{width:100%;padding:13px;border:none;border-radius:10px;background:#10263F;color:#fff;
+input:focus{outline:2px solid #2E9E5B;border-color:transparent}
+button{width:100%;padding:13px;border:none;border-radius:10px;background:#1E6B3C;color:#fff;
   font-size:15px;font-weight:700;cursor:pointer;font-family:inherit}
 button:hover{opacity:.92}
 .err{color:#a33;font-size:13px;margin-top:12px;min-height:18px}
 </style></head><body>
 <form class="box" id="f">
-  <div class="logo">ع</div>
-  <h1>عــزوم</h1>
+  <div class="logo">⬡</div>
+  <h1>AZOOM United Co.</h1>
   <p class="sub">نظام العروض الفنية والمالية — الدخول للمصرح لهم فقط</p>
   <input type="text" id="u" placeholder="اسم المستخدم" autocomplete="username" required>
   <input type="password" id="p" placeholder="كلمة المرور" autocomplete="current-password" required>

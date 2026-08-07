@@ -1,13 +1,13 @@
 /* هوية عزوم البصرية */
 :root {
-  --primary: #10263f;
-  --primary-2: #1b3a5c;
-  --accent: #c79a3c;
-  --accent-light: #e8d5a8;
-  --sand: #f5f1e8;
+  --primary: #175934;
+  --primary-2: #2E9E5B;
+  --accent: #2E9E5B;
+  --accent-light: #C6E5D1;
+  --sand: #F2F7F3;
   --ink: #1c2530;
   --muted: #6b7684;
-  --line: #e3ded2;
+  --line: #DCE8DF;
   --ok: #1e7d4f;
   --warn: #b3541e;
   --card: #ffffff;
@@ -44,7 +44,7 @@ body {
 .brand .logo {
   width: 58px; height: 58px; margin: 0 auto 10px;
   border-radius: 16px;
-  background: var(--accent);
+  background: #fff;
   color: var(--primary);
   display: flex; align-items: center; justify-content: center;
   font-size: 28px; font-weight: 800;
@@ -62,7 +62,7 @@ body {
   transition: background .15s;
 }
 .nav-btn:hover { background: rgba(255,255,255,.08); }
-.nav-btn.active { background: var(--accent); color: var(--primary); font-weight: 700; }
+.nav-btn.active { background: #fff; color: var(--primary); font-weight: 700; }
 
 .engine-badge {
   margin-top: auto;
@@ -103,7 +103,7 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 5px
 input[type=text], input[type=number], input[type=email], select, textarea {
   width: 100%; padding: 10px 12px;
   border: 1px solid var(--line); border-radius: 9px;
-  font-family: inherit; font-size: 14px; background: #fdfcf9;
+  font-family: inherit; font-size: 14px; background: #FBFDFB;
 }
 textarea { min-height: 90px; resize: vertical; }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); border-color: transparent; }
@@ -120,7 +120,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); bo
   transition: opacity .15s;
 }
 .btn:hover { opacity: .9; }
-.btn.gold { background: var(--accent); color: var(--primary); }
+.btn.gold { background: var(--accent); color: #fff; }
 .btn.ghost { background: transparent; color: var(--primary); border: 1px solid var(--line); }
 .btn.danger { background: #a33; }
 .btn.sm { padding: 6px 12px; font-size: 12.5px; }
@@ -130,12 +130,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); bo
 .dropzone {
   border: 2px dashed var(--accent);
   border-radius: var(--radius);
-  background: #fdf9f0;
+  background: #F0F8F2;
   padding: 30px; text-align: center;
   color: var(--muted); cursor: pointer;
   transition: background .15s;
 }
-.dropzone:hover, .dropzone.drag { background: #f8efdb; }
+.dropzone:hover, .dropzone.drag { background: #E3F1E7; }
 .dropzone .big { font-size: 34px; }
 .file-list { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
 .file-chip {
@@ -153,20 +153,20 @@ th {
   position: sticky; top: 0;
 }
 td { padding: 9px 8px; border-bottom: 1px solid var(--line); }
-tr:hover td { background: #faf7ef; }
+tr:hover td { background: #F3F9F4; }
 td input { padding: 6px 8px; font-size: 13px; }
 .t-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--line); }
 .num-cell { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .tag { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11.5px; font-weight: 700; }
 .tag.gov { background: #e3ecf7; color: #1b4c86; }
-.tag.private { background: #efe6d4; color: #7a5c1c; }
+.tag.private { background: #DFF0E5; color: #1E6B3C; }
 .tag.draft { background: #eee; color: #666; }
 .tag.submitted { background: #dcefe5; color: var(--ok); }
 .tag.won { background: #d9a; color: #fff; background: var(--ok); }
 .tag.lost { background: #f3dcdc; color: #a33; }
 .tag.src { background: #e8f2ea; color: var(--ok); }
-.tag.est { background: #f7ecdd; color: var(--warn); }
+.tag.est { background: #FCF0DE; color: var(--warn); }
 
 /* تبويبات العرض */
 .tabs { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 2px solid var(--line); }
@@ -186,7 +186,7 @@ td input { padding: 6px 8px; font-size: 13px; }
 /* الخطة الزمنية */
 .phase {
   border-right: 4px solid var(--accent);
-  background: #fdfaf3; border-radius: 0 10px 10px 0;
+  background: #F4FAF5; border-radius: 0 10px 10px 0;
   padding: 14px 16px; margin-bottom: 12px;
 }
 .phase h4 { color: var(--primary); font-size: 15px; }
@@ -197,7 +197,7 @@ td input { padding: 6px 8px; font-size: 13px; }
 .gantt { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
 .gantt-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
 .gantt-label { width: 180px; text-align: left; color: var(--muted); flex-shrink: 0; }
-.gantt-track { flex: 1; background: #eee9dc; border-radius: 6px; height: 22px; position: relative; }
+.gantt-track { flex: 1; background: #E2EEE5; border-radius: 6px; height: 22px; position: relative; }
 .gantt-bar { position: absolute; top: 0; height: 100%; background: linear-gradient(90deg, var(--primary), var(--primary-2)); border-radius: 6px; }
 
 /* ملخص مالي */
