@@ -536,15 +536,19 @@ async function uploadRepo() {
   form.append("source_type", $("#repoSource").value);
   form.append("company", $("#repoCompany").value.trim());
   form.append("notes", $("#repoNotes").value.trim());
+  form.append("as_reference", $("#repoAsRef").checked ? "1" : "");
   for (const f of repoFiles) form.append("files", f);
   $("#repoUploadBtn").disabled = true;
   $("#repoSpinner").classList.add("on");
   try {
     const results = await api("/api/repo/upload", { method: "POST", body: form });
     const total = results.reduce((s, r) => s + r.items_count, 0);
-    const failed = results.filter((r) => r.note);
-    toast(`✅ خُزّن ${results.length} ملفاً واستُخرج ${total} بنداً مسعّراً`);
-    if (failed.length) setTimeout(() => toast(`⚠️ ${failed[0].filename.slice(0, 35)}: ${failed[0].note}`, true), 2500);
+    const refs = results.filter((r) => r.reference);
+    const failed = results.filter((r) => r.note || r.reference_note);
+    toast(`✅ خُزّن ${results.length} ملفاً واستُخرج ${total} بنداً مسعّراً` +
+          (refs.length ? ` وأُنشئ ${refs.length} عرضاً مرجعياً` : ""));
+    failed.slice(0, 3).forEach((r, i) => setTimeout(() =>
+      toast(`⚠️ ${r.filename.slice(0, 35)}: ${r.note || r.reference_note}`, true), 2500 + i * 4000));
     repoFiles = []; renderRepoFiles();
     loadRepo();
   } catch (err) {
@@ -564,9 +568,21 @@ async function loadRepo() {
       <td>${f.company || "—"}</td>
       <td class="num-cell">${f.items_count}</td>
       <td class="num-cell muted">${f.uploaded_at.slice(0, 10)}</td>
-      <td><button class="btn sm danger" onclick="removeRepoFile(${f.id})">حذف</button></td>
+      <td style="white-space:nowrap">
+        <button class="btn sm" onclick="makeReference(${f.id})" title="تحويله إلى عرض مرجعي يُبنى عليه في المشاريع المشابهة">⭐ مرجعي</button>
+        <button class="btn sm danger" onclick="removeRepoFile(${f.id})">حذف</button>
+      </td>
     </tr>`).join("") ||
     `<tr><td colspan="6" class="muted">المستودع فارغ — ارفع أول ملفاتك</td></tr>`;
+}
+
+async function makeReference(id) {
+  try {
+    const ref = await api(`/api/repo/${id}/make-reference`, { method: "POST" });
+    toast(`⭐ أُنشئ العرض المرجعي ${ref.ref_no} (${ref.boq_lines} بنداً) — سيُبنى عليه في المشاريع المشابهة`);
+  } catch (err) {
+    toast(err.message, true);
+  }
 }
 
 async function removeRepoFile(id) {

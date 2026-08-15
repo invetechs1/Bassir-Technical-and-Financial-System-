@@ -208,7 +208,7 @@
     <!-- المستودع المعرفي -->
     <section class="page" id="page-repo">
       <div class="page-head">
-        <div><h2>المستودع المعرفي</h2><p>ارفع أي عروض فنية ومالية قديمة — لعزوم أو لشركات أخرى ومنافسة — يستخرج النظام بنودها وأسعارها كأسعار سوق استرشادية، ويخزن محتواها لتطوير العروض القادمة وزيادة دقة التسعير وتغطية البنود</p></div>
+        <div><h2>المستودع المعرفي</h2><p>ارفع أي عروض فنية ومالية قديمة — لعزوم أو لشركات أخرى ومنافسة — يستخرج النظام بنودها وأسعارها كأسعار سوق استرشادية، ويخزن محتواها لتطوير العروض القادمة. فعّل خيار «عرض مرجعي» (أو زر ⭐ في الجدول) ليدخل العرض ذاكرة التشابه ويُبنى عليه تلقائياً في المشاريع المشابهة. الملفات المصورة (سكان) تُقرأ بالاستخراج الضوئي OCR إن كان مثبتاً على الخادم</p></div>
       </div>
       <div class="panel">
         <h3>رفع ملفات للمستودع</h3>
@@ -216,6 +216,7 @@
           <div><label>نوع المصدر</label>
             <select id="repoSource">
               <option>عرض عزوم سابق</option>
+              <option>عرض فني سابق</option>
               <option>عرض شركة منافسة</option>
               <option>عرض شركة أخرى</option>
               <option>جدول كميات / كراسة شروط</option>
@@ -232,6 +233,11 @@
           <input type="file" id="repoFileInput" multiple hidden accept=".pdf,.docx,.xlsx,.xlsm,.txt,.md,.csv">
         </div>
         <div class="file-list" id="repoFileList"></div>
+        <label class="mt" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="repoAsRef" style="width:auto;margin:0">
+          <span>إضافته أيضاً كـ<b>عرض مرجعي</b> في ذاكرة النظام — يستخرج العنوان والنطاق والبنود
+          ويُبنى عليه تلقائياً عند تحليل مشاريع مشابهة</span>
+        </label>
         <div class="mt"><button class="btn gold" id="repoUploadBtn" onclick="uploadRepo()">📥 تحليل وتخزين في المستودع</button></div>
         <div class="spinner" id="repoSpinner"><div class="dot"></div>جارٍ تحليل الملفات واستخراج البنود والأسعار...</div>
       </div>
