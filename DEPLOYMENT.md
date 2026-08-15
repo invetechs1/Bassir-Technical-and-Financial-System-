@@ -142,3 +142,16 @@ the login was done on another machine. Fetching the public tenders list
 ## Health check
 
 `GET /api/status` → `{"ok": true, "ai_enabled": ..., "proposals": n, "price_items": n}`
+
+## Full system check (after every deploy/update)
+
+```bash
+.venv/bin/python scripts/system_check.py
+```
+
+Runs 63 checks covering every endpoint and function: auth, seeds, settings,
+prices CRUD + CSV import/export, library, company docs, proposal generation
+(similarity + financial math), Word/Excel export (incl. the official footer),
+knowledge repository (upload, reference creation, market benchmark), the
+opportunity analyzer, analytics, and Etimad error handling. Exit code 0 =
+all green. Safe to run repeatedly on a live database.
