@@ -5,7 +5,7 @@ import re
 from io import BytesIO
 from pathlib import Path
 
-from .file_extract import extract_text
+from .file_extract import OCR_MARKER, extract_text
 
 # كلمات رؤوس الأعمدة الشائعة في جداول الكميات — مرتبة بالأولوية (الوصف قبل رقم البند)
 _HDR_NAME = ("وصف", "بيان", "description", "الاعمال", "الأعمال", "البند", "item")
@@ -42,8 +42,8 @@ def _match_col(header_cells: list, keywords: tuple) -> list[int]:
     return out
 
 
-# تحويل الأرقام العربية والفواصل العربية
-_AR_TRANS = str.maketrans("٠١٢٣٤٥٦٧٨٩٫", "0123456789.")
+# تحويل الأرقام العربية والفواصل العربية (٫ عشرية، ٬ فاصل آلاف)
+_AR_TRANS = str.maketrans("٠١٢٣٤٥٦٧٨٩٫٬", "0123456789.,")
 _NUM_RE = re.compile(r"\d+(?:[,،]\d{3})*(?:\.\d+)?")
 _UNITS = ("م2", "م3", "م²", "م³", "م.ط", "مط", "متر مربع", "متر طولي", "متر مكعب",
           "عدد", "بالعدد", "مقطوعية", "لس", "شهر", "سنة", "يوم", "نقطة", "طن",
@@ -53,12 +53,21 @@ _TOTAL_WORDS = ("إجمالي", "الاجمالي", "الإجمالي", "مجم�
 
 def parse_text_boq(text: str) -> list[dict]:
     """استخراج البنود المسعّرة من نص مستخرج (PDF/Word/نص) — سطر يحمل وصفاً
-    وثلاثة أرقام تحقق الكمية × سعر الوحدة = الإجمالي (بأي اتجاه قراءة)."""
+    وثلاثة أرقام تحقق الكمية × سعر الوحدة = الإجمالي (بأي اتجاه قراءة).
+
+    عند استخراج PDF كثيراً ما يلتفّ وصف البند على سطر مستقل عن سطر الأرقام،
+    لذا يُحتفظ بآخر سطر نصي كوصف احتياطي لسطر الأرقام التالي."""
     items, seen = [], set()
+    pending_desc = ""
     for raw_line in text.splitlines():
         line = raw_line.translate(_AR_TRANS)
         matches = _NUM_RE.findall(line)
         if len(matches) < 3:
+            # سطر نصي — قد يكون وصف بند التفّ قبل سطر أرقامه
+            stripped = _clean(_NUM_RE.sub(" ", line).replace("|", " "))
+            stripped = re.sub(r"^[\W_]+|[\W_]+$", "", stripped)
+            if len(stripped) >= 8 and not any(w in stripped for w in _TOTAL_WORDS):
+                pending_desc = stripped
             continue
         nums = []
         for m in matches:
@@ -68,6 +77,8 @@ def parse_text_boq(text: str) -> list[dict]:
                 pass
         desc = _clean(_NUM_RE.sub(" ", line).replace("|", " ").replace("/", " "))
         desc = re.sub(r"^[\W_]+|[\W_]+$", "", desc)
+        if len(desc) < 8:
+            desc = pending_desc  # إنقاذ الوصف من السطر السابق
         if len(desc) < 8 or any(w in desc for w in _TOTAL_WORDS):
             continue
         qty = rate = None
@@ -89,6 +100,7 @@ def parse_text_boq(text: str) -> list[dict]:
             continue
         seen.add(key)
         items.append({"name": desc[:200], "unit": unit, "qty": qty, "unit_price": rate})
+        pending_desc = ""
     return items
 
 
@@ -125,6 +137,9 @@ def parse_boq_items(content: bytes, filename: str) -> list[dict]:
                 "qty": _num(row[qty_c]) if qty_c is not None and len(row) > qty_c else None,
                 "unit_price": rate,
             })
+    # لم تُكتشف رؤوس أعمدة (تنسيق غير معتاد) — جرّب محلل الأسطر على النص المستخرج
+    if not items:
+        items = parse_text_boq(extract_text(filename, content))
     return items
 
 
@@ -178,9 +193,75 @@ def find_relevant_repo_texts(query: str, top_n: int = 2) -> list[dict]:
     return [f for _, f in scored[:top_n]]
 
 
-def ingest_file(filename: str, content: bytes, source_type: str, company: str, notes: str) -> dict:
-    """تحليل ملف مرفوع وتخزينه في المستودع: نص كامل + بنود مسعّرة + تشخيص."""
+_SCOPE_HINTS = ("أعمال", "اعمال", "توريد", "تركيب", "تنفيذ", "إنشاء", "انشاء",
+                "صيانة", "تشغيل", "تجهيز", "تأهيل", "ترميم", "عزل", "تشطيب")
+
+
+def build_reference_from_text(filename: str, company: str, text: str, items: list[dict]) -> dict | None:
+    """تحويل ملف عرض فني/مالي محلل إلى عرض مرجعي في ذاكرة النظام —
+    يستخرج العنوان والملخص والنطاق والكلمات المفتاحية وجدول الكميات،
+    فيدخل العرض في محرك التشابه ويُبنى عليه في المشاريع المشابهة."""
+    from collections import Counter
+    from .database import create_proposal, list_proposals_full
+    from .similarity import _tokens
+
+    clean_text = text.replace(OCR_MARKER, "") if text else ""
+    if len(re.sub(r"\s", "", clean_text)) < 150 and not items:
+        return None  # لا محتوى يُبنى عليه
+
+    title = re.sub(r"[_\-]+", " ", Path(filename).stem)
+    title = _clean(title)[:120] or "عرض مرجعي"
+    existing = {p["title"] for p in list_proposals_full() if p["data"].get("reference")}
+    if title in existing:
+        return {"duplicate": True, "title": title}
+
+    lines = [l.strip() for l in clean_text.splitlines() if len(l.strip()) > 15]
+    summary = _clean(" ".join(lines[:6]))[:800]
+    scope = []
+    for l in lines:
+        if len(scope) >= 12:
+            break
+        looks_bullet = bool(re.match(r"^[-•*–]|^\d{1,2}[\).\-]", l))
+        if (looks_bullet or any(k in l for k in _SCOPE_HINTS)) and len(l) < 200:
+            item = _clean(re.sub(r"^[-•*–\d\).\s]+", "", l))[:160]
+            if len(item) > 10 and item not in scope:
+                scope.append(item)
+    freq = Counter()
+    for l in lines[:400]:
+        freq.update(_tokens(l))
+    keywords = " ".join(w for w, _ in freq.most_common(15))
+
+    boq = []
+    for it in items[:300]:
+        qty = it.get("qty") or 1
+        boq.append({
+            "code": "", "name": it["name"], "unit": it.get("unit", ""),
+            "qty": qty, "unit_price": it["unit_price"],
+            "total": round(qty * it["unit_price"], 2),
+        })
+    direct = round(sum(l["total"] for l in boq), 2)
+    data = {
+        "reference": True,
+        "summary": summary,
+        "scope": scope,
+        "keywords": keywords,
+        "technical_sections": [],
+        "boq": boq,
+        "financial": {"direct_cost": direct} if direct else {},
+        "plan": [],
+        "engine": "المستودع المعرفي — ملف محلل",
+        "source_file": filename,
+    }
+    p = create_proposal(title, company or "غير محدد", "government", data)
+    return {"id": p["id"], "ref_no": p["ref_no"], "title": title, "boq_lines": len(boq)}
+
+
+def ingest_file(filename: str, content: bytes, source_type: str, company: str,
+                notes: str, as_reference: bool = False) -> dict:
+    """تحليل ملف مرفوع وتخزينه في المستودع: نص كامل + بنود مسعّرة + تشخيص،
+    مع خيار إضافته كعرض مرجعي في ذاكرة التشابه."""
     from .database import create_repo_file
+    from .file_extract import ocr_available
     text = extract_text(filename, content)
     if Path(filename).suffix.lower() in (".xlsx", ".xlsm"):
         items = parse_boq_items(content, filename)
@@ -189,13 +270,31 @@ def ingest_file(filename: str, content: bytes, source_type: str, company: str, n
     meta = {"filename": filename, "source_type": source_type, "company": company, "notes": notes}
     record = create_repo_file(meta, text, items)
 
+    if as_reference:
+        ref = build_reference_from_text(filename, company, text, items)
+        if ref is None:
+            record["reference_note"] = "تعذر بناء عرض مرجعي — لا يوجد محتوى نصي كافٍ في الملف."
+        elif ref.get("duplicate"):
+            record["reference_note"] = f"يوجد عرض مرجعي بنفس العنوان مسبقاً: {ref['title']}"
+        else:
+            record["reference"] = ref
+
     # تشخيص واضح عندما لا تُستخرج بنود
     if not items:
         clean_len = len(re.sub(r"\s", "", text))
         if text.startswith("[تعذر") or clean_len < 150:
-            record["note"] = ("لم يُعثر على نص قابل للقراءة — الملف غالباً مصور (سكان). "
-                              "ارفع نسخة Excel أو PDF نصياً لاستخراج الأسعار.")
+            if ocr_available():
+                record["note"] = ("لم يُعثر على نص قابل للقراءة حتى بعد محاولة الاستخراج الضوئي — "
+                                  "جودة المسح منخفضة. ارفع نسخة Excel أو PDF نصياً.")
+            else:
+                record["note"] = ("الملف مصور (سكان) وأدوات الاستخراج الضوئي OCR غير مثبتة على الخادم. "
+                                  "ثبّتها بالأمر: apt install tesseract-ocr tesseract-ocr-ara poppler-utils "
+                                  "ثم أعد رفع الملف — أو ارفع نسخة Excel/PDF نصية.")
         else:
             record["note"] = ("خُزّن النص للاستفادة المعرفية، لكن لم تُرصد أسطر مسعّرة "
                               "(كمية × سعر = إجمالي). إن كان الملف يحوي أسعاراً بصيغة مختلفة أرسله لنا لضبط المحلل.")
+        if text.startswith(OCR_MARKER):
+            record["note"] = "قُرئ الملف بالاستخراج الضوئي OCR. " + record.get("note", "")
+    elif text.startswith(OCR_MARKER):
+        record["note"] = f"قُرئ الملف المصور بالاستخراج الضوئي OCR واستُخرج {len(items)} بنداً."
     return record

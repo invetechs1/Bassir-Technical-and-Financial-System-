@@ -390,6 +390,12 @@ def get_repo_texts(limit_chars: int = 4000) -> list[dict]:
     return [{**dict(r), "extracted_text": (r["extracted_text"] or "")[:limit_chars]} for r in rows]
 
 
+def get_repo_file(fid: int) -> dict | None:
+    with get_db() as db:
+        row = db.execute("SELECT * FROM repo_files WHERE id = ?", (fid,)).fetchone()
+    return dict(row) if row else None
+
+
 def delete_repo_file(fid: int):
     with get_db() as db:
         db.execute("DELETE FROM repo_files WHERE id = ?", (fid,))

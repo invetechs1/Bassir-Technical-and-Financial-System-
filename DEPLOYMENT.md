@@ -85,6 +85,19 @@ password: Azoom@2026
 passwords are stored as PBKDF2-SHA256 hashes. Still serve the app over HTTPS
 (nginx config above) so credentials never travel in plaintext.
 
+## OCR for scanned PDFs (recommended)
+
+Scanned (image-only) proposal PDFs can't be parsed as text. Install the OCR
+tools and the system reads them automatically on upload:
+
+```bash
+sudo apt install -y tesseract-ocr tesseract-ocr-ara poppler-utils
+sudo systemctl restart azoom
+```
+
+No Python packages needed — the system calls `tesseract`/`pdftoppm` directly.
+Re-upload previously failed files after installing.
+
 ## Data & backups
 
 All state lives in `data/`:

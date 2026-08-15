@@ -236,13 +236,33 @@ async def repo_upload(
     source_type: str = Form("عرض عزوم سابق"),
     company: str = Form(""),
     notes: str = Form(""),
+    as_reference: str = Form(""),
     files: list[UploadFile] = File(...),
 ):
+    make_ref = as_reference in ("1", "true", "on", "yes")
     results = []
     for f in files:
         content = await f.read()
-        results.append(ingest_file(f.filename or "file", content, source_type, company, notes))
+        results.append(ingest_file(f.filename or "file", content, source_type, company,
+                                   notes, as_reference=make_ref))
     return results
+
+
+@app.post("/api/repo/{fid}/make-reference")
+def repo_make_reference(fid: int):
+    """تحويل ملف موجود في المستودع إلى عرض مرجعي في ذاكرة التشابه."""
+    from .repository import build_reference_from_text, parse_text_boq
+    f = db.get_repo_file(fid)
+    if not f:
+        raise HTTPException(404, "الملف غير موجود")
+    text = f.get("extracted_text") or ""
+    items = parse_text_boq(text)
+    ref = build_reference_from_text(f["filename"], f.get("company", ""), text, items)
+    if ref is None:
+        raise HTTPException(400, "لا يوجد محتوى نصي كافٍ في هذا الملف لبناء عرض مرجعي")
+    if ref.get("duplicate"):
+        raise HTTPException(409, f"يوجد عرض مرجعي بنفس العنوان مسبقاً: {ref['title']}")
+    return ref
 
 
 @app.get("/api/repo")
