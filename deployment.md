@@ -1,82 +1,157 @@
-# نشر نظام عزوم عبر Docker
+# دليل النشر — نظام عزوم للعروض الفنية والمالية
+# Deployment Guide (for DevOps)
 
-هذا الملف يوثّق خطوات بناء صورة Docker للمشروع ونشرها على السيرفر البعيد.
+## Requirements
+- Python 3.10+ (tested on 3.11)
+- Outbound HTTPS access to `tenders.etimad.sa` (for the Etimad tenders page)
+- ~1 GB disk (SQLite DB + uploads + exports grow over time)
 
-## 1. بناء الصورة محلياً
-
-يُحذف أي إصدار سابق من صورة هذا المشروع على الجهاز المحلي قبل بناء صورة جديدة، حتى لا تتراكم صور قديمة:
-
-```bash
-# حذف الصورة المحلية القديمة (إن وجدت)
-docker rmi azoom-proposals:latest 2>/dev/null || true
-
-# بناء الصورة الجديدة
-docker build -t azoom-proposals:latest .
-```
-
-`Dockerfile` يبني صورة `python:3.12-slim` تثبّت `requirements.txt` وتشغّل الخادم عبر:
-
-```
-uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
-```
-
-بيانات التطبيق (قاعدة SQLite، الملفات المرفوعة، التصدير) محفوظة في `/app/data` داخل الحاوية — يجب ربطها بمجلد على المضيف (volume) حتى لا تُفقد عند إعادة تشغيل الحاوية.
-
-## 2. تحويل الصورة إلى ملف tar
+## Quick start (any Linux server)
 
 ```bash
-mkdir -p dist
-docker save -o dist/azoom-proposals.tar azoom-proposals:latest
+git clone https://github.com/invetechs1/Bassir-Technical-and-Financial-System-.git azoom
+cd azoom
+./run.sh            # creates .venv, installs deps, starts on port 8000
 ```
 
-## 3. رفع الملف إلى السيرفر
+Then open: `http://<server-ip>:8000`
 
-```
-السيرفر: root@13.140.138.252
-كلمة المرور: (محفوظة خارج هذا المستودع — لا تُحفظ كلمات المرور في ملفات Git)
-```
+## Production setup (recommended)
 
-> **ملاحظة أمنية**: لا تُدرَج بيانات اعتماد SSH الفعلية في هذا الملف أو أي ملف آخر داخل المستودع لتفادي تسريبها عبر تاريخ Git. استخدم مدير كلمات مرور أو مفتاح SSH (`ssh-copy-id`) بدلاً من كلمة مرور مباشرة عند الإمكان، ويُفضّل تدوير (rotate) كلمة مرور root على السيرفر بعد أي استخدام تشاركي لها.
-
-خطوات الرفع (مع مفتاح SSH بعد إعداده، أو عبر `scp`/`sftp` بكلمة مرور تُدخل تفاعلياً):
+### 1. Environment
 
 ```bash
-ssh root@13.140.138.252 "mkdir -p /opt/azoom-proposals/data"
-scp dist/azoom-proposals.tar root@13.140.138.252:/opt/azoom-proposals/
-scp deploy/deploy.sh root@13.140.138.252:/opt/azoom-proposals/
-ssh root@13.140.138.252 "chmod +x /opt/azoom-proposals/deploy.sh"
+cp .env.example .env
+# Edit .env:
+#   ANTHROPIC_API_KEY=sk-ant-...   ← enables AI generation (optional but recommended)
+#   PORT=8000
 ```
 
-هذا السيرفر مُشترك بين عدة مشاريع (حاويات أخرى تعمل على منافذ مختلفة) — لذلك يُفحص أي منفذ من سلسلة 8000 متاح قبل النشر بدل افتراض منفذ ثابت:
+Without `ANTHROPIC_API_KEY` the system runs with the smart-template engine
+(fully functional, lower quality drafting than Claude).
+
+### 2. Systemd service
+
+`/etc/systemd/system/azoom.service`:
+
+```ini
+[Unit]
+Description=Azoom Proposals System
+After=network.target
+
+[Service]
+User=www-data
+WorkingDirectory=/opt/azoom
+EnvironmentFile=/opt/azoom/.env
+ExecStart=/opt/azoom/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
 
 ```bash
-ssh root@13.140.138.252 "ss -tln | grep -E ':(8000|8001|8002|8003) '"
+sudo systemctl daemon-reload
+sudo systemctl enable --now azoom
 ```
 
-## 4. تشغيل الحاوية على السيرفر
+### 3. Reverse proxy + HTTPS (nginx)
 
-مجلد المشروع على السيرفر: `/opt/azoom-proposals/` — يحتوي على `azoom-proposals.tar` و`deploy.sh` ومجلد `data/` (بيانات دائمة).
+```nginx
+server {
+    listen 443 ssl;
+    server_name azoom.example.com;
+    client_max_body_size 50M;          # proposal file uploads
 
-سكربت `deploy/deploy.sh` (منسوخ أيضاً إلى السيرفر) يقوم تلقائياً بـ:
-1. إيقاف وإزالة الحاوية القديمة لهذا المشروع فقط (`azoom-proposals`) — لا يمسّ حاويات المشاريع الأخرى على نفس السيرفر.
-2. إزالة صورة Docker القديمة لهذا المشروع فقط.
-3. تحميل الصورة الجديدة من ملف tar.
-4. تشغيلها في الخلفية مع إعادة تشغيل تلقائي (`--restart unless-stopped`) وربط `data/` كـ volume دائم.
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_read_timeout 600s;       # AI generation can take minutes
+    }
+}
+```
+
+### 4. Authentication (built in)
+
+The system requires login. First-run default credentials:
+
+```
+username: azoom
+password: Azoom@2026
+```
+
+**Change the password immediately** after first login (الإعدادات → تغيير كلمة
+المرور). Sessions are HMAC-signed HttpOnly cookies valid for 12 hours;
+passwords are stored as PBKDF2-SHA256 hashes. Still serve the app over HTTPS
+(nginx config above) so credentials never travel in plaintext.
+
+## OCR for scanned PDFs (recommended)
+
+Scanned (image-only) proposal PDFs can't be parsed as text. Install the OCR
+tools and the system reads them automatically on upload:
 
 ```bash
-ssh root@13.140.138.252 "cd /opt/azoom-proposals && ./deploy.sh <PORT>"
+sudo apt install -y tesseract-ocr tesseract-ocr-ara poppler-utils
+sudo systemctl restart azoom
 ```
 
-حيث `<PORT>` هو أول منفذ متاح من سلسلة 8000 (تم اختيار **8003** في آخر نشر لأن 8000/8001/8002 مستخدَمة من مشاريع أخرى على نفس السيرفر).
+No Python packages needed — the system calls `tesseract`/`pdftoppm` directly.
+Re-upload previously failed files after installing.
 
-## 5. إعادة النشر لاحقاً (تحديث الكود)
+## Data & backups
 
-كرّر الخطوات 1-4: ابنِ صورة جديدة محلياً، احفظها tar، ارفعها لنفس المسار على السيرفر (ستستبدل الملف القديم)، ثم شغّل `./deploy.sh 8003` مرة أخرى — يزيل تلقائياً الحاوية والصورة القديمة لهذا المشروع تحديداً قبل تشغيل الجديدة.
+All state lives in `data/`:
 
-## آخر نشر مباشر
+| Path | Contents |
+|---|---|
+| `data/azoom.db` | SQLite DB: prices, proposals, archive, repo, docs, tenders, settings |
+| `data/uploads/` | Uploaded project files |
+| `data/exports/` | Generated Word/Excel files |
+| `data/etimad_cookies.json` | Etimad session (created by the Nafath login script) |
 
-- **الرابط**: http://13.140.138.252:8003
-- **المنفذ**: 8003 (تم التحقق أن 8000 و8001 و8002 مستخدَمة من مشاريع أخرى على نفس السيرفر)
-- **حالة الصحة**: `GET /api/status` يعيد `{"ok": true, ...}`
-- **بيانات الدخول**: لا يوجد نظام تسجيل دخول في التطبيق حالياً — الواجهة مفتوحة لأي زائر يملك الرابط. إن كان مطلوباً تقييد الوصول (مصادقة، أو حصره خلف VPN/جدار حماية) يُضاف لاحقاً كخطوة منفصلة.
-- **مفتاح Claude API**: لم يُضبط `ANTHROPIC_API_KEY` في هذا النشر — النظام يعمل حالياً بمحرك القوالب. لتفعيل التوليد بالذكاء الاصطناعي أضف المتغير عند تشغيل الحاوية: `-e ANTHROPIC_API_KEY=...`
+Backup = copy the `data/` directory. To reset to factory seeds, delete
+`data/azoom.db` and restart (seeds reload automatically: 640 price items,
+4 reference proposals, content library, company docs).
+
+## Updating a running deployment
+
+```bash
+cd /opt/azoom
+git pull origin main
+.venv/bin/pip install -q -r requirements.txt   # in case deps changed
+sudo systemctl restart azoom
+```
+
+Schema migrations are automatic (`CREATE TABLE IF NOT EXISTS` on startup);
+existing data is preserved.
+
+## Etimad / Nafath (runs on a desktop, not the server)
+
+The Nafath login needs a visible browser + the owner's phone:
+
+```bash
+pip install playwright && playwright install chromium
+python scripts/etimad_nafath_login.py
+```
+
+It saves `data/etimad_cookies.json` — copy it to the server's `data/` dir if
+the login was done on another machine. Fetching the public tenders list
+(`POST /api/etimad/fetch`) needs **no login**, only network access to
+`tenders.etimad.sa` from the server.
+
+## Health check
+
+`GET /api/status` → `{"ok": true, "ai_enabled": ..., "proposals": n, "price_items": n}`
+
+## Full system check (after every deploy/update)
+
+```bash
+.venv/bin/python scripts/system_check.py
+```
+
+Runs 63 checks covering every endpoint and function: auth, seeds, settings,
+prices CRUD + CSV import/export, library, company docs, proposal generation
+(similarity + financial math), Word/Excel export (incl. the official footer),
+knowledge repository (upload, reference creation, market benchmark), the
+opportunity analyzer, analytics, and Etimad error handling. Exit code 0 =
+all green. Safe to run repeatedly on a live database.
