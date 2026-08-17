@@ -108,15 +108,24 @@ def status():
 
 # ------------------------------ الإعدادات ------------------------------
 
+# مفاتيح داخلية لا يجب أن تُعرض أو تُعدَّل عبر API الإعدادات العام
+_INTERNAL_SETTINGS_KEYS = {"auth_secret"}
+
+
+def _public_settings() -> dict:
+    return {k: v for k, v in db.get_settings().items() if k not in _INTERNAL_SETTINGS_KEYS}
+
+
 @app.get("/api/settings")
 def get_settings():
-    return db.get_settings()
+    return _public_settings()
 
 
 @app.put("/api/settings")
 def put_settings(values: dict):
+    values = {k: v for k, v in values.items() if k not in _INTERNAL_SETTINGS_KEYS}
     db.update_settings(values)
-    return db.get_settings()
+    return _public_settings()
 
 
 # ---------------------------- قاعدة الأسعار ----------------------------

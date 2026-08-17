@@ -155,3 +155,21 @@ prices CRUD + CSV import/export, library, company docs, proposal generation
 knowledge repository (upload, reference creation, market benchmark), the
 opportunity analyzer, analytics, and Etimad error handling. Exit code 0 =
 all green. Safe to run repeatedly on a live database.
+
+## Live deployment
+
+- **URL**: https://pricing-system.bassir.net/
+- **Runs as**: Docker container `azoom-proposals` on `13.140.138.252:8003`,
+  reverse-proxied to this domain over TLS (Let's Encrypt cert, auto-renewing,
+  issued 2026-08-17).
+- **Server path**: `/opt/azoom-proposals/` — `azoom-proposals.tar` (last
+  built image), `deploy.sh` (redeploy script — removes the old container/image
+  for this project only, loads the new tar, runs it with `--restart
+  unless-stopped` and `data/` bind-mounted for persistence), `data/` (SQLite
+  DB, uploads, exports), `backups/` (nightly tar snapshots, kept 14 days,
+  via a 2am cron running `backup.sh`).
+- **Login**: default `azoom` / `Azoom@2026` has been rotated — get the
+  current password from whoever ran the last deploy; it is intentionally
+  not stored in this repo.
+- Not yet configured: `ANTHROPIC_API_KEY` (template engine is in use) and
+  the Etimad/Nafath desktop login (`data/etimad_cookies.json`).
