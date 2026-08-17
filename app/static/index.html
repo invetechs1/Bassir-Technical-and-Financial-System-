@@ -10,9 +10,9 @@
 <div class="layout">
   <aside class="sidebar">
     <div class="brand">
-      <div class="logo">ع</div>
-      <h1>عــزوم</h1>
-      <p>نظام العروض الفنية والمالية</p>
+      <div class="logo" title="AZOOM United Co."><svg width="34" height="38" viewBox="0 0 100 110" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><clipPath id="hex"><path d="M50 2 L95 28 L95 82 L50 108 L5 82 L5 28 Z"/></clipPath></defs><g clip-path="url(#hex)" stroke="#2E9E5B" stroke-width="6"><line x1="0" y1="10" x2="100" y2="10"/><line x1="0" y1="24" x2="100" y2="24"/><line x1="0" y1="38" x2="100" y2="38"/><line x1="0" y1="52" x2="100" y2="52"/><line x1="0" y1="66" x2="100" y2="66"/><line x1="0" y1="80" x2="100" y2="80"/><line x1="0" y1="94" x2="100" y2="94"/></g><path d="M50 2 L95 28 L95 82 L50 108 L5 82 L5 28 Z" fill="none" stroke="#175934" stroke-width="5"/></svg></div>
+      <h1 style="letter-spacing:3px">AZOOM</h1>
+      <p>United Co. — نظام العروض الفنية والمالية</p>
     </div>
     <button class="nav-btn active" data-page="dashboard">📊 لوحة التحكم</button>
     <button class="nav-btn" data-page="new">✨ عرض جديد</button>
@@ -24,6 +24,7 @@
     <button class="nav-btn" data-page="docs">📄 وثائق الشركة</button>
     <button class="nav-btn" data-page="analytics">📈 التحليلات</button>
     <button class="nav-btn" data-page="settings">⚙️ الإعدادات</button>
+    <button class="nav-btn" onclick="logout()" style="margin-top:auto">🚪 تسجيل الخروج</button>
     <div class="engine-badge" id="engineBadge">…</div>
   </aside>
 
@@ -207,7 +208,7 @@
     <!-- المستودع المعرفي -->
     <section class="page" id="page-repo">
       <div class="page-head">
-        <div><h2>المستودع المعرفي</h2><p>ارفع أي عروض فنية ومالية قديمة — لعزوم أو لشركات أخرى ومنافسة — يستخرج النظام بنودها وأسعارها كأسعار سوق استرشادية، ويخزن محتواها لتطوير العروض القادمة وزيادة دقة التسعير وتغطية البنود</p></div>
+        <div><h2>المستودع المعرفي</h2><p>ارفع أي عروض فنية ومالية قديمة — لعزوم أو لشركات أخرى ومنافسة — يستخرج النظام بنودها وأسعارها كأسعار سوق استرشادية، ويخزن محتواها لتطوير العروض القادمة. فعّل خيار «عرض مرجعي» (أو زر ⭐ في الجدول) ليدخل العرض ذاكرة التشابه ويُبنى عليه تلقائياً في المشاريع المشابهة. الملفات المصورة (سكان) تُقرأ بالاستخراج الضوئي OCR إن كان مثبتاً على الخادم</p></div>
       </div>
       <div class="panel">
         <h3>رفع ملفات للمستودع</h3>
@@ -215,6 +216,7 @@
           <div><label>نوع المصدر</label>
             <select id="repoSource">
               <option>عرض عزوم سابق</option>
+              <option>عرض فني سابق</option>
               <option>عرض شركة منافسة</option>
               <option>عرض شركة أخرى</option>
               <option>جدول كميات / كراسة شروط</option>
@@ -231,6 +233,11 @@
           <input type="file" id="repoFileInput" multiple hidden accept=".pdf,.docx,.xlsx,.xlsm,.txt,.md,.csv">
         </div>
         <div class="file-list" id="repoFileList"></div>
+        <label class="mt" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="repoAsRef" style="width:auto;margin:0">
+          <span>إضافته أيضاً كـ<b>عرض مرجعي</b> في ذاكرة النظام — يستخرج العنوان والنطاق والبنود
+          ويُبنى عليه تلقائياً عند تحليل مشاريع مشابهة</span>
+        </label>
         <div class="mt"><button class="btn gold" id="repoUploadBtn" onclick="uploadRepo()">📥 تحليل وتخزين في المستودع</button></div>
         <div class="spinner" id="repoSpinner"><div class="dot"></div>جارٍ تحليل الملفات واستخراج البنود والأسعار...</div>
       </div>
@@ -314,6 +321,9 @@
           <div><label>العنوان</label><input type="text" id="stAddr" data-key="company_address"></div>
           <div><label>الهاتف</label><input type="text" id="stPhone" data-key="company_phone"></div>
           <div><label>البريد الإلكتروني</label><input type="text" id="stEmail" data-key="company_email"></div>
+          <div><label>البنك</label><input type="text" data-key="company_bank"></div>
+          <div><label>الآيبان</label><input type="text" data-key="company_iban"></div>
+          <div><label>عضوية الغرفة التجارية</label><input type="text" data-key="company_chamber_no"></div>
           <div><label>رقم الهوية لدخول اعتماد (نفاذ) — يُحفظ محلياً فقط</label><input type="text" data-key="etimad_national_id" placeholder="10XXXXXXXX"></div>
         </div>
       </div>
@@ -330,6 +340,14 @@
         <label>شروط الدفع القياسية</label>
         <textarea data-key="payment_terms"></textarea>
         <div class="mt"><button class="btn" onclick="saveSettings()">حفظ الإعدادات</button></div>
+      </div>
+      <div class="panel">
+        <h3>🔐 تغيير كلمة المرور</h3>
+        <div class="grid-2">
+          <div><label>كلمة المرور الحالية</label><input type="password" id="pwOld" autocomplete="current-password"></div>
+          <div><label>كلمة المرور الجديدة (8 أحرف فأكثر)</label><input type="password" id="pwNew" autocomplete="new-password"></div>
+        </div>
+        <div class="mt"><button class="btn" onclick="savePassword()">تغيير كلمة المرور</button></div>
       </div>
     </section>
 

@@ -3,11 +3,13 @@ import csv
 import io
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import database as db
+from .auth import (LOGIN_PAGE, SESSION_COOKIE, authenticate, change_password,
+                   create_session_token, init_auth, verify_session_token)
 from .ai_engine import ai_available, generate_proposal_ai
 from .analytics import compute_analytics
 from .config import EXPORTS_DIR
@@ -29,7 +31,63 @@ STATIC_DIR = Path(__file__).parent / "static"
 @app.on_event("startup")
 def startup():
     db.init_db()
+    init_auth()
     seed_if_empty()
+
+
+# ------------------------------ المصادقة ------------------------------
+
+_OPEN_PATHS = ("/login", "/api/login", "/static/", "/favicon")
+
+
+@app.middleware("http")
+async def auth_guard(request: Request, call_next):
+    path = request.url.path
+    if any(path == p or path.startswith(p) for p in _OPEN_PATHS):
+        return await call_next(request)
+    username = verify_session_token(request.cookies.get(SESSION_COOKIE))
+    if not username:
+        if path.startswith("/api/"):
+            return JSONResponse({"detail": "غير مصرح — سجّل الدخول أولاً"}, status_code=401)
+        return RedirectResponse("/login")
+    request.state.username = username
+    return await call_next(request)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page():
+    return LOGIN_PAGE
+
+
+@app.post("/api/login")
+def api_login(body: dict):
+    user = authenticate(body.get("username", ""), body.get("password", ""))
+    if not user:
+        raise HTTPException(401, "بيانات الدخول غير صحيحة")
+    response = JSONResponse({"ok": True, "user": user})
+    response.set_cookie(SESSION_COOKIE, create_session_token(user["username"]),
+                        httponly=True, samesite="lax", max_age=12 * 3600)
+    return response
+
+
+@app.post("/api/logout")
+def api_logout():
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(SESSION_COOKIE)
+    return response
+
+
+@app.get("/api/me")
+def api_me(request: Request):
+    return {"username": request.state.username}
+
+
+@app.post("/api/password")
+def api_password(request: Request, body: dict):
+    ok = change_password(request.state.username, body.get("old", ""), body.get("new", ""))
+    if not ok:
+        raise HTTPException(400, "كلمة المرور الحالية غير صحيحة أو الجديدة أقصر من 8 أحرف")
+    return {"ok": True}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -178,13 +236,33 @@ async def repo_upload(
     source_type: str = Form("عرض عزوم سابق"),
     company: str = Form(""),
     notes: str = Form(""),
+    as_reference: str = Form(""),
     files: list[UploadFile] = File(...),
 ):
+    make_ref = as_reference in ("1", "true", "on", "yes")
     results = []
     for f in files:
         content = await f.read()
-        results.append(ingest_file(f.filename or "file", content, source_type, company, notes))
+        results.append(ingest_file(f.filename or "file", content, source_type, company,
+                                   notes, as_reference=make_ref))
     return results
+
+
+@app.post("/api/repo/{fid}/make-reference")
+def repo_make_reference(fid: int):
+    """تحويل ملف موجود في المستودع إلى عرض مرجعي في ذاكرة التشابه."""
+    from .repository import build_reference_from_text, parse_text_boq
+    f = db.get_repo_file(fid)
+    if not f:
+        raise HTTPException(404, "الملف غير موجود")
+    text = f.get("extracted_text") or ""
+    items = parse_text_boq(text)
+    ref = build_reference_from_text(f["filename"], f.get("company", ""), text, items)
+    if ref is None:
+        raise HTTPException(400, "لا يوجد محتوى نصي كافٍ في هذا الملف لبناء عرض مرجعي")
+    if ref.get("duplicate"):
+        raise HTTPException(409, f"يوجد عرض مرجعي بنفس العنوان مسبقاً: {ref['title']}")
+    return ref
 
 
 @app.get("/api/repo")
