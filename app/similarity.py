@@ -42,8 +42,12 @@ def _fingerprint(proposal: dict) -> tuple[set[str], set[str]]:
     return high, detail
 
 
-def find_similar(query_text: str, top_n: int = 3, exclude_id: int | None = None) -> list[dict]:
-    """أفضل العروض المؤرشفة المطابقة لنص المشروع الجديد، بدرجة 0-100."""
+def find_similar(query_text: str, top_n: int = 3, exclude_id: int | None = None,
+                 sector: str = "") -> list[dict]:
+    """أفضل العروض المؤرشفة المطابقة لنص المشروع الجديد، بدرجة 0-100.
+
+    عند تحديد قطاع المشروع (حكومي/خاص/صندوق الاستثمارات/مطارات) تُقدَّم عروض
+    نفس القطاع أولاً وتُمنح درجة إضافية — فمشروع مطارات يُبنى على عروض المطارات."""
     q = _tokens(query_text)
     if not q:
         return []
@@ -61,15 +65,20 @@ def find_similar(query_text: str, top_n: int = 3, exclude_id: int | None = None)
         denom = min(len(q), 40)
         pct = min(round(score / max(denom, 1) * 25), 100)
         if score >= 3:
+            same_sector = bool(sector) and p.get("entity_type") == sector
+            if same_sector:
+                pct = min(pct + 15, 100)
             results.append({
                 "id": p["id"], "ref_no": p["ref_no"], "title": p["title"],
                 "client": p["client"], "status": p["status"],
                 "score": pct,
+                "sector_match": same_sector,
                 "matched_terms": sorted(high_hits | detail_hits)[:12],
                 "boq_lines": len(p["data"].get("boq", [])),
                 "is_reference": bool(p["data"].get("reference")),
             })
-    results.sort(key=lambda r: -r["score"])
+    # نفس القطاع أولاً ثم الأعلى درجة
+    results.sort(key=lambda r: (-r["sector_match"], -r["score"]))
     return results[:top_n]
 
 

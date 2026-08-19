@@ -229,6 +229,20 @@ def seed_if_empty():
             upsert_library({"category": category, "title": title, "body": body, "tags": tags})
     _sync_azoom_drive_data()
     load_reference_proposals()
+    _sync_reference_sectors()
+
+
+def _sync_reference_sectors():
+    """ترقية قواعد البيانات القائمة: تصنيف العروض المرجعية المبذورة بقطاعها
+    (مطارات / صندوق الاستثمارات العامة) دون المساس بعروض المستخدم."""
+    from .database import get_db
+    with get_db() as db:
+        db.execute("UPDATE proposals SET entity_type = 'airports' "
+                   "WHERE title LIKE '%مطار%' AND entity_type = 'government' "
+                   "AND json_extract(data, '$.reference') = 1")
+        db.execute("UPDATE proposals SET entity_type = 'pif' "
+                   "WHERE (title LIKE '%القدية%' OR title LIKE '%SPEEDPARK%') "
+                   "AND entity_type = 'private' AND json_extract(data, '$.reference') = 1")
 
 
 def _sync_azoom_drive_data():

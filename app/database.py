@@ -104,9 +104,19 @@ def get_db():
         conn.close()
 
 
+def _ensure_column(db, table: str, column: str, decl: str):
+    """هجرة آمنة: إضافة عمود لجدول قائم إن لم يكن موجوداً."""
+    cols = [r["name"] for r in db.execute(f"PRAGMA table_info({table})").fetchall()]
+    if column not in cols:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
 def init_db():
     with get_db() as db:
         db.executescript(SCHEMA)
+        # تصنيف القطاع (حكومي/خاص/صندوق الاستثمارات/مطارات) على المستودع وأسعار السوق
+        _ensure_column(db, "repo_files", "sector", "TEXT DEFAULT ''")
+        _ensure_column(db, "market_prices", "sector", "TEXT DEFAULT ''")
         for key, value in DEFAULT_SETTINGS.items():
             db.execute(
                 "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
@@ -357,20 +367,20 @@ def create_repo_file(meta: dict, extracted_text: str, items: list[dict]) -> dict
     ts = now_iso()
     with get_db() as db:
         cur = db.execute(
-            "INSERT INTO repo_files (filename, source_type, company, notes, extracted_text, items_count, uploaded_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO repo_files (filename, source_type, company, notes, sector, extracted_text, items_count, uploaded_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (meta["filename"], meta.get("source_type", "عرض عزوم سابق"), meta.get("company", ""),
-             meta.get("notes", ""), extracted_text[:200_000], len(items), ts),
+             meta.get("notes", ""), meta.get("sector", ""), extracted_text[:200_000], len(items), ts),
         )
         fid = cur.lastrowid
         for it in items:
             db.execute(
-                "INSERT INTO market_prices (repo_file_id, name, unit, unit_price, qty, source_company, source_type, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO market_prices (repo_file_id, name, unit, unit_price, qty, source_company, source_type, sector, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (fid, it["name"], it.get("unit", ""), it["unit_price"], it.get("qty"),
-                 meta.get("company", ""), meta.get("source_type", ""), ts),
+                 meta.get("company", ""), meta.get("source_type", ""), meta.get("sector", ""), ts),
             )
-        row = db.execute("SELECT id, filename, source_type, company, notes, items_count, uploaded_at "
+        row = db.execute("SELECT id, filename, source_type, company, notes, sector, items_count, uploaded_at "
                          "FROM repo_files WHERE id = ?", (fid,)).fetchone()
     return dict(row)
 
@@ -378,7 +388,7 @@ def create_repo_file(meta: dict, extracted_text: str, items: list[dict]) -> dict
 def list_repo_files() -> list[dict]:
     with get_db() as db:
         rows = db.execute(
-            "SELECT id, filename, source_type, company, notes, items_count, uploaded_at "
+            "SELECT id, filename, source_type, company, notes, sector, items_count, uploaded_at "
             "FROM repo_files ORDER BY id DESC"
         ).fetchall()
     return [dict(r) for r in rows]
@@ -401,14 +411,17 @@ def delete_repo_file(fid: int):
         db.execute("DELETE FROM repo_files WHERE id = ?", (fid,))
 
 
-def search_market_prices(query: str, limit: int = 60) -> list[dict]:
+def search_market_prices(query: str, sector: str = "", limit: int = 60) -> list[dict]:
+    sql = ("SELECT m.*, f.filename FROM market_prices m "
+           "LEFT JOIN repo_files f ON f.id = m.repo_file_id WHERE m.name LIKE ?")
+    params: list = [f"%{query}%"]
+    if sector:
+        sql += " AND m.sector = ?"
+        params.append(sector)
+    sql += " ORDER BY m.unit_price LIMIT ?"
+    params.append(limit)
     with get_db() as db:
-        rows = db.execute(
-            "SELECT m.*, f.filename FROM market_prices m "
-            "LEFT JOIN repo_files f ON f.id = m.repo_file_id "
-            "WHERE m.name LIKE ? ORDER BY m.unit_price LIMIT ?",
-            (f"%{query}%", limit),
-        ).fetchall()
+        rows = db.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
 
 

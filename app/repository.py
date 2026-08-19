@@ -197,7 +197,8 @@ _SCOPE_HINTS = ("أعمال", "اعمال", "توريد", "تركيب", "تنف�
                 "صيانة", "تشغيل", "تجهيز", "تأهيل", "ترميم", "عزل", "تشطيب")
 
 
-def build_reference_from_text(filename: str, company: str, text: str, items: list[dict]) -> dict | None:
+def build_reference_from_text(filename: str, company: str, text: str, items: list[dict],
+                              sector: str = "") -> dict | None:
     """تحويل ملف عرض فني/مالي محلل إلى عرض مرجعي في ذاكرة النظام —
     يستخرج العنوان والملخص والنطاق والكلمات المفتاحية وجدول الكميات،
     فيدخل العرض في محرك التشابه ويُبنى عليه في المشاريع المشابهة."""
@@ -252,12 +253,12 @@ def build_reference_from_text(filename: str, company: str, text: str, items: lis
         "engine": "المستودع المعرفي — ملف محلل",
         "source_file": filename,
     }
-    p = create_proposal(title, company or "غير محدد", "government", data)
+    p = create_proposal(title, company or "غير محدد", sector or "government", data)
     return {"id": p["id"], "ref_no": p["ref_no"], "title": title, "boq_lines": len(boq)}
 
 
 def ingest_file(filename: str, content: bytes, source_type: str, company: str,
-                notes: str, as_reference: bool = False) -> dict:
+                notes: str, as_reference: bool = False, sector: str = "") -> dict:
     """تحليل ملف مرفوع وتخزينه في المستودع: نص كامل + بنود مسعّرة + تشخيص،
     مع خيار إضافته كعرض مرجعي في ذاكرة التشابه."""
     from .database import create_repo_file
@@ -267,11 +268,12 @@ def ingest_file(filename: str, content: bytes, source_type: str, company: str,
         items = parse_boq_items(content, filename)
     else:
         items = parse_text_boq(text)
-    meta = {"filename": filename, "source_type": source_type, "company": company, "notes": notes}
+    meta = {"filename": filename, "source_type": source_type, "company": company,
+            "notes": notes, "sector": sector}
     record = create_repo_file(meta, text, items)
 
     if as_reference:
-        ref = build_reference_from_text(filename, company, text, items)
+        ref = build_reference_from_text(filename, company, text, items, sector=sector)
         if ref is None:
             record["reference_note"] = "تعذر بناء عرض مرجعي — لا يوجد محتوى نصي كافٍ في الملف."
         elif ref.get("duplicate"):

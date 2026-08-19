@@ -3,6 +3,7 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
 const STATUS_AR = { draft: "مسودة", submitted: "مُقدَّم", won: "فائز", lost: "غير فائز" };
+const SECTOR_AR = { government: "حكومي", private: "قطاع خاص", pif: "صندوق الاستثمارات", airports: "مطارات", "": "عام" };
 const fmt = (n) => Number(n || 0).toLocaleString("ar-SA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 let currentProposal = null;
@@ -104,7 +105,7 @@ async function loadDashboard() {
 function rowHtml(p) {
   return `<tr>
     <td>${p.ref_no}</td><td>${p.title}</td><td>${p.client}</td>
-    <td><span class="tag ${p.entity_type === "government" ? "gov" : "private"}">${p.entity_type === "government" ? "حكومي" : "خاص"}</span></td>
+    <td><span class="tag ${p.entity_type === "government" ? "gov" : "private"}">${SECTOR_AR[p.entity_type] || p.entity_type}</span></td>
     <td><span class="tag ${p.status}">${STATUS_AR[p.status] || p.status}</span></td>
     <td class="num-cell">${p.created_at.slice(0, 10)}</td>
     <td><button class="btn sm" onclick="openProposal(${p.id})">فتح</button>
@@ -143,10 +144,10 @@ function suggestSimilar() {
     const q = $("#npTitle").value.trim();
     if (q.length < 5) { $("#similarBox").innerHTML = ""; return; }
     try {
-      const matches = await api(`/api/proposals/similar?q=${encodeURIComponent(q)}`);
+      const matches = await api(`/api/proposals/similar?q=${encodeURIComponent(q)}&sector=${$("#npEntity").value}`);
       if (!matches.length) { $("#similarBox").innerHTML = ""; return; }
       $("#similarBox").innerHTML = `
-        <div class="mt" style="border:1px solid var(--accent);border-radius:10px;padding:12px 14px;background:#fdf9f0">
+        <div class="mt" style="border:1px solid var(--accent);border-radius:10px;padding:12px 14px;background:var(--sand)">
           <b style="color:var(--primary)">🧠 عروض سابقة مشابهة في الأرشيف — سيُبنى العرض الجديد عليها:</b>
           ${matches.map((m) => `
             <div class="row mt" style="justify-content:space-between;font-size:13px">
@@ -218,7 +219,7 @@ function viewProposal(p) {
   $("#vTitle").textContent = `${p.ref_no} — ${p.title}`;
   const engine = p.data.engine === "claude" ? "🤖 توليد Claude AI"
     : p.data.reference ? "🗄️ عرض مرجعي (محلل من عرض فعلي)" : "📋 محرك القوالب";
-  let meta = `${p.client} • ${p.entity_type === "government" ? "جهة حكومية" : "قطاع خاص"} • ${engine}`;
+  let meta = `${p.client} • ${SECTOR_AR[p.entity_type] || p.entity_type} • ${engine}`;
   if (p.data.similar_refs?.length) {
     meta += ` • مبني على: ${p.data.similar_refs.map((r) => `${r.title.slice(0, 30)}… (${r.score}%)`).join("، ")}`;
   }
@@ -537,6 +538,7 @@ async function uploadRepo() {
   form.append("company", $("#repoCompany").value.trim());
   form.append("notes", $("#repoNotes").value.trim());
   form.append("as_reference", $("#repoAsRef").checked ? "1" : "");
+  form.append("sector", $("#repoSector").value);
   for (const f of repoFiles) form.append("files", f);
   $("#repoUploadBtn").disabled = true;
   $("#repoSpinner").classList.add("on");
@@ -565,6 +567,7 @@ async function loadRepo() {
     <tr>
       <td>${f.filename}</td>
       <td><span class="tag ${f.source_type.includes("منافس") ? "est" : "gov"}">${f.source_type}</span></td>
+      <td>${SECTOR_AR[f.sector || ""] || "عام"}</td>
       <td>${f.company || "—"}</td>
       <td class="num-cell">${f.items_count}</td>
       <td class="num-cell muted">${f.uploaded_at.slice(0, 10)}</td>
@@ -573,7 +576,7 @@ async function loadRepo() {
         <button class="btn sm danger" onclick="removeRepoFile(${f.id})">حذف</button>
       </td>
     </tr>`).join("") ||
-    `<tr><td colspan="6" class="muted">المستودع فارغ — ارفع أول ملفاتك</td></tr>`;
+    `<tr><td colspan="7" class="muted">المستودع فارغ — ارفع أول ملفاتك</td></tr>`;
 }
 
 async function makeReference(id) {
@@ -592,12 +595,14 @@ async function removeRepoFile(id) {
 }
 
 let marketTimer;
+$("#marketSector").addEventListener("change", () => $("#marketSearch").dispatchEvent(new Event("input")));
 $("#marketSearch").addEventListener("input", () => {
   clearTimeout(marketTimer);
   marketTimer = setTimeout(async () => {
     const q = $("#marketSearch").value.trim();
+    const sector = $("#marketSector").value;
     if (q.length < 3) { $("#marketResult").innerHTML = ""; return; }
-    const r = await api(`/api/market/search?q=${encodeURIComponent(q)}`);
+    const r = await api(`/api/market/search?q=${encodeURIComponent(q)}&sector=${sector}`);
     const b = r.benchmark;
     let html = "";
     if (b.count) {
@@ -733,7 +738,7 @@ async function loadAnalytics() {
     </div>
     <p class="muted mt" style="line-height:1.9">💡 ${m.hint}</p>`;
 
-  const ENTITY_AR = { government: "جهات حكومية", private: "قطاع خاص" };
+  const ENTITY_AR = { government: "جهات حكومية", private: "قطاع خاص", pif: "صندوق الاستثمارات العامة", airports: "مطارات" };
   $("#anEntityTable tbody").innerHTML = Object.entries(a.by_entity).map(([k, e]) => `
     <tr><td><b>${ENTITY_AR[k]}</b></td><td>${e.total}</td><td>${e.won}</td>
     <td>${e.win_rate !== null ? e.win_rate + "%" : "—"}</td>

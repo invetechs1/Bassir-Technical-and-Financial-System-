@@ -58,10 +58,12 @@
           <div><label>العميل / الجهة *</label><input type="text" id="npClient" placeholder="مثال: أمانة منطقة الرياض"></div>
         </div>
         <div id="similarBox"></div>
-        <label>نوع الجهة</label>
-        <select id="npEntity">
+        <label>طبيعة المشروع <span class="muted">— يجذب النظام الأسعار والعروض الفنية من نفس القطاع</span></label>
+        <select id="npEntity" onchange="suggestSimilar()">
           <option value="government">جهة حكومية (منافسة عبر منصة اعتماد)</option>
           <option value="private">قطاع خاص</option>
+          <option value="pif">مشاريع صندوق الاستثمارات العامة</option>
+          <option value="airports">مطارات</option>
         </select>
         <label>ملفات المشروع (PDF / Word / Excel / نص)</label>
         <div class="dropzone" id="dropzone">
@@ -223,6 +225,15 @@
               <option>قائمة أسعار موردين</option>
             </select>
           </div>
+          <div><label>طبيعة المشروع</label>
+            <select id="repoSector">
+              <option value="">عام — بدون قطاع محدد</option>
+              <option value="government">حكومي</option>
+              <option value="private">قطاع خاص</option>
+              <option value="pif">صندوق الاستثمارات العامة</option>
+              <option value="airports">مطارات</option>
+            </select>
+          </div>
           <div><label>اسم الشركة / المصدر</label><input type="text" id="repoCompany" placeholder="اختياري"></div>
           <div><label>ملاحظات</label><input type="text" id="repoNotes" placeholder="اختياري"></div>
         </div>
@@ -243,13 +254,22 @@
       </div>
       <div class="panel">
         <h3>مقارنة أسعار السوق <span class="muted">— ابحث عن أي بند لمقارنة سعر عزوم بأسعار السوق المخزنة</span></h3>
-        <input type="text" id="marketSearch" placeholder="🔍 مثال: خرسانة، دهانات، تكييف..." style="max-width:320px" class="mb">
+        <div class="row mb">
+          <input type="text" id="marketSearch" placeholder="🔍 مثال: خرسانة، دهانات، تكييف..." style="max-width:320px">
+          <select id="marketSector" style="max-width:230px">
+            <option value="">كل القطاعات</option>
+            <option value="government">حكومي</option>
+            <option value="private">قطاع خاص</option>
+            <option value="pif">صندوق الاستثمارات العامة</option>
+            <option value="airports">مطارات</option>
+          </select>
+        </div>
         <div id="marketResult"></div>
       </div>
       <div class="panel">
         <h3>محتويات المستودع</h3>
         <div class="t-wrap"><table id="repoTable">
-          <thead><tr><th>الملف</th><th>المصدر</th><th>الشركة</th><th>بنود مسعّرة</th><th>تاريخ الرفع</th><th></th></tr></thead>
+          <thead><tr><th>الملف</th><th>المصدر</th><th>القطاع</th><th>الشركة</th><th>بنود مسعّرة</th><th>تاريخ الرفع</th><th></th></tr></thead>
           <tbody></tbody>
         </table></div>
       </div>

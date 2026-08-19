@@ -223,7 +223,34 @@ check("تسجيل الخروج", r.status_code == 200)
 r = c.get("/api/status")
 check("انقطاع الوصول بعد الخروج", r.status_code == 401)
 
-# ---------- 15. إعادة تشغيل: البذور لا تتكرر ----------
+# ---------- 15. تصنيف القطاعات (حكومي/خاص/صندوق الاستثمارات/مطارات) ----------
+c.post("/api/login", json={"username": "azoom", "password": "Azoom@2026"})
+apt_txt = """عرض مالي — أعمال صيانة مدرجات مطار
+إعادة تأهيل طبقات الأسفلت لمدرج الطائرات
+م2 4,000 85.00 340,000.00
+دهانات علامات أرضية للمدرجات وممرات الطائرات
+م.ط 6,000 12.50 75,000.00
+""".encode()
+r = c.post("/api/repo/upload",
+           data={"source_type": "عرض عزوم سابق", "company": "", "notes": "", "as_reference": "1", "sector": "airports"},
+           files=[("files", ("عرض صيانة مدرجات.txt", apt_txt, "text/plain"))])
+rec_a = r.json()[0]
+check("رفع بقطاع مطارات + مرجعي", r.status_code == 200 and rec_a["items_count"] == 2
+      and (rec_a.get("reference") or "مسبقاً" in str(rec_a.get("reference_note", ""))), str(rec_a))
+r = c.get("/api/market/search", params={"q": "مدرج", "sector": "airports"})
+check("بحث السوق مصفّى بقطاع المطارات", r.json()["benchmark"]["count"] >= 1)
+r = c.get("/api/market/search", params={"q": "مدرج", "sector": "private"})
+check("التصفية تستبعد القطاعات الأخرى", r.json()["benchmark"]["count"] == 0)
+r = c.get("/api/proposals/similar", params={"q": "مشروع أعمال عزل أسطح ومباني", "sector": "airports"})
+sims = r.json()
+check("التشابه يقدّم عروض نفس القطاع أولاً", len(sims) >= 1 and sims[0].get("sector_match") is True, str(sims[:2]))
+r = c.get("/api/analytics")
+check("التحليلات تشمل القطاعات الأربعة", set(r.json()["by_entity"]) == {"government", "private", "pif", "airports"})
+r = c.get("/api/repo")
+sect_file = [f for f in r.json()["files"] if f["filename"] == "عرض صيانة مدرجات.txt"]
+check("القطاع محفوظ على ملف المستودع", sect_file and sect_file[0].get("sector") == "airports")
+
+# ---------- 16. إعادة تشغيل: البذور لا تتكرر ----------
 n_before = c.get("/api/status").json() if False else None
 c.post("/api/login", json={"username": "azoom", "password": "Azoom@2026"})
 before = c.get("/api/status").json()["price_items"]

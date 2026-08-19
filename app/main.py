@@ -246,6 +246,7 @@ async def repo_upload(
     company: str = Form(""),
     notes: str = Form(""),
     as_reference: str = Form(""),
+    sector: str = Form(""),
     files: list[UploadFile] = File(...),
 ):
     make_ref = as_reference in ("1", "true", "on", "yes")
@@ -253,7 +254,7 @@ async def repo_upload(
     for f in files:
         content = await f.read()
         results.append(ingest_file(f.filename or "file", content, source_type, company,
-                                   notes, as_reference=make_ref))
+                                   notes, as_reference=make_ref, sector=sector))
     return results
 
 
@@ -266,7 +267,8 @@ def repo_make_reference(fid: int):
         raise HTTPException(404, "الملف غير موجود")
     text = f.get("extracted_text") or ""
     items = parse_text_boq(text)
-    ref = build_reference_from_text(f["filename"], f.get("company", ""), text, items)
+    ref = build_reference_from_text(f["filename"], f.get("company", ""), text, items,
+                                    sector=f.get("sector", ""))
     if ref is None:
         raise HTTPException(400, "لا يوجد محتوى نصي كافٍ في هذا الملف لبناء عرض مرجعي")
     if ref.get("duplicate"):
@@ -286,9 +288,9 @@ def repo_delete(fid: int):
 
 
 @app.get("/api/market/search")
-def market_search(q: str):
-    """أسعار السوق من المستودع + سعر عزوم المعتمد للمقارنة."""
-    market = db.search_market_prices(q)
+def market_search(q: str, sector: str = ""):
+    """أسعار السوق من المستودع + سعر عزوم المعتمد للمقارنة — مع تصفية بالقطاع."""
+    market = db.search_market_prices(q, sector=sector)
     azoom = db.list_price_items(search=q)
     prices = [m["unit_price"] for m in market]
     bench = {
@@ -361,7 +363,8 @@ async def generate_proposal(
         files_text = f"{files_text}\n\n{repo_block}" if files_text else repo_block
 
     # البحث عن العروض السابقة الأشبه بنطاق المشروع — أساس بناء العرض الجديد
-    matches = find_similar(f"{title}\n{files_text[:8000]}", top_n=3)
+    # (عروض نفس القطاع المحدد تُقدَّم أولاً: حكومي/خاص/صندوق الاستثمارات/مطارات)
+    matches = find_similar(f"{title}\n{files_text[:8000]}", top_n=3, sector=entity_type)
     similar_refs = get_reference_content([m["id"] for m in matches]) if matches else []
     # ترتيب المحتوى بنفس ترتيب درجات التطابق
     order = {m["id"]: i for i, m in enumerate(matches)}
@@ -386,9 +389,9 @@ async def generate_proposal(
 
 
 @app.get("/api/proposals/similar")
-def similar_proposals(q: str):
+def similar_proposals(q: str, sector: str = ""):
     """البحث عن العروض السابقة المشابهة لنص مشروع (يُستخدم مباشرة في شاشة عرض جديد)."""
-    return find_similar(q, top_n=5)
+    return find_similar(q, top_n=5, sector=sector)
 
 
 @app.get("/api/proposals")
