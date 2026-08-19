@@ -33,7 +33,7 @@ def compute_analytics() -> dict:
 
     # حسب نوع الجهة
     by_entity = {}
-    for etype in ("government", "private"):
+    for etype in ("government", "private", "pif", "airports"):
         subset = [p for p in proposals if p["entity_type"] == etype]
         e_decided = [p for p in subset if p["status"] in ("won", "lost")]
         e_won = [p for p in e_decided if p["status"] == "won"]

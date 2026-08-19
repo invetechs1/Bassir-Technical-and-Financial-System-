@@ -143,7 +143,12 @@ def generate_proposal_ai(title: str, client_name: str, entity_type: str, files_t
         for i in catalog
     )
     library_txt = "\n\n".join(f"### {e['title']}\n{e['body']}" for e in library)
-    entity_label = "جهة حكومية (منافسة عبر منصة اعتماد)" if entity_type == "government" else "قطاع خاص"
+    entity_label = {
+        "government": "جهة حكومية (منافسة عبر منصة اعتماد)",
+        "private": "قطاع خاص",
+        "pif": "مشروع تابع لصندوق الاستثمارات العامة (معايير عالية ومحتوى محلي)",
+        "airports": "مشروع مطارات (اشتراطات تشغيلية وأمنية لمناطق الطيران)",
+    }.get(entity_type, "قطاع خاص")
 
     user_content = f"""## بيانات المشروع
 - اسم المشروع: {title}
