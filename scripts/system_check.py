@@ -215,6 +215,22 @@ check("جلب اعتماد يفشل بلطف عند حجب الشبكة", gracef
 r = c.get("/api/etimad")
 check("قائمة منافسات اعتماد", r.status_code == 200)
 
+# ---------- 13ب. مشاريع منصة فرصة ----------
+r = c.get("/api/forsah")
+check("قائمة مشاريع فرصة + التصنيفات الستة",
+      r.status_code == 200 and len(r.json().get("categories", [])) == 6)
+_saved_fs = c.get("/api/settings").json()
+r = c.post("/api/forsah/fetch")
+_j = r.json()
+if not _saved_fs.get("forsah_email"):
+    check("سحب فرصة بلا بيانات دخول: رسالة إرشادية", r.status_code == 200 and not _j.get("ok")
+          and "بريد" in _j.get("error", ""), str(_j))
+else:
+    check("سحب فرصة: استجابة سليمة (نجاح أو تشخيص واضح)",
+          r.status_code == 200 and (_j.get("ok") or _j.get("error")), str(_j)[:150])
+r = c.get("/")
+check("صفحة فرصة في الواجهة", "مشاريع منصة فرصة" in r.text and 'id="page-forsah"' in r.text)
+
 # ---------- 14. حذف العرض + الخروج ----------
 r = c.delete(f"/api/proposals/{pid}")
 check("حذف عرض", r.status_code == 200)

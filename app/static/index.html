@@ -21,6 +21,7 @@
     <button class="nav-btn" data-page="prices" data-i18n="nav_prices">💰 قاعدة الأسعار</button>
     <button class="nav-btn" data-page="library" data-i18n="nav_library">📚 المكتبة الفنية</button>
     <button class="nav-btn" data-page="etimad" data-i18n="nav_etimad">🏛️ منافسات اعتماد</button>
+    <button class="nav-btn" data-page="forsah" data-i18n="nav_forsah">🚀 مشاريع منصة فرصة</button>
     <button class="nav-btn" data-page="repo" data-i18n="nav_repo">🗄️ المستودع المعرفي</button>
     <button class="nav-btn" data-page="docs" data-i18n="nav_docs">📄 وثائق الشركة</button>
     <button class="nav-btn" data-page="analytics" data-i18n="nav_analytics">📈 التحليلات</button>
@@ -218,6 +219,41 @@
             <th data-i18n="th_tender">المنافسة</th><th data-i18n="th_agency">الجهة</th><th data-i18n="th_deadline">آخر موعد للعروض</th>
             <th data-i18n="th_relevance">الملاءمة لعزوم</th><th data-i18n="th_status">الحالة</th><th data-i18n="th_actions">إجراءات</th>
           </tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- مشاريع منصة فرصة -->
+    <section class="page" id="page-forsah">
+      <div class="page-head">
+        <div><h2>مشاريع منصة فرصة</h2><p>الدخول بحساب الشركة على forsah.sa وسحب المشاريع المطروحة في تصنيفات نشاط عزوم الستة: المقاولات، الصيانة والتشغيل، النظافة، توريد العمالة، التصميم الهندسي، والإشراف الهندسي — مع درجة ملاءمة لكل مشروع من ذاكرتكم المرجعية</p></div>
+        <button class="btn gold" id="forsahFetchBtn" onclick="fetchForsah()">⬇️ سحب المشاريع من فرصة</button>
+      </div>
+      <div class="panel">
+        <h3>حساب منصة فرصة <span class="muted">— يُحفظ محلياً في قاعدة بيانات نظامك فقط</span></h3>
+        <div class="grid-3">
+          <div><label>البريد الإلكتروني</label><input type="email" id="forsahEmail" autocomplete="off" placeholder="you@company.com"></div>
+          <div><label>كلمة المرور</label><input type="password" id="forsahPassword" autocomplete="new-password" placeholder="••••••••"></div>
+          <div style="display:flex;align-items:flex-end"><button class="btn" onclick="saveForsahCreds()">💾 حفظ بيانات الدخول</button></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="row mb">
+          <input type="text" id="fsQ" placeholder="🔍 بحث باسم المشروع..." style="max-width:240px" oninput="loadForsah()">
+          <select id="fsCategory" onchange="loadForsah()" style="max-width:200px">
+            <option value="">كل التصنيفات</option>
+            <option>المقاولات</option><option>الصيانة والتشغيل</option><option>النظافة</option>
+            <option>توريد العمالة</option><option>التصميم الهندسي</option><option>الإشراف الهندسي</option>
+          </select>
+          <select id="fsStatus" onchange="loadForsah()" style="max-width:160px">
+            <option value="">كل الحالات</option>
+            <option>جديد</option><option>مهتمون</option><option>مستبعد</option><option>أُنشئ عرض</option>
+          </select>
+        </div>
+        <div class="spinner" id="fsSpinner"><div class="dot"></div>جارٍ الدخول لمنصة فرصة وسحب مشاريع التصنيفات الستة...</div>
+        <div class="t-wrap"><table id="forsahTable">
+          <thead><tr><th>المشروع</th><th>التصنيف</th><th>القيمة</th><th>آخر موعد</th><th>الملاءمة لعزوم</th><th>الحالة</th><th>إجراءات</th></tr></thead>
           <tbody></tbody>
         </table></div>
       </div>

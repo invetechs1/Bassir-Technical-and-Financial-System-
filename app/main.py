@@ -320,6 +320,27 @@ def etimad_status(tid: int, body: dict):
     return {"ok": True}
 
 
+# ------------------------ مشاريع منصة فرصة ------------------------
+
+@app.post("/api/forsah/fetch")
+def forsah_fetch():
+    from .forsah import fetch_projects
+    return fetch_projects()
+
+
+@app.get("/api/forsah")
+def forsah_list(category: str = "", status: str = "", q: str = ""):
+    from .forsah import CATEGORIES, list_projects
+    return {"projects": list_projects(category, status, q), "categories": CATEGORIES}
+
+
+@app.put("/api/forsah/{pid}")
+def forsah_status(pid: int, body: dict):
+    from .forsah import update_project_status
+    update_project_status(pid, body.get("status", "جديد"))
+    return {"ok": True}
+
+
 # ------------------------ تحليل فرصة الفوز ------------------------
 
 @app.post("/api/opportunity")
