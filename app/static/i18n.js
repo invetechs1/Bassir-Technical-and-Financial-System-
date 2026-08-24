@@ -12,6 +12,7 @@ const I18N = {
   nav_prices: { ar: "💰 قاعدة الأسعار", en: "💰 Price Catalog" },
   nav_library: { ar: "📚 المكتبة الفنية", en: "📚 Content Library" },
   nav_etimad: { ar: "🏛️ منافسات اعتماد", en: "🏛️ Etimad Tenders" },
+  nav_forsah: { ar: "🚀 مشاريع منصة فرصة", en: "🚀 Forsah Projects" },
   nav_repo: { ar: "🗄️ المستودع المعرفي", en: "🗄️ Knowledge Repository" },
   nav_docs: { ar: "📄 وثائق الشركة", en: "📄 Company Documents" },
   nav_analytics: { ar: "📈 التحليلات", en: "📈 Analytics" },
