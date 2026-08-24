@@ -13,15 +13,18 @@
 """
 import http.cookiejar
 import json
+import os
 import re
 import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
 
+from .config import DATA_DIR
 from .database import get_db, get_settings, now_iso
 
-BASE = "https://forsah.sa"
+BASE = os.environ.get("FORSAH_BASE_URL", "https://forsah.sa")
+STATE_FILE = DATA_DIR / "forsah_state.json"  # جلسة المتصفح المحفوظة بين السحبات
 
 # تصنيفات نشاط عزوم المطلوب سحبها — تُطابَق مع نصوص روابط الموقع
 CATEGORIES = [
@@ -151,8 +154,9 @@ def _csrf_from_meta(html: str) -> str:
 
 
 def _logged_in(html: str) -> bool:
+    visible = _strip_noise(html)
     markers = ("logout", "تسجيل الخروج", "خروج", "dashboard", "لوحة", "حسابي", "ملفي")
-    return any(m in html.lower() or m in html for m in markers)
+    return any(m in visible.lower() or m in visible for m in markers)
 
 
 def login(session: _Session, email: str, password: str) -> tuple[bool, str]:
@@ -209,6 +213,14 @@ def login(session: _Session, email: str, password: str) -> tuple[bool, str]:
 
 # ------------------------- سحب المشاريع -------------------------
 
+_NOISE_RE = re.compile(r"<(script|style|noscript|template)\b.*?</\1>", re.S | re.I)
+
+
+def _strip_noise(html: str) -> str:
+    """إزالة أكواد JavaScript والأنماط — نصوصها تخدع المستخرج وكاشف الدخول."""
+    return _NOISE_RE.sub(" ", html or "")
+
+
 _A_RE = re.compile(r'<a\b[^>]*href\s*=\s*["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.S | re.I)
 _TAG_STRIP = re.compile(r"<[^>]+>")
 _DATE_RE = re.compile(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4}")
@@ -223,7 +235,7 @@ def _clean_text(html_fragment: str) -> str:
 def _category_links(html: str, base_url: str) -> dict:
     """روابط التصنيفات الستة كما يكتبها الموقع نفسه."""
     found = {}
-    for href, inner in _A_RE.findall(html):
+    for href, inner in _A_RE.findall(_strip_noise(html)):
         text = _clean_text(inner)
         if not text or len(text) > 60:
             continue
@@ -237,6 +249,7 @@ def _category_links(html: str, base_url: str) -> dict:
 
 def _extract_projects(html: str, base_url: str) -> list[dict]:
     """بطاقات المشاريع في صفحة: روابط تفاصيل + العنوان + ما حولها من تاريخ/قيمة."""
+    html = _strip_noise(html)
     projects, seen = [], set()
     for href, inner in _A_RE.findall(html):
         if not _PROJECT_HREF.search(href):
@@ -266,10 +279,215 @@ def _extract_projects(html: str, base_url: str) -> list[dict]:
     return projects
 
 
-def fetch_projects(max_pages_per_cat: int = 5) -> dict:
-    """الدخول بحساب الشركة وسحب مشاريع التصنيفات الستة وتخزين الجديد منها."""
-    from .similarity import find_similar
+def _default_category_urls() -> dict:
+    return {cat: f"{BASE}/projects?category={slug}"
+            for cat, slug in (("المقاولات", "contracting"), ("الصيانة والتشغيل", "maintenance"),
+                              ("النظافة", "cleaning"), ("توريد العمالة", "manpower"),
+                              ("التصميم الهندسي", "design"), ("الإشراف الهندسي", "supervision"))}
 
+
+class _Counter:
+    def __init__(self):
+        self.added = 0
+        self.scanned = 0
+
+
+def _store_batch(projects: list[dict], cat: str, counter: _Counter) -> int:
+    """تخزين دفعة مشاريع مع درجة الملاءمة — يعيد عدد الجديد في الدفعة."""
+    from .similarity import find_similar
+    new_count = 0
+    for p in projects:
+        counter.scanned += 1
+        matches = find_similar(f"{p['title']} {cat}", top_n=1)
+        relevance = matches[0]["score"] if matches else 0
+        matched_ref = matches[0]["title"][:80] if matches else ""
+        with get_db() as db:
+            cur = db.execute(
+                "INSERT OR IGNORE INTO forsah_projects "
+                "(project_key, title, category, city, budget, deadline, details_url, "
+                " relevance, matched_ref, raw, fetched_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (p["key"], p["title"], cat, "", p["budget"], p["deadline"],
+                 p["url"], relevance, matched_ref, p["raw"], now_iso()),
+            )
+            if cur.rowcount:
+                counter.added += 1
+                new_count += 1
+    return new_count
+
+
+# ------------------------- محرك المتصفح الخفي (مواقع JavaScript) -------------------------
+
+def _browser_available() -> bool:
+    try:
+        import playwright.sync_api  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _page_logged_in(html: str) -> bool:
+    visible = _strip_noise(html)
+    return any(m in visible or m in visible.lower()
+               for m in ("تسجيل الخروج", "خروج", "logout", "حسابي", "ملفي", "لوحة التحكم"))
+
+
+def _browser_login(page, email: str, password: str) -> tuple[bool, str]:
+    """تعبئة نموذج الدخول المرسوم بالمتصفح: حقل بريد + كلمة مرور + زر إرسال."""
+    for url in (f"{BASE}/login", f"{BASE}/ar/login", f"{BASE}/signin", BASE):
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+            page.wait_for_timeout(2_500)  # مهلة لرسم النموذج بالجافاسكربت
+        except Exception:
+            continue
+        pw_input = page.locator("input[type='password']").first
+        try:
+            if not pw_input.is_visible(timeout=4_000):
+                continue
+        except Exception:
+            continue
+        user_input = None
+        for sel in ("input[type='email']", "input[name*='email' i]", "input[name*='user' i]",
+                    "input[placeholder*='بريد']", "input[type='text']", "input[type='tel']"):
+            loc = page.locator(sel).first
+            try:
+                if loc.is_visible(timeout=1_000):
+                    user_input = loc
+                    break
+            except Exception:
+                continue
+        if user_input is None:
+            continue
+        user_input.fill(email)
+        pw_input.fill(password)
+        submitted = False
+        for sel in ("button[type='submit']", "input[type='submit']",
+                    "button:has-text('دخول')", "button:has-text('تسجيل الدخول')",
+                    "button:has-text('Login')", "button:has-text('Sign in')"):
+            try:
+                btn = page.locator(sel).first
+                if btn.is_visible(timeout=1_000):
+                    btn.click()
+                    submitted = True
+                    break
+            except Exception:
+                continue
+        if not submitted:
+            pw_input.press("Enter")
+        try:
+            page.wait_for_load_state("networkidle", timeout=20_000)
+        except Exception:
+            pass
+        page.wait_for_timeout(2_500)
+        html = page.content()
+        still_login_form = False
+        try:
+            still_login_form = page.locator("input[type='password']").first.is_visible(timeout=1_500)
+        except Exception:
+            pass
+        if _page_logged_in(html) or not still_login_form:
+            return True, "تم الدخول بالمتصفح"
+        return False, "رفض الموقع بيانات الدخول — تحقق من البريد وكلمة المرور"
+    return False, "لم يظهر نموذج دخول في المتصفح — أرسل لنا لقطة صفحة الدخول لنضبط المحدد"
+
+
+def _browser_render(page, url: str) -> str:
+    """فتح صفحة وانتظار رسمها ثم التمرير لأسفل لتحميل القوائم الكسولة."""
+    page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+    try:
+        page.wait_for_load_state("networkidle", timeout=15_000)
+    except Exception:
+        pass
+    for _ in range(3):
+        page.mouse.wheel(0, 2_400)
+        page.wait_for_timeout(700)
+    return page.content()
+
+
+def _chromium_executable() -> str | None:
+    """أي متصفح كروم/كروميوم متوفر على الجهاز عندما لا يجد Playwright إصداره."""
+    import glob
+    import shutil
+    browsers_dir = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+    if browsers_dir:
+        for pattern in ("chromium-*/chrome-linux/chrome",
+                        "chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell"):
+            hits = sorted(glob.glob(str(os.path.join(browsers_dir, pattern))))
+            if hits:
+                return hits[-1]
+    for name in ("google-chrome", "chromium", "chromium-browser"):
+        path = shutil.which(name)
+        if path:
+            return path
+    return None
+
+
+def _browser_fetch(email: str, password: str, max_pages_per_cat: int, counter: _Counter,
+                   per_category: dict, problems: list) -> str | None:
+    """السحب الكامل بمتصفح خفي. يعيد رسالة خطأ أو None عند النجاح."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(headless=True)
+        except Exception as exc:
+            exe = _chromium_executable()
+            if exe:
+                try:
+                    browser = p.chromium.launch(headless=True, executable_path=exe)
+                except Exception:
+                    exe = None
+            if not exe:
+                return ("متصفح السحب غير مثبت على الخادم — شغّل: "
+                        f"playwright install --with-deps chromium ثم أعد المحاولة. ({exc})")
+        try:
+            ctx_kwargs = {"locale": "ar"}
+            if STATE_FILE.exists():
+                ctx_kwargs["storage_state"] = str(STATE_FILE)
+            context = browser.new_context(**ctx_kwargs)
+            page = context.new_page()
+            try:
+                home_html = _browser_render(page, BASE)
+            except Exception as exc:
+                return ("تعذر الوصول لمنصة فرصة (forsah.sa) من هذا الخادم — "
+                        f"تأكد من السماح بالاتصال بالنطاق. التفاصيل: {exc}")
+            if not _page_logged_in(home_html):
+                ok, diag = _browser_login(page, email, password)
+                if not ok:
+                    return f"فشل تسجيل الدخول لمنصة فرصة: {diag}"
+                context.storage_state(path=str(STATE_FILE))
+                home_html = _browser_render(page, BASE)
+
+            cat_links = _category_links(home_html, page.url)
+            defaults = _default_category_urls()
+            for cat in CATEGORIES:
+                cat_links.setdefault(cat, defaults[cat])
+
+            for cat in CATEGORIES:
+                url = cat_links[cat]
+                before = counter.added
+                for pg in range(1, max_pages_per_cat + 1):
+                    page_url = url if pg == 1 else f"{url}{'&' if '?' in url else '?'}page={pg}"
+                    try:
+                        html = _browser_render(page, page_url)
+                    except Exception as exc:
+                        problems.append(f"{cat}: {exc}")
+                        break
+                    projects = _extract_projects(html, page.url)
+                    if not projects:
+                        break
+                    if _store_batch(projects, cat, counter) == 0:
+                        break
+                per_category[cat] = counter.added - before
+            return None
+        finally:
+            browser.close()
+
+
+def fetch_projects(max_pages_per_cat: int = 5) -> dict:
+    """الدخول بحساب الشركة وسحب مشاريع التصنيفات الستة وتخزين الجديد منها.
+
+    يبدأ بمحرك المتصفح الخفي (يتعامل مع مواقع JavaScript) إن كان Playwright
+    مثبتاً، وإلا فمحرك HTTP المباشر."""
     init_forsah_table()
     settings = get_settings()
     email = settings.get("forsah_email", "").strip()
@@ -279,84 +497,75 @@ def fetch_projects(max_pages_per_cat: int = 5) -> dict:
                 "error": "أدخل بريد وكلمة مرور منصة فرصة في الحقول أعلاه واحفظهما أولاً "
                          "(تُخزَّن محلياً في قاعدة بيانات نظامك فقط)."}
 
+    counter = _Counter()
+    per_category: dict = {}
+    problems: list = []
+
+    if _browser_available():
+        error = _browser_fetch(email, password, max_pages_per_cat, counter, per_category, problems)
+        if error:
+            return {"ok": False, "added": counter.added, "error": error}
+    else:
+        error = _http_fetch(email, password, max_pages_per_cat, counter, per_category, problems)
+        if error:
+            return {"ok": False, "added": counter.added, "error": error}
+
+    result = {"ok": True, "added": counter.added, "scanned": counter.scanned,
+              "by_category": per_category}
+    if counter.scanned == 0:
+        result["ok"] = False
+        result["error"] = ("تم الدخول لكن لم تُرصد مشاريع في صفحات التصنيفات — أرسل لنا "
+                           "لقطة من صفحة المشاريع بعد الدخول لنضبط المحلل على بنيتها الفعلية."
+                           + (f" ملاحظات: {'؛ '.join(problems[:3])}" if problems else ""))
+    elif problems:
+        result["note"] = "؛ ".join(problems[:3])
+    return result
+
+
+def _http_fetch(email: str, password: str, max_pages_per_cat: int, counter: _Counter,
+                per_category: dict, problems: list) -> str | None:
+    """محرك HTTP المباشر (المواقع التقليدية بلا JavaScript). يعيد رسالة خطأ أو None."""
     session = _Session()
     try:
-        status, home_url, home_html = session.get(BASE)
+        _, home_url, home_html = session.get(BASE)
     except Exception as exc:
-        return {"ok": False, "added": 0,
-                "error": "تعذر الوصول لمنصة فرصة (forsah.sa) من هذا الجهاز — تأكد أن الخادم "
-                         f"يسمح بالاتصال بالنطاق ثم أعد المحاولة. التفاصيل: {exc}"}
+        return ("تعذر الوصول لمنصة فرصة (forsah.sa) من هذا الجهاز — تأكد أن الخادم "
+                f"يسمح بالاتصال بالنطاق ثم أعد المحاولة. التفاصيل: {exc}")
 
     ok, diag = login(session, email, password)
     if not ok:
-        return {"ok": False, "added": 0,
-                "error": f"فشل تسجيل الدخول لمنصة فرصة: {diag}. "
-                         "إن كانت البيانات صحيحة والدخول يتم عبر متصفح فقط، أخبرنا لنضيف "
-                         "مسار دخول بالمتصفح مثل نفاذ."}
+        return (f"فشل تسجيل الدخول لمنصة فرصة: {diag}. الموقع يعتمد JavaScript — "
+                "ثبّت محرك المتصفح على الخادم: pip install playwright ثم "
+                "playwright install --with-deps chromium وأعد المحاولة.")
 
-    # صفحة ما بعد الدخول قد تحوي روابط التصنيفات — نجمعها من الرئيسية ولوحة الحساب
     _, dash_url, dash_html = session.get(BASE)
     cat_links = _category_links(home_html, home_url)
     cat_links.update(_category_links(dash_html, dash_url))
-    # مسارات شائعة احتياطاً إن لم نجد روابط بالنص
-    for cat, slug in (("المقاولات", "contracting"), ("الصيانة والتشغيل", "maintenance"),
-                      ("النظافة", "cleaning"), ("توريد العمالة", "manpower"),
-                      ("التصميم الهندسي", "design"), ("الإشراف الهندسي", "supervision")):
-        cat_links.setdefault(cat, f"{BASE}/projects?category={slug}")
-
-    added, scanned = 0, 0
-    per_category, problems = {}, []
+    defaults = _default_category_urls()
     for cat in CATEGORIES:
-        url = cat_links.get(cat)
-        cat_added = 0
-        for page in range(1, max_pages_per_cat + 1):
-            page_url = url if page == 1 else (
-                f"{url}{'&' if '?' in url else '?'}page={page}")
+        cat_links.setdefault(cat, defaults[cat])
+
+    for cat in CATEGORIES:
+        url = cat_links[cat]
+        before = counter.added
+        for pg in range(1, max_pages_per_cat + 1):
+            page_url = url if pg == 1 else f"{url}{'&' if '?' in url else '?'}page={pg}"
             try:
                 s, final, html = session.get(page_url)
             except Exception as exc:
                 problems.append(f"{cat}: {exc}")
                 break
             if s >= 400:
-                if page == 1:
+                if pg == 1:
                     problems.append(f"{cat}: الصفحة أعادت {s}")
                 break
             projects = _extract_projects(html, final)
             if not projects:
                 break
-            new_in_page = 0
-            for p in projects:
-                scanned += 1
-                matches = find_similar(f"{p['title']} {cat}", top_n=1)
-                relevance = matches[0]["score"] if matches else 0
-                matched_ref = matches[0]["title"][:80] if matches else ""
-                with get_db() as db:
-                    cur = db.execute(
-                        "INSERT OR IGNORE INTO forsah_projects "
-                        "(project_key, title, category, city, budget, deadline, details_url, "
-                        " relevance, matched_ref, raw, fetched_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (p["key"], p["title"], cat, "", p["budget"], p["deadline"],
-                         p["url"], relevance, matched_ref, p["raw"], now_iso()),
-                    )
-                    if cur.rowcount:
-                        added += 1
-                        cat_added += 1
-                        new_in_page += 1
-            if new_in_page == 0:
-                break  # لا جديد — توقف عن التصفح
-        per_category[cat] = cat_added
-
-    result = {"ok": True, "added": added, "scanned": scanned, "by_category": per_category}
-    if scanned == 0:
-        result["ok"] = False
-        result["error"] = ("تم الدخول بنجاح لكن لم تُرصد مشاريع في صفحات التصنيفات — "
-                           "غالباً تُحمَّل القوائم عبر JavaScript. أرسل لنا لقطة من صفحة "
-                           "المشاريع بعد الدخول لنضبط المحلل على بنيتها الفعلية."
-                           + (f" ملاحظات: {'؛ '.join(problems[:3])}" if problems else ""))
-    elif problems:
-        result["note"] = "؛ ".join(problems[:3])
-    return result
+            if _store_batch(projects, cat, counter) == 0:
+                break
+        per_category[cat] = counter.added - before
+    return None
 
 
 def list_projects(category: str = "", status: str = "", q: str = "") -> list[dict]:
