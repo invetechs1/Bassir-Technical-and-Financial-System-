@@ -98,6 +98,21 @@ sudo systemctl restart azoom
 No Python packages needed — the system calls `tesseract`/`pdftoppm` directly.
 Re-upload previously failed files after installing.
 
+## Forsah platform (forsah.sa) — headless browser
+
+The Forsah projects page logs in with the company account and scrapes the six
+activity categories. Forsah is a JavaScript app, so the server needs the
+headless browser engine (one-time):
+
+```bash
+.venv/bin/pip install -q -r requirements.txt      # installs playwright
+.venv/bin/playwright install --with-deps chromium # downloads the browser
+sudo systemctl restart azoom
+```
+
+Credentials are entered on the «مشاريع منصة فرصة» page and stored only in the
+local database. The browser session is cached in `data/forsah_state.json`.
+
 ## Data & backups
 
 All state lives in `data/`:
