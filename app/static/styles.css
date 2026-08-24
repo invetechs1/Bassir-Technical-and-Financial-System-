@@ -21,7 +21,6 @@ body {
   font-family: "Segoe UI", Tahoma, "Noto Kufi Arabic", "Noto Naskh Arabic", sans-serif;
   background: var(--sand);
   color: var(--ink);
-  direction: rtl;
   min-height: 100vh;
 }
 
@@ -51,13 +50,21 @@ body {
 }
 .brand h1 { font-size: 20px; letter-spacing: 1px; }
 .brand p { font-size: 11px; color: var(--accent-light); margin-top: 4px; }
+.lang-btn {
+  margin: 10px auto 0; display: block;
+  background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.3);
+  border-radius: 20px; padding: 4px 16px; font-size: 12px; font-weight: 700;
+  cursor: pointer; font-family: inherit; letter-spacing: .5px;
+  transition: background .15s;
+}
+.lang-btn:hover { background: rgba(255,255,255,.22); }
 
 .nav-btn {
   display: flex; align-items: center; gap: 10px;
   width: 100%;
   background: none; border: none; color: #d7dde5;
   padding: 11px 14px; border-radius: 10px;
-  font-size: 14.5px; cursor: pointer; text-align: right;
+  font-size: 14.5px; cursor: pointer; text-align: start;
   font-family: inherit;
   transition: background .15s;
 }
@@ -149,7 +156,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); bo
 table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 th {
   background: var(--primary); color: #fff;
-  padding: 10px 8px; text-align: right; font-size: 12.5px;
+  padding: 10px 8px; text-align: start; font-size: 12.5px;
   position: sticky; top: 0;
 }
 td { padding: 9px 8px; border-bottom: 1px solid var(--line); }
@@ -185,18 +192,18 @@ td input { padding: 6px 8px; font-size: 13px; }
 
 /* الخطة الزمنية */
 .phase {
-  border-right: 4px solid var(--accent);
+  border-inline-start: 4px solid var(--accent);
   background: #F4FAF5; border-radius: 0 10px 10px 0;
   padding: 14px 16px; margin-bottom: 12px;
 }
 .phase h4 { color: var(--primary); font-size: 15px; }
 .phase .dur { color: var(--accent); font-size: 12.5px; font-weight: 700; }
 .phase p { font-size: 13.5px; color: #444; margin: 6px 0; line-height: 1.7; }
-.phase li { font-size: 12.5px; color: var(--muted); margin-right: 18px; }
+.phase li { font-size: 12.5px; color: var(--muted); margin-inline-end: 18px; }
 
 .gantt { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
 .gantt-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
-.gantt-label { width: 180px; text-align: left; color: var(--muted); flex-shrink: 0; }
+.gantt-label { width: 180px; text-align: end; color: var(--muted); flex-shrink: 0; }
 .gantt-track { flex: 1; background: #E2EEE5; border-radius: 6px; height: 22px; position: relative; }
 .gantt-bar { position: absolute; top: 0; height: 100%; background: linear-gradient(90deg, var(--primary), var(--primary-2)); border-radius: 6px; }
 

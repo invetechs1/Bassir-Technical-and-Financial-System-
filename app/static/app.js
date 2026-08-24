@@ -2,12 +2,29 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
-const STATUS_AR = { draft: "مسودة", submitted: "مُقدَّم", won: "فائز", lost: "غير فائز" };
-const SECTOR_AR = { government: "حكومي", private: "قطاع خاص", pif: "صندوق الاستثمارات", airports: "مطارات", "": "عام" };
-const fmt = (n) => Number(n || 0).toLocaleString("ar-SA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const STATUS_KEY = { draft: "st_draft", submitted: "st_submitted", won: "st_won", lost: "st_lost" };
+const SECTOR_KEY = { government: "sector_gov", private: "sector_private", pif: "sector_pif", airports: "sector_airports", "": "sector_general" };
+const fmt = (n) => Number(n || 0).toLocaleString(getLang() === "ar" ? "ar-SA" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 let currentProposal = null;
 let pendingFiles = [];
+
+/* عند تبديل اللغة: أعد رسم أي محتوى ديناميكي معروض حالياً */
+function onLangChange() {
+  refreshEngineStatus();
+  const active = $(".page.active");
+  if (active) go(active.id.replace("page-", ""));
+  if (currentProposal && active && active.id === "page-viewer") viewProposal(currentProposal);
+}
+
+let lastAiEnabled = null;
+async function refreshEngineStatus() {
+  if (lastAiEnabled === null) {
+    try { lastAiEnabled = (await api("/api/status")).ai_enabled; } catch { return; }
+  }
+  $("#engineBadge").innerHTML = lastAiEnabled ? t("ai_engine_badge_on") : t("ai_engine_badge_off");
+  $("#engineHint").textContent = lastAiEnabled ? t("ai_engine_hint_on") : t("ai_engine_hint_off");
+}
 
 /* ---------- تنقّل ---------- */
 function go(page) {
@@ -40,7 +57,7 @@ async function api(url, opts = {}) {
     delete opts.json;
   }
   const res = await fetch(url, opts);
-  if (res.status === 401) { location.href = "/login"; throw new Error("انتهت الجلسة"); }
+  if (res.status === 401) { location.href = "/login"; throw new Error(t("msg_session_expired")); }
   if (!res.ok) {
     let detail = res.statusText;
     try { detail = (await res.json()).detail || detail; } catch {}
@@ -56,10 +73,10 @@ async function logout() {
 
 async function savePassword() {
   const oldPw = $("#pwOld").value, newPw = $("#pwNew").value;
-  if (!oldPw || !newPw) return toast("أدخل كلمة المرور الحالية والجديدة", true);
+  if (!oldPw || !newPw) return toast(t("msg_enter_pw_both"), true);
   try {
     await api("/api/password", { method: "POST", json: { old: oldPw, new: newPw } });
-    toast("تم تغيير كلمة المرور ✅");
+    toast(t("msg_pw_changed"));
     $("#pwOld").value = ""; $("#pwNew").value = "";
   } catch (err) { toast(err.message, true); }
 }
@@ -67,23 +84,19 @@ async function savePassword() {
 /* ---------- لوحة التحكم ---------- */
 async function loadDashboard() {
   const [status, proposals] = await Promise.all([api("/api/status"), api("/api/proposals")]);
-  $("#engineBadge").innerHTML = status.ai_enabled
-    ? "🤖 محرك التوليد: Claude AI"
-    : "📋 محرك التوليد: القوالب الذكية<br>أضف ANTHROPIC_API_KEY لتفعيل الذكاء الاصطناعي";
-  $("#engineHint").textContent = status.ai_enabled
-    ? "سيُولَّد العرض بالذكاء الاصطناعي (Claude) استناداً لوثائق المشروع وقاعدة أسعار عزوم"
-    : "التوليد بمحرك القوالب الذكية — أضف مفتاح API في ملف ‎.env لتفعيل Claude";
+  lastAiEnabled = status.ai_enabled;
+  refreshEngineStatus();
 
   const won = proposals.filter((p) => p.status === "won").length;
   const submitted = proposals.filter((p) => p.status === "submitted").length;
   $("#statCards").innerHTML = `
-    <div class="card gold"><div class="num">${proposals.length}</div><div class="lbl">إجمالي العروض</div></div>
-    <div class="card"><div class="num">${submitted}</div><div class="lbl">عروض مُقدَّمة</div></div>
-    <div class="card"><div class="num">${won}</div><div class="lbl">عروض فائزة</div></div>
-    <div class="card"><div class="num">${status.price_items}</div><div class="lbl">بند في قاعدة الأسعار</div></div>`;
+    <div class="card gold"><div class="num">${proposals.length}</div><div class="lbl">${t("dash_stat_total")}</div></div>
+    <div class="card"><div class="num">${submitted}</div><div class="lbl">${t("dash_stat_submitted")}</div></div>
+    <div class="card"><div class="num">${won}</div><div class="lbl">${t("dash_stat_won")}</div></div>
+    <div class="card"><div class="num">${status.price_items}</div><div class="lbl">${t("dash_stat_priceitems")}</div></div>`;
 
   $("#recentTable tbody").innerHTML = proposals.slice(0, 8).map(rowHtml).join("") ||
-    `<tr><td colspan="7" class="muted">لا توجد عروض بعد — ابدأ بإنشاء عرض جديد</td></tr>`;
+    `<tr><td colspan="7" class="muted">${t("dash_empty")}</td></tr>`;
 
   // تنبيهات صلاحية وثائق الشركة
   const docs = await api("/api/docs");
@@ -91,12 +104,12 @@ async function loadDashboard() {
   const expiring = docs.filter((d) => d.status === "expiring");
   if (expired.length || expiring.length) {
     const parts = [];
-    if (expired.length) parts.push(`⛔ وثائق منتهية: ${expired.map((d) => d.name).join("، ")}`);
-    if (expiring.length) parts.push(`⚠️ تنتهي خلال 30 يوماً: ${expiring.map((d) => `${d.name} (${d.days_left} يوماً)`).join("، ")}`);
-    $("#docsAlert").innerHTML = `<div class="panel" style="border-right:4px solid var(--warn)">
-      <b>تنبيه الوثائق النظامية</b>
+    if (expired.length) parts.push(`⛔ ${t("docs_alert_expired")} ${expired.map((d) => d.name).join("، ")}`);
+    if (expiring.length) parts.push(`⚠️ ${t("docs_alert_expiring")} ${expiring.map((d) => `${d.name} (${d.days_left} ${t("docs_alert_days")})`).join("، ")}`);
+    $("#docsAlert").innerHTML = `<div class="panel" style="border-inline-start:4px solid var(--warn)">
+      <b>${t("docs_alert_title")}</b>
       <p class="muted mt" style="line-height:1.9">${parts.join("<br>")}</p>
-      <button class="btn sm ghost mt" onclick="go('docs')">فتح وثائق الشركة</button></div>`;
+      <button class="btn sm ghost mt" onclick="go('docs')">${t("docs_alert_btn")}</button></div>`;
   } else {
     $("#docsAlert").innerHTML = "";
   }
@@ -105,11 +118,11 @@ async function loadDashboard() {
 function rowHtml(p) {
   return `<tr>
     <td>${p.ref_no}</td><td>${p.title}</td><td>${p.client}</td>
-    <td><span class="tag ${p.entity_type === "government" ? "gov" : "private"}">${SECTOR_AR[p.entity_type] || p.entity_type}</span></td>
-    <td><span class="tag ${p.status}">${STATUS_AR[p.status] || p.status}</span></td>
+    <td><span class="tag ${p.entity_type === "government" ? "gov" : "private"}">${t(SECTOR_KEY[p.entity_type]) || p.entity_type}</span></td>
+    <td><span class="tag ${p.status}">${t(STATUS_KEY[p.status]) || p.status}</span></td>
     <td class="num-cell">${p.created_at.slice(0, 10)}</td>
-    <td><button class="btn sm" onclick="openProposal(${p.id})">فتح</button>
-        <button class="btn sm danger" onclick="removeProposal(${p.id})">حذف</button></td>
+    <td><button class="btn sm" onclick="openProposal(${p.id})">${t("open_btn")}</button>
+        <button class="btn sm danger" onclick="removeProposal(${p.id})">${t("delete_btn")}</button></td>
   </tr>`;
 }
 
@@ -148,11 +161,11 @@ function suggestSimilar() {
       if (!matches.length) { $("#similarBox").innerHTML = ""; return; }
       $("#similarBox").innerHTML = `
         <div class="mt" style="border:1px solid var(--accent);border-radius:10px;padding:12px 14px;background:var(--sand)">
-          <b style="color:var(--primary)">🧠 عروض سابقة مشابهة في الأرشيف — سيُبنى العرض الجديد عليها:</b>
+          <b style="color:var(--primary)">${t("similar_title")}</b>
           ${matches.map((m) => `
             <div class="row mt" style="justify-content:space-between;font-size:13px">
               <span>${m.title} <span class="muted">(${m.client})</span></span>
-              <span class="tag gov">تطابق ${m.score}% • ${m.boq_lines} بنداً</span>
+              <span class="tag gov">${t("similar_match")} ${m.score}% • ${m.boq_lines} ${t("similar_lines")}</span>
             </div>`).join("")}
         </div>`;
     } catch { /* تجاهل أخطاء الاقتراح */ }
@@ -162,7 +175,7 @@ function suggestSimilar() {
 $("#generateBtn").addEventListener("click", async () => {
   const title = $("#npTitle").value.trim();
   const client = $("#npClient").value.trim();
-  if (!title || !client) return toast("أدخل اسم المشروع والعميل", true);
+  if (!title || !client) return toast(t("msg_enter_project_client"), true);
 
   const form = new FormData();
   form.append("title", title);
@@ -178,10 +191,10 @@ $("#generateBtn").addEventListener("click", async () => {
     renderFileList();
     $("#npTitle").value = ""; $("#npClient").value = "";
     if (proposal.data.engine_note) toast(proposal.data.engine_note, true);
-    else toast(`تم إنشاء العرض ${proposal.ref_no} بنجاح ✅`);
+    else toast(`${t("msg_proposal_created")} ${proposal.ref_no} ${t("msg_proposal_created_suffix")}`);
     viewProposal(proposal);
   } catch (err) {
-    toast("فشل التوليد: " + err.message, true);
+    toast(t("msg_gen_failed") + " " + err.message, true);
   } finally {
     $("#generateBtn").disabled = false;
     $("#genSpinner").classList.remove("on");
@@ -192,13 +205,13 @@ $("#generateBtn").addEventListener("click", async () => {
 async function loadProposals() {
   const proposals = await api("/api/proposals");
   $("#proposalsTable tbody").innerHTML = proposals.map(rowHtml).join("") ||
-    `<tr><td colspan="7" class="muted">لا توجد عروض بعد</td></tr>`;
+    `<tr><td colspan="7" class="muted">${t("proposals_empty")}</td></tr>`;
 }
 
 async function removeProposal(id) {
-  if (!confirm("حذف هذا العرض نهائياً؟")) return;
+  if (!confirm(t("confirm_delete_proposal"))) return;
   await api(`/api/proposals/${id}`, { method: "DELETE" });
-  toast("تم حذف العرض");
+  toast(t("msg_proposal_deleted"));
   loadProposals(); loadDashboard();
 }
 
@@ -217,11 +230,11 @@ function viewProposal(p) {
   go("viewer");
   $$(".nav-btn").forEach((b) => b.classList.remove("active"));
   $("#vTitle").textContent = `${p.ref_no} — ${p.title}`;
-  const engine = p.data.engine === "claude" ? "🤖 توليد Claude AI"
-    : p.data.reference ? "🗄️ عرض مرجعي (محلل من عرض فعلي)" : "📋 محرك القوالب";
-  let meta = `${p.client} • ${SECTOR_AR[p.entity_type] || p.entity_type} • ${engine}`;
+  const engine = p.data.engine === "claude" ? t("engine_claude")
+    : p.data.reference ? t("engine_reference") : t("engine_template");
+  let meta = `${p.client} • ${t(SECTOR_KEY[p.entity_type]) || p.entity_type} • ${engine}`;
   if (p.data.similar_refs?.length) {
-    meta += ` • مبني على: ${p.data.similar_refs.map((r) => `${r.title.slice(0, 30)}… (${r.score}%)`).join("، ")}`;
+    meta += ` • ${t("built_on_label")} ${p.data.similar_refs.map((r) => `${r.title.slice(0, 30)}… (${r.score}%)`).join("، ")}`;
   }
   $("#vMeta").textContent = meta;
   $("#vStatus").value = p.status;
@@ -235,14 +248,14 @@ function renderTech(d) {
     `<div class="panel section-block"><h4>${s.title}</h4><p>${s.body}</p></div>`).join("");
 
   if (d.team?.length) {
-    html += `<div class="panel section-block"><h4>فريق العمل المقترح</h4>
-      <div class="t-wrap"><table><thead><tr><th>الدور</th><th>العدد</th></tr></thead><tbody>
-      ${d.team.map((t) => `<tr><td>${t.role}</td><td>${t.count}</td></tr>`).join("")}
+    html += `<div class="panel section-block"><h4>${t("team_title")}</h4>
+      <div class="t-wrap"><table><thead><tr><th>${t("th_role")}</th><th>${t("th_count")}</th></tr></thead><tbody>
+      ${d.team.map((t2) => `<tr><td>${t2.role}</td><td>${t2.count}</td></tr>`).join("")}
       </tbody></table></div></div>`;
   }
   if (d.compliance_matrix?.length) {
-    html += `<div class="panel section-block"><h4>مصفوفة الالتزام بالمتطلبات</h4>
-      <div class="t-wrap"><table><thead><tr><th>المتطلب</th><th>الالتزام</th><th>الموضع في العرض</th></tr></thead><tbody>
+    html += `<div class="panel section-block"><h4>${t("compliance_title")}</h4>
+      <div class="t-wrap"><table><thead><tr><th>${t("th_requirement")}</th><th>${t("th_compliance")}</th><th>${t("th_reference")}</th></tr></thead><tbody>
       ${d.compliance_matrix.map((m) => `<tr><td>${m.requirement}</td><td>${m.response}</td><td>${m.reference}</td></tr>`).join("")}
       </tbody></table></div></div>`;
   }
@@ -252,11 +265,12 @@ function renderTech(d) {
 function renderFin(d) {
   const boq = d.boq || [];
   const f = d.financial || {};
+  const cur = t("currency");
   $("#tab-fin").innerHTML = `
     <div class="panel">
-      <h3>جدول الكميات والأسعار <span class="muted">(عدّل الكميات والأسعار — يُعاد الحساب تلقائياً)</span></h3>
+      <h3>${t("boq_title")} <span class="muted">${t("boq_hint")}</span></h3>
       <div class="t-wrap"><table>
-        <thead><tr><th>م</th><th>الكود</th><th>البند</th><th>الوحدة</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th><th>المصدر</th><th></th></tr></thead>
+        <thead><tr><th>${t("th_num")}</th><th>${t("th_code")}</th><th>${t("th_item")}</th><th>${t("th_unit")}</th><th>${t("th_qty")}</th><th>${t("th_unit_price")}</th><th>${t("th_total")}</th><th>${t("th_source")}</th><th></th></tr></thead>
         <tbody>${boq.map((l, i) => `
           <tr>
             <td>${i + 1}</td>
@@ -266,25 +280,32 @@ function renderFin(d) {
             <td style="width:90px"><input type="number" value="${l.qty}" step="0.01" onchange="editBoq(${i},'qty',this.value)"></td>
             <td style="width:120px"><input type="number" value="${l.unit_price}" step="0.01" onchange="editBoq(${i},'unit_price',this.value)"></td>
             <td class="num-cell">${fmt(l.total)}</td>
-            <td><span class="tag ${l.source === "قاعدة الأسعار" ? "src" : "est"}">${l.source || "تقدير"}</span></td>
+            <td><span class="tag ${l.source === "قاعدة الأسعار" ? "src" : "est"}">${boqSourceLabel(l.source)}</span></td>
             <td><button class="btn sm danger" onclick="removeBoqLine(${i})">✕</button></td>
           </tr>`).join("")}
         </tbody>
       </table></div>
-      <div class="mt"><button class="btn ghost sm" onclick="addBoqLine()">+ إضافة بند</button></div>
+      <div class="mt"><button class="btn ghost sm" onclick="addBoqLine()">${t("add_item_btn")}</button></div>
     </div>
     <div class="panel fin-summary">
-      <h3>ملخص القيمة الإجمالية</h3>
-      <div class="fin-row"><span>التكلفة المباشرة</span><span class="num-cell">${fmt(f.direct_cost)} ر.س</span></div>
-      <div class="fin-row"><span>المصاريف الإدارية والعمومية (${f.overhead_pct ?? 0}%)</span><span class="num-cell">${fmt(f.overhead)} ر.س</span></div>
-      <div class="fin-row"><span>احتياطي المخاطر (${f.risk_pct ?? 0}%)</span><span class="num-cell">${fmt(f.risk)} ر.س</span></div>
-      <div class="fin-row"><span>هامش الربح (${f.profit_pct ?? 0}%)</span><span class="num-cell">${fmt(f.profit)} ر.س</span></div>
-      <div class="fin-row"><span>الإجمالي قبل الضريبة</span><span class="num-cell">${fmt(f.subtotal)} ر.س</span></div>
-      <div class="fin-row"><span>ضريبة القيمة المضافة (${f.vat_rate ?? 15}%)</span><span class="num-cell">${fmt(f.vat)} ر.س</span></div>
-      <div class="fin-row total"><span>الإجمالي النهائي</span><span class="v num-cell">${fmt(f.grand_total)} ر.س</span></div>
-      <p class="muted mt">الضمان الابتدائي المطلوب (${f.bid_bond_pct ?? 1}%): <b>${fmt(f.bid_bond)} ر.س</b></p>
+      <h3>${t("fin_summary_title")}</h3>
+      <div class="fin-row"><span>${t("fin_direct_cost")}</span><span class="num-cell">${fmt(f.direct_cost)} ${cur}</span></div>
+      <div class="fin-row"><span>${t("fin_overhead")} (${f.overhead_pct ?? 0}%)</span><span class="num-cell">${fmt(f.overhead)} ${cur}</span></div>
+      <div class="fin-row"><span>${t("fin_risk")} (${f.risk_pct ?? 0}%)</span><span class="num-cell">${fmt(f.risk)} ${cur}</span></div>
+      <div class="fin-row"><span>${t("fin_profit")} (${f.profit_pct ?? 0}%)</span><span class="num-cell">${fmt(f.profit)} ${cur}</span></div>
+      <div class="fin-row"><span>${t("fin_subtotal")}</span><span class="num-cell">${fmt(f.subtotal)} ${cur}</span></div>
+      <div class="fin-row"><span>${t("fin_vat")} (${f.vat_rate ?? 15}%)</span><span class="num-cell">${fmt(f.vat)} ${cur}</span></div>
+      <div class="fin-row total"><span>${t("fin_grand_total")}</span><span class="v num-cell">${fmt(f.grand_total)} ${cur}</span></div>
+      <p class="muted mt">${t("fin_bid_bond")} (${f.bid_bond_pct ?? 1}%): <b>${fmt(f.bid_bond)} ${cur}</b></p>
     </div>
-    ${(d.assumptions || []).length ? `<div class="panel"><h3>الافتراضات والاستثناءات</h3>${d.assumptions.map((a) => `<p class="muted">• ${a}</p>`).join("")}</div>` : ""}`;
+    ${(d.assumptions || []).length ? `<div class="panel"><h3>${t("assumptions_title")}</h3>${d.assumptions.map((a) => `<p class="muted">• ${a}</p>`).join("")}</div>` : ""}`;
+}
+
+function boqSourceLabel(source) {
+  if (source === "قاعدة الأسعار") return t("source_catalog");
+  if (source === "معدّل يدوياً") return t("source_manual_edit");
+  if (source === "يدوي") return t("source_manual");
+  return source || t("source_estimate");
 }
 
 function renderPlan(d) {
@@ -295,7 +316,7 @@ function renderPlan(d) {
     const width = (p.duration_weeks / totalWeeks) * 100;
     const bar = `<div class="gantt-row">
       <div class="gantt-label">${p.phase}</div>
-      <div class="gantt-track"><div class="gantt-bar" style="right:${(start / totalWeeks) * 100}%;width:${width}%"></div></div>
+      <div class="gantt-track"><div class="gantt-bar" style="inset-inline-start:${(start / totalWeeks) * 100}%;width:${width}%"></div></div>
     </div>`;
     start += Number(p.duration_weeks || 0);
     return bar;
@@ -303,14 +324,14 @@ function renderPlan(d) {
 
   $("#tab-plan").innerHTML = `
     <div class="panel">
-      <h3>الخطة التنفيذية — المدة الإجمالية ${d.duration_weeks || totalWeeks} أسبوعاً</h3>
+      <h3>${t("plan_title")} ${d.duration_weeks || totalWeeks} ${t("weeks_label")}</h3>
       ${plan.map((p, i) => `
         <div class="phase">
-          <h4>المرحلة ${i + 1}: ${p.phase} <span class="dur">(${p.duration_weeks} أسابيع)</span></h4>
+          <h4>${t("phase_label")} ${i + 1}: ${p.phase} <span class="dur">(${p.duration_weeks} ${t("weeks_label_short")})</span></h4>
           <p>${p.description}</p>
           <ul>${(p.deliverables || []).map((x) => `<li>${x}</li>`).join("")}</ul>
         </div>`).join("")}
-      <h3 class="mt">المخطط الزمني</h3>
+      <h3 class="mt">${t("timeline_title")}</h3>
       <div class="gantt">${gantt}</div>
     </div>`;
 }
@@ -333,7 +354,7 @@ function removeBoqLine(i) {
   saveBoqChanges();
 }
 function addBoqLine() {
-  const name = prompt("اسم البند الجديد:");
+  const name = prompt(t("new_item_prompt"));
   if (!name) return;
   currentProposal.data.boq.push({ code: "", name, unit: "وحدة", qty: 1, unit_price: 0, source: "يدوي" });
   saveBoqChanges();
@@ -343,7 +364,7 @@ async function changeStatus() {
   currentProposal = await api(`/api/proposals/${currentProposal.id}`, {
     method: "PUT", json: { status: $("#vStatus").value },
   });
-  toast("تم تحديث حالة العرض");
+  toast(t("msg_status_updated"));
 }
 
 function exportDocx() { window.location = `/api/proposals/${currentProposal.id}/export/docx`; }
@@ -359,7 +380,9 @@ async function loadPrices() {
   $("#catList").innerHTML = cats.map((c) => `<option value="${c}">`).join("");
   const filterSel = $("#prFilterCat");
   if (filterSel.options.length <= 1) {
-    filterSel.innerHTML = `<option value="">كل التصنيفات</option>` + cats.map((c) => `<option>${c}</option>`).join("");
+    filterSel.innerHTML = `<option value="">${t("all_categories")}</option>` + cats.map((c) => `<option>${c}</option>`).join("");
+  } else {
+    filterSel.options[0].textContent = t("all_categories");
   }
 
   $("#pricesTable tbody").innerHTML = items.map((i) => `
@@ -368,8 +391,8 @@ async function loadPrices() {
       <td class="num-cell"><b>${fmt(i.unit_price)}</b></td>
       <td class="num-cell muted">${i.updated_at.slice(0, 10)}</td>
       <td>
-        <button class="btn sm ghost" onclick='fillPriceForm(${JSON.stringify(i).replace(/'/g, "&#39;")})'>تعديل</button>
-        <button class="btn sm danger" onclick="removePrice(${i.id})">حذف</button>
+        <button class="btn sm ghost" onclick='fillPriceForm(${JSON.stringify(i).replace(/'/g, "&#39;")})'>${t("edit_btn")}</button>
+        <button class="btn sm danger" onclick="removePrice(${i.id})">${t("delete_btn")}</button>
       </td>
     </tr>`).join("");
 }
@@ -387,15 +410,15 @@ async function savePrice() {
     name: $("#prName").value.trim(), unit: $("#prUnit").value.trim(),
     unit_price: Number($("#prPrice").value),
   };
-  if (!item.code || !item.name || !item.category || !item.unit) return toast("أكمل الحقول المطلوبة", true);
+  if (!item.code || !item.name || !item.category || !item.unit) return toast(t("msg_fill_required"), true);
   await api("/api/prices", { method: "POST", json: item });
-  toast("تم حفظ البند ✅");
+  toast(t("msg_price_saved"));
   ["prCode", "prCat", "prName", "prUnit", "prPrice"].forEach((id) => $("#" + id).value = "");
   loadPrices();
 }
 
 async function removePrice(id) {
-  if (!confirm("حذف هذا البند من قاعدة الأسعار؟")) return;
+  if (!confirm(t("confirm_delete_price"))) return;
   await api(`/api/prices/${id}`, { method: "DELETE" });
   loadPrices();
 }
@@ -406,7 +429,7 @@ $("#csvImport").addEventListener("change", async (e) => {
   const form = new FormData();
   form.append("file", file);
   const res = await api("/api/prices/import/csv", { method: "POST", body: form });
-  toast(`تم استيراد ${res.imported} بنداً`);
+  toast(`${t("msg_csv_imported")} ${res.imported} ${t("msg_csv_imported_suffix")}`);
   loadPrices();
 });
 
@@ -418,8 +441,8 @@ async function loadLibrary() {
       <div class="row" style="justify-content:space-between">
         <div><b style="color:var(--primary)">${e.title}</b> <span class="tag gov">${e.category}</span></div>
         <div>
-          <button class="btn sm ghost" onclick='fillLibraryForm(${JSON.stringify(e).replace(/'/g, "&#39;")})'>تعديل</button>
-          <button class="btn sm danger" onclick="removeLibrary(${e.id})">حذف</button>
+          <button class="btn sm ghost" onclick='fillLibraryForm(${JSON.stringify(e).replace(/'/g, "&#39;")})'>${t("edit_btn")}</button>
+          <button class="btn sm danger" onclick="removeLibrary(${e.id})">${t("delete_btn")}</button>
         </div>
       </div>
       <p class="muted mt" style="line-height:1.8">${e.body}</p>
@@ -442,32 +465,33 @@ async function saveLibrary() {
     title: $("#libTitle").value.trim(),
     body: $("#libBody").value.trim(),
   };
-  if (!entry.title || !entry.body) return toast("العنوان والنص مطلوبان", true);
+  if (!entry.title || !entry.body) return toast(t("msg_title_body_required"), true);
   await api("/api/library", { method: "POST", json: entry });
-  toast("تم الحفظ ✅");
+  toast(t("msg_saved"));
   clearLibraryForm();
   loadLibrary();
 }
 
 async function removeLibrary(id) {
-  if (!confirm("حذف هذا النص من المكتبة؟")) return;
+  if (!confirm(t("confirm_delete_lib"))) return;
   await api(`/api/library/${id}`, { method: "DELETE" });
   loadLibrary();
 }
 
 /* ---------- منافسات اعتماد ---------- */
 const ET_STATUSES = ["جديدة", "مهتمون", "مستبعدة", "أُنشئ عرض"];
+const ET_STATUS_KEY = { "جديدة": "et_status_new", "مهتمون": "et_status_interested", "مستبعدة": "et_status_excluded", "أُنشئ عرض": "et_status_created" };
 
 async function fetchEtimad() {
   $("#etimadFetchBtn").disabled = true;
   $("#etSpinner").classList.add("on");
   try {
     const r = await api("/api/etimad/fetch?pages=3", { method: "POST" });
-    if (r.ok) toast(`✅ فُحصت ${r.scanned} منافسة وأُضيفت ${r.added} جديدة`);
+    if (r.ok) toast(`${t("msg_fetch_ok")} ${r.scanned} ${t("msg_fetch_ok_mid")} ${r.added} ${t("msg_fetch_ok_end")}`);
     else toast(r.error, true);
     loadEtimad();
   } catch (err) {
-    toast("فشل الجلب: " + err.message, true);
+    toast(t("msg_fetch_failed") + " " + err.message, true);
   } finally {
     $("#etimadFetchBtn").disabled = false;
     $("#etSpinner").classList.remove("on");
@@ -482,24 +506,24 @@ async function loadEtimad() {
   });
   const data = await api(`/api/etimad?${params}`);
   $("#etimadSessionNote").style.display = data.session ? "none" : "block";
-  $("#etimadTable tbody").innerHTML = data.tenders.map((t) => `
+  $("#etimadTable tbody").innerHTML = data.tenders.map((t3) => `
     <tr>
-      <td><a href="${t.details_url}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600">${t.name.slice(0, 70)}</a>
-        ${t.matched_ref ? `<br><span class="muted" style="font-size:11px">أقرب خبرة: ${t.matched_ref.slice(0, 50)}</span>` : ""}</td>
-      <td>${t.agency.slice(0, 35)}</td>
-      <td class="num-cell">${t.deadline || "—"}</td>
-      <td><span class="tag ${t.relevance >= 30 ? "src" : t.relevance >= 15 ? "est" : "draft"}">${t.relevance}%</span></td>
-      <td><select onchange="setEtStatus(${t.id}, this.value)" style="padding:4px 8px;font-size:12px">
-        ${ET_STATUSES.map((s) => `<option ${s === t.status ? "selected" : ""}>${s}</option>`).join("")}</select></td>
+      <td><a href="${t3.details_url}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600">${t3.name.slice(0, 70)}</a>
+        ${t3.matched_ref ? `<br><span class="muted" style="font-size:11px">${t("closest_experience")} ${t3.matched_ref.slice(0, 50)}</span>` : ""}</td>
+      <td>${t3.agency.slice(0, 35)}</td>
+      <td class="num-cell">${t3.deadline || "—"}</td>
+      <td><span class="tag ${t3.relevance >= 30 ? "src" : t3.relevance >= 15 ? "est" : "draft"}">${t3.relevance}%</span></td>
+      <td><select onchange="setEtStatus(${t3.id}, this.value)" style="padding:4px 8px;font-size:12px">
+        ${ET_STATUSES.map((s) => `<option value="${s}" ${s === t3.status ? "selected" : ""}>${t(ET_STATUS_KEY[s])}</option>`).join("")}</select></td>
       <td>
-        <button class="btn sm ghost" onclick="etToProposal('${t.name.replace(/'/g, "&#39;").slice(0, 90)}', '${t.agency.replace(/'/g, "&#39;").slice(0, 60)}')">✨ أنشئ عرضاً</button>
+        <button class="btn sm ghost" onclick="etToProposal('${t3.name.replace(/'/g, "&#39;").slice(0, 90)}', '${t3.agency.replace(/'/g, "&#39;").slice(0, 60)}')">${t("create_proposal_btn")}</button>
       </td>
     </tr>`).join("") ||
-    `<tr><td colspan="6" class="muted">لا منافسات مخزنة — اضغط «جلب المنافسات من اعتماد» (يعمل من جهازك المتصل بالمنصة)</td></tr>`;
+    `<tr><td colspan="6" class="muted">${t("empty_tenders")}</td></tr>`;
 }
 
 function setEtStatus(id, status) {
-  api(`/api/etimad/${id}`, { method: "PUT", json: { status } }).then(() => toast("تم تحديث الحالة"));
+  api(`/api/etimad/${id}`, { method: "PUT", json: { status } }).then(() => toast(t("msg_status_updated")));
 }
 
 function etToProposal(name, agency) {
@@ -508,7 +532,7 @@ function etToProposal(name, agency) {
   $("#npClient").value = agency;
   $("#npEntity").value = "government";
   suggestSimilar();
-  toast("حُمّلت بيانات المنافسة — ارفع كراسة الشروط بعد تنزيلها من اعتماد ثم اضغط توليد");
+  toast(t("msg_etimad_loaded_hint"));
 }
 
 /* ---------- المستودع المعرفي ---------- */
@@ -532,7 +556,7 @@ function renderRepoFiles() {
 }
 
 async function uploadRepo() {
-  if (!repoFiles.length) return toast("اختر ملفات أولاً", true);
+  if (!repoFiles.length) return toast(t("msg_choose_files_first"), true);
   const form = new FormData();
   form.append("source_type", $("#repoSource").value);
   form.append("company", $("#repoCompany").value.trim());
@@ -547,14 +571,14 @@ async function uploadRepo() {
     const total = results.reduce((s, r) => s + r.items_count, 0);
     const refs = results.filter((r) => r.reference);
     const failed = results.filter((r) => r.note || r.reference_note);
-    toast(`✅ خُزّن ${results.length} ملفاً واستُخرج ${total} بنداً مسعّراً` +
-          (refs.length ? ` وأُنشئ ${refs.length} عرضاً مرجعياً` : ""));
+    toast(`${t("msg_upload_stored")} ${results.length} ${t("msg_upload_files_word")} ${total} ${t("msg_upload_items_word")}` +
+          (refs.length ? ` ${t("msg_upload_refs_word")} ${refs.length} ${t("msg_upload_refs_word2")}` : ""));
     failed.slice(0, 3).forEach((r, i) => setTimeout(() =>
       toast(`⚠️ ${r.filename.slice(0, 35)}: ${r.note || r.reference_note}`, true), 2500 + i * 4000));
     repoFiles = []; renderRepoFiles();
     loadRepo();
   } catch (err) {
-    toast("فشل الرفع: " + err.message, true);
+    toast(t("msg_upload_failed") + " " + err.message, true);
   } finally {
     $("#repoUploadBtn").disabled = false;
     $("#repoSpinner").classList.remove("on");
@@ -567,29 +591,29 @@ async function loadRepo() {
     <tr>
       <td>${f.filename}</td>
       <td><span class="tag ${f.source_type.includes("منافس") ? "est" : "gov"}">${f.source_type}</span></td>
-      <td>${SECTOR_AR[f.sector || ""] || "عام"}</td>
+      <td>${t(SECTOR_KEY[f.sector || ""]) || t("sector_general")}</td>
       <td>${f.company || "—"}</td>
       <td class="num-cell">${f.items_count}</td>
       <td class="num-cell muted">${f.uploaded_at.slice(0, 10)}</td>
       <td style="white-space:nowrap">
-        <button class="btn sm" onclick="makeReference(${f.id})" title="تحويله إلى عرض مرجعي يُبنى عليه في المشاريع المشابهة">⭐ مرجعي</button>
-        <button class="btn sm danger" onclick="removeRepoFile(${f.id})">حذف</button>
+        <button class="btn sm" onclick="makeReference(${f.id})" title="${t("ref_btn_title")}">${t("ref_btn")}</button>
+        <button class="btn sm danger" onclick="removeRepoFile(${f.id})">${t("delete_btn")}</button>
       </td>
     </tr>`).join("") ||
-    `<tr><td colspan="7" class="muted">المستودع فارغ — ارفع أول ملفاتك</td></tr>`;
+    `<tr><td colspan="7" class="muted">${t("repo_empty")}</td></tr>`;
 }
 
 async function makeReference(id) {
   try {
     const ref = await api(`/api/repo/${id}/make-reference`, { method: "POST" });
-    toast(`⭐ أُنشئ العرض المرجعي ${ref.ref_no} (${ref.boq_lines} بنداً) — سيُبنى عليه في المشاريع المشابهة`);
+    toast(`${t("msg_ref_created")} ${ref.ref_no} (${ref.boq_lines} ${t("similar_lines")}) — ${t("msg_ref_built_on")}`);
   } catch (err) {
     toast(err.message, true);
   }
 }
 
 async function removeRepoFile(id) {
-  if (!confirm("حذف هذا الملف وبنوده من المستودع؟")) return;
+  if (!confirm(t("confirm_delete_repofile"))) return;
   await api(`/api/repo/${id}`, { method: "DELETE" });
   loadRepo();
 }
@@ -607,20 +631,20 @@ $("#marketSearch").addEventListener("input", () => {
     let html = "";
     if (b.count) {
       html += `<div class="row mb" style="gap:20px">
-        <span>📊 السوق (${b.count} ملاحظة):</span>
-        <span>الأدنى <b>${fmt(b.min)}</b></span>
-        <span>المتوسط <b style="color:var(--accent)">${fmt(b.avg)}</b></span>
-        <span>الأعلى <b>${fmt(b.max)}</b></span></div>`;
+        <span>${t("msg_market_count")} (${b.count} ${t("msg_market_notes")}):</span>
+        <span>${t("msg_market_min")} <b>${fmt(b.min)}</b></span>
+        <span>${t("msg_market_avg")} <b style="color:var(--accent)">${fmt(b.avg)}</b></span>
+        <span>${t("msg_market_max")} <b>${fmt(b.max)}</b></span></div>`;
     }
     if (r.azoom.length) {
-      html += `<p class="muted mb">أسعار عزوم المعتمدة المطابقة: ${r.azoom.slice(0, 3).map((a) => `${a.name.slice(0, 30)} = <b>${fmt(a.unit_price)}</b>`).join(" • ")}</p>`;
+      html += `<p class="muted mb">${t("msg_azoom_prices_match")} ${r.azoom.slice(0, 3).map((a) => `${a.name.slice(0, 30)} = <b>${fmt(a.unit_price)}</b>`).join(" • ")}</p>`;
     }
     html += r.market.length ? `<div class="t-wrap"><table>
-      <thead><tr><th>البند</th><th>الوحدة</th><th>السعر</th><th>المصدر</th></tr></thead>
+      <thead><tr><th>${t("th_item")}</th><th>${t("th_unit")}</th><th>${t("th_price")}</th><th>${t("th_source")}</th></tr></thead>
       <tbody>${r.market.slice(0, 12).map((m) => `<tr><td>${m.name.slice(0, 60)}</td><td>${m.unit || "—"}</td>
         <td class="num-cell"><b>${fmt(m.unit_price)}</b></td>
         <td class="muted">${m.source_company || m.source_type || m.filename || ""}</td></tr>`).join("")}</tbody>
-      </table></div>` : `<p class="muted">لا توجد ملاحظات سوق لهذا البند بعد</p>`;
+      </table></div>` : `<p class="muted">${t("msg_no_market_notes")}</p>`;
     $("#marketResult").innerHTML = html;
   }, 400);
 });
@@ -628,33 +652,33 @@ $("#marketSearch").addEventListener("input", () => {
 /* ---------- تحليل فرصة الفوز ---------- */
 async function runOpportunity() {
   const title = $("#npTitle").value.trim();
-  if (!title) return toast("أدخل اسم المشروع أولاً", true);
+  if (!title) return toast(t("msg_enter_project_first"), true);
   const form = new FormData();
   form.append("title", title);
   form.append("client", $("#npClient").value.trim());
   for (const f of pendingFiles) form.append("files", f);
   $("#oppBtn").disabled = true;
-  $("#oppResult").innerHTML = `<div class="spinner on"><div class="dot"></div>جارٍ تحليل فرصة الفوز...</div>`;
+  $("#oppResult").innerHTML = `<div class="spinner on"><div class="dot"></div>${t("opp_analyzing")}</div>`;
   try {
     const a = await api("/api/opportunity", { method: "POST", body: form });
     const colors = { go: "var(--ok)", caution: "var(--warn)", nogo: "#a33" };
     $("#oppResult").innerHTML = `
-      <div class="panel mt" style="border-right:5px solid ${colors[a.verdict_class]}">
+      <div class="panel mt" style="border-inline-start:5px solid ${colors[a.verdict_class]}">
         <div class="row" style="justify-content:space-between">
-          <h3 style="margin:0">🎯 فرصة الفوز: ${a.score}%</h3>
+          <h3 style="margin:0">${t("opp_score_title")} ${a.score}%</h3>
           <b style="color:${colors[a.verdict_class]}">${a.verdict}</b>
         </div>
         <div class="mt">${a.factors.map((f) => `
-          <div class="fin-row"><span>${f.name} <span class="muted">(وزن ${f.weight}%)</span><br>
+          <div class="fin-row"><span>${f.name} <span class="muted">(${t("opp_weight_label")} ${f.weight}%)</span><br>
             <span class="muted" style="font-size:12px">${f.detail}</span></span>
             <b class="num-cell" style="color:${f.score >= 65 ? "var(--ok)" : f.score >= 40 ? "var(--warn)" : "#a33"}">${f.score}%</b></div>`).join("")}
         </div>
-        ${a.qualification_warnings.length ? `<div class="mt"><b>⚠️ اشتراطات تستدعي الانتباه:</b>
+        ${a.qualification_warnings.length ? `<div class="mt"><b>${t("opp_warnings_title")}</b>
           ${a.qualification_warnings.map((w) => `<p class="muted" style="margin-top:6px">• ${w}</p>`).join("")}</div>` : ""}
       </div>`;
   } catch (err) {
     $("#oppResult").innerHTML = "";
-    toast("فشل التحليل: " + err.message, true);
+    toast(t("msg_analysis_failed") + " " + err.message, true);
   } finally {
     $("#oppBtn").disabled = false;
   }
@@ -662,24 +686,24 @@ async function runOpportunity() {
 
 /* ---------- وثائق الشركة ---------- */
 const DOC_STATUS = {
-  expired: ["منتهية ⛔", "lost"],
-  expiring: ["تنتهي قريباً ⚠️", "est"],
-  valid: ["سارية ✅", "src"],
-  missing: ["غير مُدخلة", "draft"],
+  expired: ["doc_status_expired", "lost"],
+  expiring: ["doc_status_expiring", "est"],
+  valid: ["doc_status_valid", "src"],
+  missing: ["doc_status_missing", "draft"],
 };
 
 async function loadDocs() {
   const docs = await api("/api/docs");
   $("#docsTable tbody").innerHTML = docs.map((d) => {
-    const [label, cls] = DOC_STATUS[d.status] || DOC_STATUS.missing;
-    const days = d.status === "expiring" ? ` (${d.days_left} يوماً)` : "";
+    const [labelKey, cls] = DOC_STATUS[d.status] || DOC_STATUS.missing;
+    const days = d.status === "expiring" ? ` (${d.days_left} ${t("docs_alert_days")})` : "";
     return `<tr>
       <td><b>${d.name}</b></td><td class="num-cell">${d.number || "—"}</td><td>${d.issuer || "—"}</td>
       <td class="num-cell">${d.expiry_date || "—"}</td>
-      <td><span class="tag ${cls}">${label}${days}</span></td>
+      <td><span class="tag ${cls}">${t(labelKey)}${days}</span></td>
       <td>
-        <button class="btn sm ghost" onclick='fillDocForm(${JSON.stringify(d).replace(/'/g, "&#39;")})'>تعديل</button>
-        <button class="btn sm danger" onclick="removeDoc(${d.id})">حذف</button>
+        <button class="btn sm ghost" onclick='fillDocForm(${JSON.stringify(d).replace(/'/g, "&#39;")})'>${t("edit_btn")}</button>
+        <button class="btn sm danger" onclick="removeDoc(${d.id})">${t("delete_btn")}</button>
       </td></tr>`;
   }).join("");
 }
@@ -706,15 +730,15 @@ async function saveDoc() {
     expiry_date: $("#docExpiry").value,
     notes: $("#docNotes").value.trim(),
   };
-  if (!doc.name) return toast("اسم الوثيقة مطلوب", true);
+  if (!doc.name) return toast(t("msg_doc_name_required"), true);
   await api("/api/docs", { method: "POST", json: doc });
-  toast("تم حفظ الوثيقة ✅");
+  toast(t("msg_doc_saved"));
   clearDocForm();
   loadDocs();
 }
 
 async function removeDoc(id) {
-  if (!confirm("حذف هذه الوثيقة؟")) return;
+  if (!confirm(t("confirm_delete_doc"))) return;
   await api(`/api/docs/${id}`, { method: "DELETE" });
   loadDocs();
 }
@@ -722,25 +746,25 @@ async function removeDoc(id) {
 /* ---------- التحليلات ---------- */
 async function loadAnalytics() {
   const a = await api("/api/analytics");
-  const t = a.totals;
+  const t4 = a.totals;
   $("#anCards").innerHTML = `
-    <div class="card gold"><div class="num">${t.win_rate !== null ? t.win_rate + "%" : "—"}</div><div class="lbl">نسبة الفوز (من العروض المحسومة)</div></div>
-    <div class="card"><div class="num">${fmt(t.won_value)}</div><div class="lbl">قيمة العروض الفائزة (ر.س)</div></div>
-    <div class="card"><div class="num">${fmt(t.pipeline_value)}</div><div class="lbl">قيمة العروض قيد الانتظار (ر.س)</div></div>
-    <div class="card"><div class="num">${t.by_status.won} / ${t.by_status.won + t.by_status.lost}</div><div class="lbl">فائز / محسوم</div></div>`;
+    <div class="card gold"><div class="num">${t4.win_rate !== null ? t4.win_rate + "%" : "—"}</div><div class="lbl">${t("an_win_rate")}</div></div>
+    <div class="card"><div class="num">${fmt(t4.won_value)}</div><div class="lbl">${t("an_won_value")}</div></div>
+    <div class="card"><div class="num">${fmt(t4.pipeline_value)}</div><div class="lbl">${t("an_pipeline_value")}</div></div>
+    <div class="card"><div class="num">${t4.by_status.won} / ${t4.by_status.won + t4.by_status.lost}</div><div class="lbl">${t("an_won_decided")}</div></div>`;
 
   const m = a.margins;
   $("#anMargins").innerHTML = `
-    <h3>مؤشر معايرة التسعير</h3>
+    <h3>${t("margin_calib_title")}</h3>
     <div class="row" style="gap:26px">
-      <div>متوسط هامش الربح في العروض <b style="color:var(--ok)">الفائزة</b>: <b>${m.avg_won_margin !== null ? m.avg_won_margin + "%" : "—"}</b></div>
-      <div>متوسط هامش الربح في العروض <b style="color:#a33">الخاسرة</b>: <b>${m.avg_lost_margin !== null ? m.avg_lost_margin + "%" : "—"}</b></div>
+      <div>${t("avg_won_margin_pre")} <b style="color:var(--ok)">${t("avg_won_margin_word")}</b> ${t("avg_margin_post")}: <b>${m.avg_won_margin !== null ? m.avg_won_margin + "%" : "—"}</b></div>
+      <div>${t("avg_won_margin_pre")} <b style="color:#a33">${t("avg_lost_margin_word")}</b> ${t("avg_margin_post")}: <b>${m.avg_lost_margin !== null ? m.avg_lost_margin + "%" : "—"}</b></div>
     </div>
     <p class="muted mt" style="line-height:1.9">💡 ${m.hint}</p>`;
 
-  const ENTITY_AR = { government: "جهات حكومية", private: "قطاع خاص", pif: "صندوق الاستثمارات العامة", airports: "مطارات" };
+  const ENTITY_KEY = { government: "entity_gov", private: "entity_private", pif: "entity_pif", airports: "entity_airports" };
   $("#anEntityTable tbody").innerHTML = Object.entries(a.by_entity).map(([k, e]) => `
-    <tr><td><b>${ENTITY_AR[k]}</b></td><td>${e.total}</td><td>${e.won}</td>
+    <tr><td><b>${t(ENTITY_KEY[k])}</b></td><td>${e.total}</td><td>${e.won}</td>
     <td>${e.win_rate !== null ? e.win_rate + "%" : "—"}</td>
     <td class="num-cell">${fmt(e.won_value)}</td></tr>`).join("");
 
@@ -748,7 +772,7 @@ async function loadAnalytics() {
     <tr><td>${c.client}</td><td>${c.total}</td><td>${c.won}</td><td>${c.lost}</td>
     <td>${c.win_rate !== null ? c.win_rate + "%" : "—"}</td>
     <td class="num-cell">${fmt(c.won_value)}</td></tr>`).join("") ||
-    `<tr><td colspan="6" class="muted">لا توجد بيانات بعد</td></tr>`;
+    `<tr><td colspan="6" class="muted">${t("no_data")}</td></tr>`;
 }
 
 /* ---------- الإعدادات ---------- */
@@ -761,7 +785,7 @@ async function saveSettings() {
   const values = {};
   $$("[data-key]").forEach((el) => { values[el.dataset.key] = el.value; });
   await api("/api/settings", { method: "PUT", json: values });
-  toast("تم حفظ الإعدادات ✅");
+  toast(t("msg_settings_saved"));
 }
 
 /* ---------- بدء التشغيل ---------- */

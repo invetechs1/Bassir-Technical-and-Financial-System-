@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>نظام عزوم — العروض الفنية والمالية</title>
+<title data-i18n="app_title">نظام عزوم — العروض الفنية والمالية</title>
 <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -12,19 +12,20 @@
     <div class="brand">
       <div class="logo" title="AZOOM United Co."><svg width="34" height="38" viewBox="0 0 100 110" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><clipPath id="hex"><path d="M50 2 L95 28 L95 82 L50 108 L5 82 L5 28 Z"/></clipPath></defs><g clip-path="url(#hex)" stroke="#2E9E5B" stroke-width="6"><line x1="0" y1="10" x2="100" y2="10"/><line x1="0" y1="24" x2="100" y2="24"/><line x1="0" y1="38" x2="100" y2="38"/><line x1="0" y1="52" x2="100" y2="52"/><line x1="0" y1="66" x2="100" y2="66"/><line x1="0" y1="80" x2="100" y2="80"/><line x1="0" y1="94" x2="100" y2="94"/></g><path d="M50 2 L95 28 L95 82 L50 108 L5 82 L5 28 Z" fill="none" stroke="#175934" stroke-width="5"/></svg></div>
       <h1 style="letter-spacing:3px">AZOOM</h1>
-      <p>United Co. — نظام العروض الفنية والمالية</p>
+      <p data-i18n="brand_tagline">United Co. — نظام العروض الفنية والمالية</p>
+      <button class="lang-btn" id="langToggle" onclick="toggleLang()">EN</button>
     </div>
-    <button class="nav-btn active" data-page="dashboard">📊 لوحة التحكم</button>
-    <button class="nav-btn" data-page="new">✨ عرض جديد</button>
-    <button class="nav-btn" data-page="proposals">🗂️ أرشيف العروض</button>
-    <button class="nav-btn" data-page="prices">💰 قاعدة الأسعار</button>
-    <button class="nav-btn" data-page="library">📚 المكتبة الفنية</button>
-    <button class="nav-btn" data-page="etimad">🏛️ منافسات اعتماد</button>
-    <button class="nav-btn" data-page="repo">🗄️ المستودع المعرفي</button>
-    <button class="nav-btn" data-page="docs">📄 وثائق الشركة</button>
-    <button class="nav-btn" data-page="analytics">📈 التحليلات</button>
-    <button class="nav-btn" data-page="settings">⚙️ الإعدادات</button>
-    <button class="nav-btn" onclick="logout()" style="margin-top:auto">🚪 تسجيل الخروج</button>
+    <button class="nav-btn active" data-page="dashboard" data-i18n="nav_dashboard">📊 لوحة التحكم</button>
+    <button class="nav-btn" data-page="new" data-i18n="nav_new">✨ عرض جديد</button>
+    <button class="nav-btn" data-page="proposals" data-i18n="nav_proposals">🗂️ أرشيف العروض</button>
+    <button class="nav-btn" data-page="prices" data-i18n="nav_prices">💰 قاعدة الأسعار</button>
+    <button class="nav-btn" data-page="library" data-i18n="nav_library">📚 المكتبة الفنية</button>
+    <button class="nav-btn" data-page="etimad" data-i18n="nav_etimad">🏛️ منافسات اعتماد</button>
+    <button class="nav-btn" data-page="repo" data-i18n="nav_repo">🗄️ المستودع المعرفي</button>
+    <button class="nav-btn" data-page="docs" data-i18n="nav_docs">📄 وثائق الشركة</button>
+    <button class="nav-btn" data-page="analytics" data-i18n="nav_analytics">📈 التحليلات</button>
+    <button class="nav-btn" data-page="settings" data-i18n="nav_settings">⚙️ الإعدادات</button>
+    <button class="nav-btn" onclick="logout()" style="margin-top:auto" data-i18n="nav_logout">🚪 تسجيل الخروج</button>
     <div class="engine-badge" id="engineBadge">…</div>
   </aside>
 
@@ -33,15 +34,18 @@
     <!-- لوحة التحكم -->
     <section class="page active" id="page-dashboard">
       <div class="page-head">
-        <div><h2>لوحة التحكم</h2><p>نظرة عامة على نشاط العروض في عزوم</p></div>
-        <button class="btn gold" onclick="go('new')">+ إنشاء عرض جديد</button>
+        <div><h2 data-i18n="dash_title">لوحة التحكم</h2><p data-i18n="dash_sub">نظرة عامة على نشاط العروض في عزوم</p></div>
+        <button class="btn gold" onclick="go('new')" data-i18n="dash_new_btn">+ إنشاء عرض جديد</button>
       </div>
       <div id="docsAlert"></div>
       <div class="cards" id="statCards"></div>
       <div class="panel">
-        <h3>أحدث العروض</h3>
+        <h3 data-i18n="dash_recent_title">أحدث العروض</h3>
         <div class="t-wrap"><table id="recentTable">
-          <thead><tr><th>رقم العرض</th><th>المشروع</th><th>العميل</th><th>الجهة</th><th>الحالة</th><th>التاريخ</th><th></th></tr></thead>
+          <thead><tr>
+            <th data-i18n="th_ref">رقم العرض</th><th data-i18n="th_project">المشروع</th><th data-i18n="th_client">العميل</th>
+            <th data-i18n="th_entity">الجهة</th><th data-i18n="th_status">الحالة</th><th data-i18n="th_date">التاريخ</th><th></th>
+          </tr></thead>
           <tbody></tbody>
         </table></div>
       </div>
@@ -50,38 +54,38 @@
     <!-- عرض جديد -->
     <section class="page" id="page-new">
       <div class="page-head">
-        <div><h2>إنشاء عرض جديد</h2><p>ارفع ملفات المشروع (كراسة الشروط، RFP، جداول كميات...) وسيتولى النظام إعداد العرض الفني والمالي والخطة التنفيذية</p></div>
+        <div><h2 data-i18n="new_title">إنشاء عرض جديد</h2><p data-i18n="new_sub">ارفع ملفات المشروع (كراسة الشروط، RFP، جداول كميات...) وسيتولى النظام إعداد العرض الفني والمالي والخطة التنفيذية</p></div>
       </div>
       <div class="panel">
         <div class="grid-2">
-          <div><label>اسم المشروع *</label><input type="text" id="npTitle" placeholder="مثال: إنشاء وتجهيز مبنى إداري" oninput="suggestSimilar()"></div>
-          <div><label>العميل / الجهة *</label><input type="text" id="npClient" placeholder="مثال: أمانة منطقة الرياض"></div>
+          <div><label data-i18n="new_project_label">اسم المشروع *</label><input type="text" id="npTitle" data-i18n-ph="new_project_ph" placeholder="مثال: إنشاء وتجهيز مبنى إداري" oninput="suggestSimilar()"></div>
+          <div><label data-i18n="new_client_label">العميل / الجهة *</label><input type="text" id="npClient" data-i18n-ph="new_client_ph" placeholder="مثال: أمانة منطقة الرياض"></div>
         </div>
         <div id="similarBox"></div>
-        <label>طبيعة المشروع <span class="muted">— يجذب النظام الأسعار والعروض الفنية من نفس القطاع</span></label>
+        <label><span data-i18n="new_entity_label">طبيعة المشروع</span> <span class="muted" data-i18n="new_entity_hint">— يجذب النظام الأسعار والعروض الفنية من نفس القطاع</span></label>
         <select id="npEntity" onchange="suggestSimilar()">
-          <option value="government">جهة حكومية (منافسة عبر منصة اعتماد)</option>
-          <option value="private">قطاع خاص</option>
-          <option value="pif">مشاريع صندوق الاستثمارات العامة</option>
-          <option value="airports">مطارات</option>
+          <option value="government" data-i18n="opt_gov">جهة حكومية (منافسة عبر منصة اعتماد)</option>
+          <option value="private" data-i18n="opt_private">قطاع خاص</option>
+          <option value="pif" data-i18n="opt_pif">مشاريع صندوق الاستثمارات العامة</option>
+          <option value="airports" data-i18n="opt_airports">مطارات</option>
         </select>
-        <label>ملفات المشروع (PDF / Word / Excel / نص)</label>
+        <label data-i18n="new_files_label">ملفات المشروع (PDF / Word / Excel / نص)</label>
         <div class="dropzone" id="dropzone">
           <div class="big">📁</div>
-          اسحب الملفات هنا أو اضغط للاختيار
+          <span data-i18n="dropzone_text">اسحب الملفات هنا أو اضغط للاختيار</span>
           <input type="file" id="fileInput" multiple hidden accept=".pdf,.docx,.xlsx,.xlsm,.txt,.md,.csv">
         </div>
         <div class="file-list" id="fileList"></div>
         <div class="mt row">
-          <button class="btn gold" id="generateBtn">⚡ توليد العرض الفني والمالي</button>
-          <button class="btn ghost" id="oppBtn" onclick="runOpportunity()">🎯 تحليل فرصة الفوز أولاً</button>
+          <button class="btn gold" id="generateBtn" data-i18n="gen_btn">⚡ توليد العرض الفني والمالي</button>
+          <button class="btn ghost" id="oppBtn" onclick="runOpportunity()" data-i18n="opp_btn">🎯 تحليل فرصة الفوز أولاً</button>
           <span class="muted" id="engineHint"></span>
         </div>
         <div id="oppResult"></div>
         <div class="spinner" id="genSpinner">
           <div class="dot"></div>
-          جارٍ تحليل وثائق المشروع وإعداد العرض الفني والمالي والخطة التنفيذية...<br>
-          <span class="muted">قد يستغرق التوليد بالذكاء الاصطناعي بضع دقائق للمشاريع الكبيرة</span>
+          <span data-i18n="gen_spinner_text">جارٍ تحليل وثائق المشروع وإعداد العرض الفني والمالي والخطة التنفيذية...</span><br>
+          <span class="muted" data-i18n="gen_spinner_hint">قد يستغرق التوليد بالذكاء الاصطناعي بضع دقائق للمشاريع الكبيرة</span>
         </div>
       </div>
     </section>
@@ -89,11 +93,14 @@
     <!-- أرشيف العروض -->
     <section class="page" id="page-proposals">
       <div class="page-head">
-        <div><h2>أرشيف العروض</h2><p>جميع العروض السابقة — مرجع دائم للتسعير والمحتوى الفني</p></div>
+        <div><h2 data-i18n="proposals_title">أرشيف العروض</h2><p data-i18n="proposals_sub">جميع العروض السابقة — مرجع دائم للتسعير والمحتوى الفني</p></div>
       </div>
       <div class="panel">
         <div class="t-wrap"><table id="proposalsTable">
-          <thead><tr><th>رقم العرض</th><th>المشروع</th><th>العميل</th><th>الجهة</th><th>الحالة</th><th>التاريخ</th><th>إجراءات</th></tr></thead>
+          <thead><tr>
+            <th data-i18n="th_ref">رقم العرض</th><th data-i18n="th_project">المشروع</th><th data-i18n="th_client">العميل</th>
+            <th data-i18n="th_entity">الجهة</th><th data-i18n="th_status">الحالة</th><th data-i18n="th_date">التاريخ</th><th data-i18n="th_actions">إجراءات</th>
+          </tr></thead>
           <tbody></tbody>
         </table></div>
       </div>
@@ -105,19 +112,19 @@
         <div><h2 id="vTitle">—</h2><p id="vMeta"></p></div>
         <div class="row">
           <select id="vStatus" onchange="changeStatus()">
-            <option value="draft">مسودة</option>
-            <option value="submitted">مُقدَّم</option>
-            <option value="won">فائز 🏆</option>
-            <option value="lost">غير فائز</option>
+            <option value="draft" data-i18n="st_draft">مسودة</option>
+            <option value="submitted" data-i18n="st_submitted">مُقدَّم</option>
+            <option value="won" data-i18n="st_won">فائز 🏆</option>
+            <option value="lost" data-i18n="st_lost">غير فائز</option>
           </select>
-          <button class="btn" onclick="exportDocx()">⬇️ تصدير Word</button>
-          <button class="btn ghost" onclick="exportXlsx()">⬇️ جدول الكميات Excel</button>
+          <button class="btn" onclick="exportDocx()" data-i18n="export_word_btn">⬇️ تصدير Word</button>
+          <button class="btn ghost" onclick="exportXlsx()" data-i18n="export_excel_btn">⬇️ جدول الكميات Excel</button>
         </div>
       </div>
       <div class="tabs">
-        <button class="tab-btn active" data-tab="tech">العرض الفني</button>
-        <button class="tab-btn" data-tab="fin">العرض المالي</button>
-        <button class="tab-btn" data-tab="plan">الخطة التنفيذية</button>
+        <button class="tab-btn active" data-tab="tech" data-i18n="tab_tech">العرض الفني</button>
+        <button class="tab-btn" data-tab="fin" data-i18n="tab_fin">العرض المالي</button>
+        <button class="tab-btn" data-tab="plan" data-i18n="tab_plan">الخطة التنفيذية</button>
       </div>
       <div class="tab-pane active" id="tab-tech"></div>
       <div class="tab-pane" id="tab-fin"></div>
@@ -127,33 +134,36 @@
     <!-- قاعدة الأسعار -->
     <section class="page" id="page-prices">
       <div class="page-head">
-        <div><h2>قاعدة الأسعار</h2><p>أسعار عزوم المعتمدة — تُستخدم تلقائياً عند بناء جداول الكميات وتُحدَّث باستمرار</p></div>
+        <div><h2 data-i18n="prices_title">قاعدة الأسعار</h2><p data-i18n="prices_sub">أسعار عزوم المعتمدة — تُستخدم تلقائياً عند بناء جداول الكميات وتُحدَّث باستمرار</p></div>
         <div class="row">
-          <a class="btn ghost sm" href="/api/prices/export/csv">⬇️ تصدير CSV</a>
-          <label class="btn ghost sm" style="cursor:pointer">⬆️ استيراد CSV<input type="file" id="csvImport" hidden accept=".csv"></label>
+          <a class="btn ghost sm" href="/api/prices/export/csv" data-i18n="export_csv_btn">⬇️ تصدير CSV</a>
+          <label class="btn ghost sm" style="cursor:pointer"><span data-i18n="import_csv_label">⬆️ استيراد CSV</span><input type="file" id="csvImport" hidden accept=".csv"></label>
         </div>
       </div>
       <div class="panel">
-        <h3>إضافة / تحديث بند</h3>
+        <h3 data-i18n="add_price_title">إضافة / تحديث بند</h3>
         <div class="grid-3">
-          <div><label>الكود *</label><input type="text" id="prCode" placeholder="CV-010"></div>
-          <div><label>التصنيف *</label><input type="text" id="prCat" list="catList" placeholder="الأعمال المدنية"></div>
-          <div><label>الوحدة *</label><input type="text" id="prUnit" placeholder="م2"></div>
+          <div><label data-i18n="code_label">الكود *</label><input type="text" id="prCode" placeholder="CV-010"></div>
+          <div><label data-i18n="category_label">التصنيف *</label><input type="text" id="prCat" list="catList" data-i18n-ph="category_ph" placeholder="الأعمال المدنية"></div>
+          <div><label data-i18n="unit_label">الوحدة *</label><input type="text" id="prUnit" data-i18n-ph="unit_ph" placeholder="م2"></div>
         </div>
         <div class="grid-2">
-          <div><label>اسم البند *</label><input type="text" id="prName"></div>
-          <div><label>سعر الوحدة (ر.س) *</label><input type="number" id="prPrice" step="0.01"></div>
+          <div><label data-i18n="item_name_label">اسم البند *</label><input type="text" id="prName"></div>
+          <div><label data-i18n="unit_price_label">سعر الوحدة (ر.س) *</label><input type="number" id="prPrice" step="0.01"></div>
         </div>
-        <div class="mt"><button class="btn" onclick="savePrice()">حفظ البند</button>
-        <span class="muted">حفظ بند بكود موجود يحدّث سعره ويسجل تاريخ التغيير</span></div>
+        <div class="mt"><button class="btn" onclick="savePrice()" data-i18n="save_price_btn">حفظ البند</button>
+        <span class="muted" data-i18n="save_price_hint">حفظ بند بكود موجود يحدّث سعره ويسجل تاريخ التغيير</span></div>
       </div>
       <div class="panel">
         <div class="row mb">
-          <input type="text" id="prSearch" placeholder="🔍 بحث بالاسم أو الكود..." style="max-width:280px" oninput="loadPrices()">
-          <select id="prFilterCat" onchange="loadPrices()" style="max-width:240px"><option value="">كل التصنيفات</option></select>
+          <input type="text" id="prSearch" data-i18n-ph="search_ph" placeholder="🔍 بحث بالاسم أو الكود..." style="max-width:280px" oninput="loadPrices()">
+          <select id="prFilterCat" onchange="loadPrices()" style="max-width:240px"><option value="" data-i18n="all_categories">كل التصنيفات</option></select>
         </div>
         <div class="t-wrap"><table id="pricesTable">
-          <thead><tr><th>الكود</th><th>التصنيف</th><th>البند</th><th>الوحدة</th><th>السعر (ر.س)</th><th>آخر تحديث</th><th></th></tr></thead>
+          <thead><tr>
+            <th data-i18n="th_code">الكود</th><th data-i18n="th_category">التصنيف</th><th data-i18n="th_item">البند</th>
+            <th data-i18n="th_unit">الوحدة</th><th data-i18n="th_price">السعر (ر.س)</th><th data-i18n="th_updated">آخر تحديث</th><th></th>
+          </tr></thead>
           <tbody></tbody>
         </table></div>
       </div>
@@ -163,19 +173,19 @@
     <!-- المكتبة الفنية -->
     <section class="page" id="page-library">
       <div class="page-head">
-        <div><h2>المكتبة الفنية</h2><p>نصوص عزوم المعتمدة (منهجيات، خطط جودة وسلامة، تعريف الشركة...) — تُعاد صياغتها تلقائياً في كل عرض</p></div>
+        <div><h2 data-i18n="library_title">المكتبة الفنية</h2><p data-i18n="library_sub">نصوص عزوم المعتمدة (منهجيات، خطط جودة وسلامة، تعريف الشركة...) — تُعاد صياغتها تلقائياً في كل عرض</p></div>
       </div>
       <div class="panel">
-        <h3>إضافة / تعديل نص</h3>
+        <h3 data-i18n="add_text_title">إضافة / تعديل نص</h3>
         <input type="hidden" id="libId">
         <div class="grid-2">
-          <div><label>التصنيف</label><input type="text" id="libCat" placeholder="المنهجية"></div>
-          <div><label>العنوان *</label><input type="text" id="libTitle"></div>
+          <div><label data-i18n="category_label2">التصنيف</label><input type="text" id="libCat" data-i18n-ph="category_ph2" placeholder="المنهجية"></div>
+          <div><label data-i18n="title_label">العنوان *</label><input type="text" id="libTitle"></div>
         </div>
-        <label>النص *</label><textarea id="libBody"></textarea>
+        <label data-i18n="body_label">النص *</label><textarea id="libBody"></textarea>
         <div class="mt row">
-          <button class="btn" onclick="saveLibrary()">حفظ</button>
-          <button class="btn ghost" onclick="clearLibraryForm()">جديد</button>
+          <button class="btn" onclick="saveLibrary()" data-i18n="save_btn">حفظ</button>
+          <button class="btn ghost" onclick="clearLibraryForm()" data-i18n="new_btn">جديد</button>
         </div>
       </div>
       <div id="libraryList"></div>
@@ -184,24 +194,30 @@
     <!-- منافسات اعتماد -->
     <section class="page" id="page-etimad">
       <div class="page-head">
-        <div><h2>منافسات اعتماد</h2><p>جلب المنافسات المطروحة من منصة اعتماد وترتيبها حسب ملاءمتها لنشاط عزوم — وافق على منافسة ليحلل النظام فرصتها ويبني عرضها</p></div>
-        <button class="btn gold" id="etimadFetchBtn" onclick="fetchEtimad()">⬇️ جلب المنافسات من اعتماد</button>
+        <div><h2 data-i18n="etimad_title">منافسات اعتماد</h2><p data-i18n="etimad_sub">جلب المنافسات المطروحة من منصة اعتماد وترتيبها حسب ملاءمتها لنشاط عزوم — وافق على منافسة ليحلل النظام فرصتها ويبني عرضها</p></div>
+        <button class="btn gold" id="etimadFetchBtn" onclick="fetchEtimad()" data-i18n="fetch_btn">⬇️ جلب المنافسات من اعتماد</button>
       </div>
       <div class="panel" id="etimadSessionNote" style="display:none">
-        <p class="muted">🔑 لتنزيل كراسات الشروط آلياً: شغّل من جهازك <code>python scripts/etimad_nafath_login.py</code> (دخول نفاذ بموافقتك من الجوال — رقم الهوية يُحفظ محلياً في إعداداتك فقط). جلب قائمة المنافسات لا يحتاج دخولاً.</p>
+        <p class="muted"><span data-i18n="session_note">🔑 لتنزيل كراسات الشروط آلياً: شغّل من جهازك</span> <code>python scripts/etimad_nafath_login.py</code> <span data-i18n="session_note2">(دخول نفاذ بموافقتك من الجوال — رقم الهوية يُحفظ محلياً في إعداداتك فقط). جلب قائمة المنافسات لا يحتاج دخولاً.</span></p>
       </div>
       <div class="panel">
         <div class="row mb">
-          <input type="text" id="etQ" placeholder="🔍 بحث بالاسم أو الجهة..." style="max-width:260px" oninput="loadEtimad()">
+          <input type="text" id="etQ" data-i18n-ph="search_ph2" placeholder="🔍 بحث بالاسم أو الجهة..." style="max-width:260px" oninput="loadEtimad()">
           <select id="etStatus" onchange="loadEtimad()" style="max-width:180px">
-            <option value="">كل الحالات</option>
-            <option>جديدة</option><option>مهتمون</option><option>مستبعدة</option><option>أُنشئ عرض</option>
+            <option value="" data-i18n="all_statuses">كل الحالات</option>
+            <option value="جديدة" data-i18n="et_status_new">جديدة</option>
+            <option value="مهتمون" data-i18n="et_status_interested">مهتمون</option>
+            <option value="مستبعدة" data-i18n="et_status_excluded">مستبعدة</option>
+            <option value="أُنشئ عرض" data-i18n="et_status_created">أُنشئ عرض</option>
           </select>
-          <label class="row" style="gap:6px;margin:0"><input type="checkbox" id="etRelevant" onchange="loadEtimad()" style="width:auto"> الملائمة لنشاط عزوم فقط</label>
+          <label class="row" style="gap:6px;margin:0"><input type="checkbox" id="etRelevant" onchange="loadEtimad()" style="width:auto"> <span data-i18n="relevant_only_label">الملائمة لنشاط عزوم فقط</span></label>
         </div>
-        <div class="spinner" id="etSpinner"><div class="dot"></div>جارٍ جلب المنافسات من منصة اعتماد...</div>
+        <div class="spinner" id="etSpinner"><div class="dot"></div><span data-i18n="fetch_spinner">جارٍ جلب المنافسات من منصة اعتماد...</span></div>
         <div class="t-wrap"><table id="etimadTable">
-          <thead><tr><th>المنافسة</th><th>الجهة</th><th>آخر موعد للعروض</th><th>الملاءمة لعزوم</th><th>الحالة</th><th>إجراءات</th></tr></thead>
+          <thead><tr>
+            <th data-i18n="th_tender">المنافسة</th><th data-i18n="th_agency">الجهة</th><th data-i18n="th_deadline">آخر موعد للعروض</th>
+            <th data-i18n="th_relevance">الملاءمة لعزوم</th><th data-i18n="th_status">الحالة</th><th data-i18n="th_actions">إجراءات</th>
+          </tr></thead>
           <tbody></tbody>
         </table></div>
       </div>
@@ -210,66 +226,68 @@
     <!-- المستودع المعرفي -->
     <section class="page" id="page-repo">
       <div class="page-head">
-        <div><h2>المستودع المعرفي</h2><p>ارفع أي عروض فنية ومالية قديمة — لعزوم أو لشركات أخرى ومنافسة — يستخرج النظام بنودها وأسعارها كأسعار سوق استرشادية، ويخزن محتواها لتطوير العروض القادمة. فعّل خيار «عرض مرجعي» (أو زر ⭐ في الجدول) ليدخل العرض ذاكرة التشابه ويُبنى عليه تلقائياً في المشاريع المشابهة. الملفات المصورة (سكان) تُقرأ بالاستخراج الضوئي OCR إن كان مثبتاً على الخادم</p></div>
+        <div><h2 data-i18n="repo_title">المستودع المعرفي</h2><p data-i18n="repo_sub">ارفع أي عروض فنية ومالية قديمة — لعزوم أو لشركات أخرى ومنافسة — يستخرج النظام بنودها وأسعارها كأسعار سوق استرشادية، ويخزن محتواها لتطوير العروض القادمة. فعّل خيار «عرض مرجعي» (أو زر ⭐ في الجدول) ليدخل العرض ذاكرة التشابه ويُبنى عليه تلقائياً في المشاريع المشابهة. الملفات المصورة (سكان) تُقرأ بالاستخراج الضوئي OCR إن كان مثبتاً على الخادم</p></div>
       </div>
       <div class="panel">
-        <h3>رفع ملفات للمستودع</h3>
+        <h3 data-i18n="upload_title">رفع ملفات للمستودع</h3>
         <div class="grid-3">
-          <div><label>نوع المصدر</label>
+          <div><label data-i18n="source_type_label">نوع المصدر</label>
             <select id="repoSource">
-              <option>عرض عزوم سابق</option>
-              <option>عرض فني سابق</option>
-              <option>عرض شركة منافسة</option>
-              <option>عرض شركة أخرى</option>
-              <option>جدول كميات / كراسة شروط</option>
-              <option>قائمة أسعار موردين</option>
+              <option value="عرض عزوم سابق" data-i18n="src_prev_azoom">عرض عزوم سابق</option>
+              <option value="عرض فني سابق" data-i18n="src_prev_tech">عرض فني سابق</option>
+              <option value="عرض شركة منافسة" data-i18n="src_competitor">عرض شركة منافسة</option>
+              <option value="عرض شركة أخرى" data-i18n="src_other_company">عرض شركة أخرى</option>
+              <option value="جدول كميات / كراسة شروط" data-i18n="src_boq">جدول كميات / كراسة شروط</option>
+              <option value="قائمة أسعار موردين" data-i18n="src_supplier">قائمة أسعار موردين</option>
             </select>
           </div>
-          <div><label>طبيعة المشروع</label>
+          <div><label data-i18n="sector_label">طبيعة المشروع</label>
             <select id="repoSector">
-              <option value="">عام — بدون قطاع محدد</option>
-              <option value="government">حكومي</option>
-              <option value="private">قطاع خاص</option>
-              <option value="pif">صندوق الاستثمارات العامة</option>
-              <option value="airports">مطارات</option>
+              <option value="" data-i18n="sector_general">عام — بدون قطاع محدد</option>
+              <option value="government" data-i18n="sector_gov">حكومي</option>
+              <option value="private" data-i18n="sector_private">قطاع خاص</option>
+              <option value="pif" data-i18n="sector_pif">صندوق الاستثمارات العامة</option>
+              <option value="airports" data-i18n="sector_airports">مطارات</option>
             </select>
           </div>
-          <div><label>اسم الشركة / المصدر</label><input type="text" id="repoCompany" placeholder="اختياري"></div>
-          <div><label>ملاحظات</label><input type="text" id="repoNotes" placeholder="اختياري"></div>
+          <div><label data-i18n="company_label">اسم الشركة / المصدر</label><input type="text" id="repoCompany" data-i18n-ph="optional_ph" placeholder="اختياري"></div>
+          <div><label data-i18n="notes_label">ملاحظات</label><input type="text" id="repoNotes" data-i18n-ph="optional_ph" placeholder="اختياري"></div>
         </div>
-        <label>الملفات (Excel / PDF / Word / نص)</label>
+        <label data-i18n="files_label2">الملفات (Excel / PDF / Word / نص)</label>
         <div class="dropzone" id="repoDrop">
           <div class="big">🗄️</div>
-          اسحب الملفات هنا أو اضغط للاختيار
+          <span data-i18n="dropzone_text">اسحب الملفات هنا أو اضغط للاختيار</span>
           <input type="file" id="repoFileInput" multiple hidden accept=".pdf,.docx,.xlsx,.xlsm,.txt,.md,.csv">
         </div>
         <div class="file-list" id="repoFileList"></div>
         <label class="mt" style="display:flex;align-items:center;gap:8px;cursor:pointer">
           <input type="checkbox" id="repoAsRef" style="width:auto;margin:0">
-          <span>إضافته أيضاً كـ<b>عرض مرجعي</b> في ذاكرة النظام — يستخرج العنوان والنطاق والبنود
-          ويُبنى عليه تلقائياً عند تحليل مشاريع مشابهة</span>
+          <span><span data-i18n="as_ref_label_pre">إضافته أيضاً كـ</span> <b data-i18n="as_ref_label_bold">عرض مرجعي</b> <span data-i18n="as_ref_label_post">في ذاكرة النظام — يستخرج العنوان والنطاق والبنود ويُبنى عليه تلقائياً عند تحليل مشاريع مشابهة</span></span>
         </label>
-        <div class="mt"><button class="btn gold" id="repoUploadBtn" onclick="uploadRepo()">📥 تحليل وتخزين في المستودع</button></div>
-        <div class="spinner" id="repoSpinner"><div class="dot"></div>جارٍ تحليل الملفات واستخراج البنود والأسعار...</div>
+        <div class="mt"><button class="btn gold" id="repoUploadBtn" onclick="uploadRepo()" data-i18n="upload_repo_btn">📥 تحليل وتخزين في المستودع</button></div>
+        <div class="spinner" id="repoSpinner"><div class="dot"></div><span data-i18n="upload_spinner">جارٍ تحليل الملفات واستخراج البنود والأسعار...</span></div>
       </div>
       <div class="panel">
-        <h3>مقارنة أسعار السوق <span class="muted">— ابحث عن أي بند لمقارنة سعر عزوم بأسعار السوق المخزنة</span></h3>
+        <h3><span data-i18n="market_title">مقارنة أسعار السوق</span> <span class="muted" data-i18n="market_sub">— ابحث عن أي بند لمقارنة سعر عزوم بأسعار السوق المخزنة</span></h3>
         <div class="row mb">
-          <input type="text" id="marketSearch" placeholder="🔍 مثال: خرسانة، دهانات، تكييف..." style="max-width:320px">
+          <input type="text" id="marketSearch" data-i18n-ph="market_search_ph" placeholder="🔍 مثال: خرسانة، دهانات، تكييف..." style="max-width:320px">
           <select id="marketSector" style="max-width:230px">
-            <option value="">كل القطاعات</option>
-            <option value="government">حكومي</option>
-            <option value="private">قطاع خاص</option>
-            <option value="pif">صندوق الاستثمارات العامة</option>
-            <option value="airports">مطارات</option>
+            <option value="" data-i18n="all_sectors">كل القطاعات</option>
+            <option value="government" data-i18n="sector_gov">حكومي</option>
+            <option value="private" data-i18n="sector_private">قطاع خاص</option>
+            <option value="pif" data-i18n="sector_pif">صندوق الاستثمارات العامة</option>
+            <option value="airports" data-i18n="sector_airports">مطارات</option>
           </select>
         </div>
         <div id="marketResult"></div>
       </div>
       <div class="panel">
-        <h3>محتويات المستودع</h3>
+        <h3 data-i18n="repo_contents_title">محتويات المستودع</h3>
         <div class="t-wrap"><table id="repoTable">
-          <thead><tr><th>الملف</th><th>المصدر</th><th>القطاع</th><th>الشركة</th><th>بنود مسعّرة</th><th>تاريخ الرفع</th><th></th></tr></thead>
+          <thead><tr>
+            <th data-i18n="th_file">الملف</th><th data-i18n="th_source">المصدر</th><th data-i18n="th_sector">القطاع</th>
+            <th data-i18n="th_company">الشركة</th><th data-i18n="th_priced_items">بنود مسعّرة</th><th data-i18n="th_upload_date">تاريخ الرفع</th><th></th>
+          </tr></thead>
           <tbody></tbody>
         </table></div>
       </div>
@@ -278,27 +296,30 @@
     <!-- وثائق الشركة -->
     <section class="page" id="page-docs">
       <div class="page-head">
-        <div><h2>وثائق الشركة</h2><p>الوثائق النظامية المطلوبة للتأهل في المنافسات — النظام ينبهك قبل انتهاء صلاحية أي وثيقة بـ30 يوماً</p></div>
+        <div><h2 data-i18n="docs_title">وثائق الشركة</h2><p data-i18n="docs_sub">الوثائق النظامية المطلوبة للتأهل في المنافسات — النظام ينبهك قبل انتهاء صلاحية أي وثيقة بـ30 يوماً</p></div>
       </div>
       <div class="panel">
-        <h3>إضافة / تعديل وثيقة</h3>
+        <h3 data-i18n="add_doc_title">إضافة / تعديل وثيقة</h3>
         <input type="hidden" id="docId">
         <div class="grid-3">
-          <div><label>اسم الوثيقة *</label><input type="text" id="docName" placeholder="السجل التجاري"></div>
-          <div><label>رقم الوثيقة</label><input type="text" id="docNumber"></div>
-          <div><label>الجهة المصدرة</label><input type="text" id="docIssuer"></div>
-          <div><label>تاريخ الإصدار</label><input type="date" id="docIssue"></div>
-          <div><label>تاريخ الانتهاء</label><input type="date" id="docExpiry"></div>
-          <div><label>ملاحظات</label><input type="text" id="docNotes"></div>
+          <div><label data-i18n="doc_name_label">اسم الوثيقة *</label><input type="text" id="docName" data-i18n-ph="doc_name_ph" placeholder="السجل التجاري"></div>
+          <div><label data-i18n="doc_number_label">رقم الوثيقة</label><input type="text" id="docNumber"></div>
+          <div><label data-i18n="doc_issuer_label">الجهة المصدرة</label><input type="text" id="docIssuer"></div>
+          <div><label data-i18n="doc_issue_label">تاريخ الإصدار</label><input type="date" id="docIssue"></div>
+          <div><label data-i18n="doc_expiry_label">تاريخ الانتهاء</label><input type="date" id="docExpiry"></div>
+          <div><label data-i18n="doc_notes_label">ملاحظات</label><input type="text" id="docNotes"></div>
         </div>
         <div class="mt row">
-          <button class="btn" onclick="saveDoc()">حفظ الوثيقة</button>
-          <button class="btn ghost" onclick="clearDocForm()">جديد</button>
+          <button class="btn" onclick="saveDoc()" data-i18n="save_doc_btn">حفظ الوثيقة</button>
+          <button class="btn ghost" onclick="clearDocForm()" data-i18n="new_btn">جديد</button>
         </div>
       </div>
       <div class="panel">
         <div class="t-wrap"><table id="docsTable">
-          <thead><tr><th>الوثيقة</th><th>الرقم</th><th>الجهة المصدرة</th><th>تاريخ الانتهاء</th><th>الحالة</th><th></th></tr></thead>
+          <thead><tr>
+            <th data-i18n="th_document">الوثيقة</th><th data-i18n="th_number">الرقم</th><th data-i18n="th_issuer">الجهة المصدرة</th>
+            <th data-i18n="th_expiry">تاريخ الانتهاء</th><th data-i18n="th_status">الحالة</th><th></th>
+          </tr></thead>
           <tbody></tbody>
         </table></div>
       </div>
@@ -307,21 +328,27 @@
     <!-- التحليلات -->
     <section class="page" id="page-analytics">
       <div class="page-head">
-        <div><h2>تحليلات الفوز والخسارة</h2><p>معايرة تسعيرك من واقع أرشيف العروض — حدّث حالات العروض (فائز/غير فائز) لتزداد دقة المؤشرات</p></div>
+        <div><h2 data-i18n="analytics_title">تحليلات الفوز والخسارة</h2><p data-i18n="analytics_sub">معايرة تسعيرك من واقع أرشيف العروض — حدّث حالات العروض (فائز/غير فائز) لتزداد دقة المؤشرات</p></div>
       </div>
       <div class="cards" id="anCards"></div>
       <div class="panel" id="anMargins"></div>
       <div class="panel">
-        <h3>الأداء حسب نوع الجهة</h3>
+        <h3 data-i18n="entity_perf_title">الأداء حسب نوع الجهة</h3>
         <div class="t-wrap"><table id="anEntityTable">
-          <thead><tr><th>نوع الجهة</th><th>العروض</th><th>الفائزة</th><th>نسبة الفوز</th><th>قيمة الفوز (ر.س)</th></tr></thead>
+          <thead><tr>
+            <th data-i18n="th_entity_type">نوع الجهة</th><th data-i18n="th_total">العروض</th><th data-i18n="th_won">الفائزة</th>
+            <th data-i18n="th_win_rate">نسبة الفوز</th><th data-i18n="th_won_value">قيمة الفوز (ر.س)</th>
+          </tr></thead>
           <tbody></tbody>
         </table></div>
       </div>
       <div class="panel">
-        <h3>الأداء حسب العميل</h3>
+        <h3 data-i18n="client_perf_title">الأداء حسب العميل</h3>
         <div class="t-wrap"><table id="anClientTable">
-          <thead><tr><th>العميل</th><th>العروض</th><th>فائز</th><th>غير فائز</th><th>نسبة الفوز</th><th>قيمة الفوز (ر.س)</th></tr></thead>
+          <thead><tr>
+            <th data-i18n="th_client">العميل</th><th data-i18n="th_total">العروض</th><th data-i18n="th_won2">فائز</th>
+            <th data-i18n="th_lost">غير فائز</th><th data-i18n="th_win_rate">نسبة الفوز</th><th data-i18n="th_won_value">قيمة الفوز (ر.س)</th>
+          </tr></thead>
           <tbody></tbody>
         </table></div>
       </div>
@@ -330,44 +357,44 @@
     <!-- الإعدادات -->
     <section class="page" id="page-settings">
       <div class="page-head">
-        <div><h2>الإعدادات</h2><p>بيانات الشركة والنسب المالية المعتمدة في التسعير</p></div>
+        <div><h2 data-i18n="settings_title">الإعدادات</h2><p data-i18n="settings_sub">بيانات الشركة والنسب المالية المعتمدة في التسعير</p></div>
       </div>
       <div class="panel">
-        <h3>بيانات الشركة</h3>
+        <h3 data-i18n="company_data_title">بيانات الشركة</h3>
         <div class="grid-2">
-          <div><label>اسم الشركة</label><input type="text" id="stName" data-key="company_name"></div>
-          <div><label>السجل التجاري</label><input type="text" id="stCr" data-key="company_cr"></div>
-          <div><label>الرقم الضريبي</label><input type="text" id="stVatNo" data-key="company_vat_no"></div>
-          <div><label>العنوان</label><input type="text" id="stAddr" data-key="company_address"></div>
-          <div><label>الهاتف</label><input type="text" id="stPhone" data-key="company_phone"></div>
-          <div><label>البريد الإلكتروني</label><input type="text" id="stEmail" data-key="company_email"></div>
-          <div><label>البنك</label><input type="text" data-key="company_bank"></div>
-          <div><label>الآيبان</label><input type="text" data-key="company_iban"></div>
-          <div><label>عضوية الغرفة التجارية</label><input type="text" data-key="company_chamber_no"></div>
-          <div><label>رقم الهوية لدخول اعتماد (نفاذ) — يُحفظ محلياً فقط</label><input type="text" data-key="etimad_national_id" placeholder="10XXXXXXXX"></div>
+          <div><label data-i18n="company_name_label">اسم الشركة</label><input type="text" id="stName" data-key="company_name"></div>
+          <div><label data-i18n="cr_label">السجل التجاري</label><input type="text" id="stCr" data-key="company_cr"></div>
+          <div><label data-i18n="vat_no_label">الرقم الضريبي</label><input type="text" id="stVatNo" data-key="company_vat_no"></div>
+          <div><label data-i18n="address_label">العنوان</label><input type="text" id="stAddr" data-key="company_address"></div>
+          <div><label data-i18n="phone_label">الهاتف</label><input type="text" id="stPhone" data-key="company_phone"></div>
+          <div><label data-i18n="email_label">البريد الإلكتروني</label><input type="text" id="stEmail" data-key="company_email"></div>
+          <div><label data-i18n="bank_label">البنك</label><input type="text" data-key="company_bank"></div>
+          <div><label data-i18n="iban_label">الآيبان</label><input type="text" data-key="company_iban"></div>
+          <div><label data-i18n="chamber_label">عضوية الغرفة التجارية</label><input type="text" data-key="company_chamber_no"></div>
+          <div><label data-i18n="etimad_id_label">رقم الهوية لدخول اعتماد (نفاذ) — يُحفظ محلياً فقط</label><input type="text" data-key="etimad_national_id" placeholder="10XXXXXXXX"></div>
         </div>
       </div>
       <div class="panel">
-        <h3>نموذج التسعير</h3>
+        <h3 data-i18n="pricing_model_title">نموذج التسعير</h3>
         <div class="grid-3">
-          <div><label>المصاريف الإدارية والعمومية %</label><input type="number" data-key="overhead_pct" step="0.5"></div>
-          <div><label>احتياطي المخاطر %</label><input type="number" data-key="risk_pct" step="0.5"></div>
-          <div><label>هامش الربح %</label><input type="number" data-key="profit_pct" step="0.5"></div>
-          <div><label>ضريبة القيمة المضافة %</label><input type="number" data-key="vat_rate" step="0.5"></div>
-          <div><label>سريان العرض (يوم)</label><input type="number" data-key="validity_days"></div>
-          <div><label>الضمان الابتدائي %</label><input type="number" data-key="bid_bond_pct" step="0.5"></div>
+          <div><label data-i18n="overhead_label">المصاريف الإدارية والعمومية %</label><input type="number" data-key="overhead_pct" step="0.5"></div>
+          <div><label data-i18n="risk_label">احتياطي المخاطر %</label><input type="number" data-key="risk_pct" step="0.5"></div>
+          <div><label data-i18n="profit_label">هامش الربح %</label><input type="number" data-key="profit_pct" step="0.5"></div>
+          <div><label data-i18n="vat_label">ضريبة القيمة المضافة %</label><input type="number" data-key="vat_rate" step="0.5"></div>
+          <div><label data-i18n="validity_label">سريان العرض (يوم)</label><input type="number" data-key="validity_days"></div>
+          <div><label data-i18n="bid_bond_label">الضمان الابتدائي %</label><input type="number" data-key="bid_bond_pct" step="0.5"></div>
         </div>
-        <label>شروط الدفع القياسية</label>
+        <label data-i18n="payment_terms_label">شروط الدفع القياسية</label>
         <textarea data-key="payment_terms"></textarea>
-        <div class="mt"><button class="btn" onclick="saveSettings()">حفظ الإعدادات</button></div>
+        <div class="mt"><button class="btn" onclick="saveSettings()" data-i18n="save_settings_btn">حفظ الإعدادات</button></div>
       </div>
       <div class="panel">
-        <h3>🔐 تغيير كلمة المرور</h3>
+        <h3 data-i18n="change_pw_title">🔐 تغيير كلمة المرور</h3>
         <div class="grid-2">
-          <div><label>كلمة المرور الحالية</label><input type="password" id="pwOld" autocomplete="current-password"></div>
-          <div><label>كلمة المرور الجديدة (8 أحرف فأكثر)</label><input type="password" id="pwNew" autocomplete="new-password"></div>
+          <div><label data-i18n="old_pw_label">كلمة المرور الحالية</label><input type="password" id="pwOld" autocomplete="current-password"></div>
+          <div><label data-i18n="new_pw_label">كلمة المرور الجديدة (8 أحرف فأكثر)</label><input type="password" id="pwNew" autocomplete="new-password"></div>
         </div>
-        <div class="mt"><button class="btn" onclick="savePassword()">تغيير كلمة المرور</button></div>
+        <div class="mt"><button class="btn" onclick="savePassword()" data-i18n="change_pw_btn">تغيير كلمة المرور</button></div>
       </div>
     </section>
 
@@ -375,6 +402,7 @@
 </div>
 
 <div class="toast" id="toast"></div>
+<script src="/static/i18n.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

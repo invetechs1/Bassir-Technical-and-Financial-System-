@@ -109,13 +109,15 @@ def verify_session_token(token: str | None) -> str | None:
 LOGIN_PAGE = """<!DOCTYPE html>
 <html lang="ar" dir="rtl"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>الدخول — نظام عزوم</title>
+<title id="pt">الدخول — نظام عزوم</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:"Segoe UI",Tahoma,sans-serif;min-height:100vh;display:flex;align-items:center;
   justify-content:center;background:linear-gradient(160deg,#175934,#2E9E5B)}
 .box{background:#fff;border-radius:18px;padding:40px 36px;width:min(400px,92vw);
-  box-shadow:0 20px 60px rgba(0,0,0,.35);text-align:center}
+  box-shadow:0 20px 60px rgba(0,0,0,.35);text-align:center;position:relative}
+.lang-btn{position:absolute;top:14px;inset-inline-end:14px;background:#EAF4EC;color:#175934;
+  border:none;border-radius:16px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
 .logo{width:64px;height:64px;margin:0 auto 12px;border-radius:17px;background:#EAF4EC;color:#175934;
   display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:800}
 h1{font-size:22px;color:#175934;letter-spacing:1px}
@@ -123,21 +125,49 @@ p.sub{color:#888;font-size:12.5px;margin:6px 0 24px}
 input{width:100%;padding:12px 14px;border:1px solid #ddd;border-radius:10px;font-family:inherit;
   font-size:14.5px;margin-bottom:12px;background:#faf8f4}
 input:focus{outline:2px solid #2E9E5B;border-color:transparent}
-button{width:100%;padding:13px;border:none;border-radius:10px;background:#1E6B3C;color:#fff;
+button[type=submit]{width:100%;padding:13px;border:none;border-radius:10px;background:#1E6B3C;color:#fff;
   font-size:15px;font-weight:700;cursor:pointer;font-family:inherit}
-button:hover{opacity:.92}
+button[type=submit]:hover{opacity:.92}
 .err{color:#a33;font-size:13px;margin-top:12px;min-height:18px}
 </style></head><body>
 <form class="box" id="f">
+  <button type="button" class="lang-btn" id="langBtn">EN</button>
   <div class="logo">⬡</div>
   <h1>AZOOM United Co.</h1>
-  <p class="sub">نظام العروض الفنية والمالية — الدخول للمصرح لهم فقط</p>
-  <input type="text" id="u" placeholder="اسم المستخدم" autocomplete="username" required>
-  <input type="password" id="p" placeholder="كلمة المرور" autocomplete="current-password" required>
-  <button type="submit">تسجيل الدخول</button>
+  <p class="sub" id="sub">نظام العروض الفنية والمالية — الدخول للمصرح لهم فقط</p>
+  <input type="text" id="u" autocomplete="username" required>
+  <input type="password" id="p" autocomplete="current-password" required>
+  <button type="submit" id="submitBtn">تسجيل الدخول</button>
   <div class="err" id="e"></div>
 </form>
 <script>
+const L = {
+  title: {ar:"الدخول — نظام عزوم", en:"Login — AZOOM"},
+  sub: {ar:"نظام العروض الفنية والمالية — الدخول للمصرح لهم فقط", en:"Technical & Financial Proposals System — authorized access only"},
+  user: {ar:"اسم المستخدم", en:"Username"},
+  pass: {ar:"كلمة المرور", en:"Password"},
+  submit: {ar:"تسجيل الدخول", en:"Log In"},
+  err: {ar:"اسم المستخدم أو كلمة المرور غير صحيحة", en:"Incorrect username or password"},
+  toggle: {ar:"English", en:"العربية"},
+};
+function lang() { return localStorage.getItem("azoom_lang") || "ar"; }
+function applyLang() {
+  const l = lang();
+  document.documentElement.lang = l;
+  document.documentElement.dir = l === "ar" ? "rtl" : "ltr";
+  document.getElementById("pt").textContent = L.title[l];
+  document.getElementById("sub").textContent = L.sub[l];
+  document.getElementById("u").placeholder = L.user[l];
+  document.getElementById("p").placeholder = L.pass[l];
+  document.getElementById("submitBtn").textContent = L.submit[l];
+  document.getElementById("langBtn").textContent = l === "ar" ? "EN" : "AR";
+}
+document.getElementById("langBtn").addEventListener("click", () => {
+  localStorage.setItem("azoom_lang", lang() === "ar" ? "en" : "ar");
+  applyLang();
+});
+applyLang();
+
 document.getElementById("f").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const res = await fetch("/api/login", {method:"POST",
@@ -145,6 +175,6 @@ document.getElementById("f").addEventListener("submit", async (ev) => {
     body: JSON.stringify({username:document.getElementById("u").value,
                           password:document.getElementById("p").value})});
   if (res.ok) location.href = "/";
-  else document.getElementById("e").textContent = "اسم المستخدم أو كلمة المرور غير صحيحة";
+  else document.getElementById("e").textContent = L.err[lang()];
 });
 </script></body></html>"""
