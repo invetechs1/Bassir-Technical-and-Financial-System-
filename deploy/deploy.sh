@@ -20,11 +20,17 @@ docker load -i "$TAR_FILE"
 
 echo "== تشغيل الحاوية على المنفذ $PORT =="
 mkdir -p data
+ENV_FILE_ARGS=()
+if [ -f .env ]; then
+  echo "== استخدام .env (مثل ANTHROPIC_API_KEY إن وُجد) =="
+  ENV_FILE_ARGS=(--env-file .env)
+fi
 docker run -d \
   --name "$CONTAINER" \
   --restart unless-stopped \
   -p "$PORT:8000" \
   -v "$(pwd)/data:/app/data" \
+  "${ENV_FILE_ARGS[@]}" \
   "$IMAGE:latest"
 
 echo "== تم — يعمل الآن على المنفذ $PORT =="
