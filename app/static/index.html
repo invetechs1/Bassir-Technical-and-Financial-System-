@@ -227,7 +227,7 @@
     <!-- مشاريع منصة فرصة -->
     <section class="page" id="page-forsah">
       <div class="page-head">
-        <div><h2>مشاريع منصة فرصة</h2><p>الدخول بحساب الشركة على forsah.sa وسحب المشاريع المطروحة في تصنيفات نشاط عزوم الستة: المقاولات، الصيانة والتشغيل، النظافة، توريد العمالة، التصميم الهندسي، والإشراف الهندسي — مع درجة ملاءمة لكل مشروع من ذاكرتكم المرجعية</p></div>
+        <div><h2>مشاريع منصة فرصة</h2><p>الدخول بحساب الشركة على forsah.sa وسحب المنافسات المتاحة (غير المنتهية) في تصنيفات نشاط عزوم: المقاولات، الصيانة والتشغيل، التوريد، التصميم الهندسي، والإشراف الهندسي — مع درجة ملاءمة لكل مشروع من ذاكرتكم المرجعية</p></div>
         <button class="btn gold" id="forsahFetchBtn" onclick="fetchForsah()">⬇️ سحب المشاريع من فرصة</button>
       </div>
       <div class="panel">
@@ -243,15 +243,15 @@
           <input type="text" id="fsQ" placeholder="🔍 بحث باسم المشروع..." style="max-width:240px" oninput="loadForsah()">
           <select id="fsCategory" onchange="loadForsah()" style="max-width:200px">
             <option value="">كل التصنيفات</option>
-            <option>المقاولات</option><option>الصيانة والتشغيل</option><option>النظافة</option>
-            <option>توريد العمالة</option><option>التصميم الهندسي</option><option>الإشراف الهندسي</option>
+            <option>المقاولات</option><option>الصيانة والتشغيل</option><option>التوريد</option>
+            <option>التصميم الهندسي</option><option>الإشراف الهندسي</option>
           </select>
           <select id="fsStatus" onchange="loadForsah()" style="max-width:160px">
             <option value="">كل الحالات</option>
             <option>جديد</option><option>مهتمون</option><option>مستبعد</option><option>أُنشئ عرض</option>
           </select>
         </div>
-        <div class="spinner" id="fsSpinner"><div class="dot"></div>جارٍ الدخول لمنصة فرصة وسحب مشاريع التصنيفات الستة...</div>
+        <div class="spinner" id="fsSpinner"><div class="dot"></div>جارٍ الدخول لمنصة فرصة وسحب المنافسات المتاحة...</div>
         <div class="t-wrap"><table id="forsahTable">
           <thead><tr><th>المشروع</th><th>التصنيف</th><th>القيمة</th><th>آخر موعد</th><th>الملاءمة لعزوم</th><th>الحالة</th><th>إجراءات</th></tr></thead>
           <tbody></tbody>

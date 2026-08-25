@@ -217,8 +217,8 @@ check("قائمة منافسات اعتماد", r.status_code == 200)
 
 # ---------- 13ب. مشاريع منصة فرصة ----------
 r = c.get("/api/forsah")
-check("قائمة مشاريع فرصة + التصنيفات الستة",
-      r.status_code == 200 and len(r.json().get("categories", [])) == 6)
+check("قائمة مشاريع فرصة + التصنيفات",
+      r.status_code == 200 and len(r.json().get("categories", [])) == 5)
 _saved_fs = c.get("/api/settings").json()
 r = c.post("/api/forsah/fetch")
 _j = r.json()

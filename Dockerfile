@@ -8,6 +8,13 @@ RUN apt-get update \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# forsah.py only ever launches chromium headless=True, which Playwright serves via
+# chromium-headless-shell — drop the full (headed) Chrome build and ffmpeg (no video
+# recording) to keep the image smaller.
+RUN playwright install --with-deps chromium \
+    && rm -rf /root/.cache/ms-playwright/chromium-[0-9]* \
+              /root/.cache/ms-playwright/ffmpeg-* \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY app ./app
 COPY scripts ./scripts

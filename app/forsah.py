@@ -26,23 +26,24 @@ from .database import get_db, get_settings, now_iso
 BASE = os.environ.get("FORSAH_BASE_URL", "https://forsah.sa")
 STATE_FILE = DATA_DIR / "forsah_state.json"  # جلسة المتصفح المحفوظة بين السحبات
 
-# تصنيفات نشاط عزوم المطلوب سحبها — تُطابَق مع نصوص روابط الموقع
+# تصنيفات نشاط عزوم المطلوب سحبها — تُطابَق مع تصنيفات فرصة الفعلية (UUID مكتشف من الصفحة)
 CATEGORIES = [
     "المقاولات",
     "الصيانة والتشغيل",
-    "النظافة",
-    "توريد العمالة",
+    "التوريد",
     "التصميم الهندسي",
     "الإشراف الهندسي",
 ]
-# كلمات مساعدة للمطابقة المرنة (الموقع قد يكتب التصنيف بصيغة مختلفة قليلاً)
+# كلمات مساعدة للمطابقة المرنة (الموقع قد يكتب التصنيف بصيغة مختلفة قليلاً).
+# ملاحظة: تصنيفات فرصة الحقيقية مبنية على نوع السلعة/الخدمة لا على مرحلة المشروع —
+# لا يوجد تصنيف عام «توريد» ولا تصنيف منفصل لـ«الإشراف الهندسي»؛ كلاهما يُقارَب هنا
+# بأقرب تصنيف فعلي متاح (التوريد: عدة تصنيفات سلعية، الإشراف: الاستشارات الهندسية).
 _CAT_KEYWORDS = {
     "المقاولات": ("مقاولات", "مقاولة", "انشاءات", "إنشاءات", "بناء"),
     "الصيانة والتشغيل": ("صيانة", "تشغيل"),
-    "النظافة": ("نظافة", "تنظيف"),
-    "توريد العمالة": ("عمالة", "توريد عمالة", "قوى عاملة"),
-    "التصميم الهندسي": ("تصميم"),
-    "الإشراف الهندسي": ("اشراف", "إشراف"),
+    "التوريد": ("توريد", "معدات", "مواد", "تجهيز"),
+    "التصميم الهندسي": ("تصميم", "هندس"),
+    "الإشراف الهندسي": ("اشراف", "إشراف", "هندس"),
 }
 
 _HEADERS = {
@@ -225,7 +226,7 @@ _A_RE = re.compile(r'<a\b[^>]*href\s*=\s*["\']([^"\']+)["\'][^>]*>(.*?)</a>', re
 _TAG_STRIP = re.compile(r"<[^>]+>")
 _DATE_RE = re.compile(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4}")
 _MONEY_RE = re.compile(r"[\d,.]+\s*(?:ريال|ر\.س|SAR)")
-_PROJECT_HREF = re.compile(r"(project|tender|opportunit|مشروع|منافس)", re.I)
+_PROJECT_HREF = re.compile(r"(project|tender|opportunit|مشروع|منافس|/marketplace/[0-9a-f-]{8,})", re.I)
 
 
 def _clean_text(html_fragment: str) -> str:
@@ -286,6 +287,34 @@ def _default_category_urls() -> dict:
                               ("التصميم الهندسي", "design"), ("الإشراف الهندسي", "supervision"))}
 
 
+# ساحة الفرص (marketplace) تصفّي بمعرّفات UUID لتصنيفات حقيقية مرسومة كصناديق اختيار
+# في نموذج الفلاتر — نكتشفها من الصفحة نفسها بدل تخمين روابط ثابتة قد تتغيّر.
+_CATEGORY_UUID_RE = re.compile(
+    r'label="([^"]+)"><input class="[^"]*"[^>]*name="category\.([0-9a-f-]{36})"'
+)
+
+
+def _discover_category_uuids(html: str) -> dict:
+    """تصنيفات فرصة الحقيقية (اسم عربي -> UUID) كما تظهر في صناديق فلتر «القطاع»."""
+    found = {}
+    for label, uid in _CATEGORY_UUID_RE.findall(html):
+        found.setdefault(label.strip(), uid)
+    return found
+
+
+def _match_categories_to_uuids(real_cats: dict) -> dict:
+    """يطابق تصنيفات عزوم الستة مع تصنيفات فرصة الفعلية بالاسم الحرفي أولاً ثم كلمات مرنة."""
+    result = {}
+    for cat in CATEGORIES:
+        kws = _CAT_KEYWORDS[cat]
+        kws = (kws,) if isinstance(kws, str) else kws
+        matched = [uid for label, uid in real_cats.items()
+                   if label == cat or any(k in label for k in kws)]
+        if matched:
+            result[cat] = matched[:5]
+    return result
+
+
 class _Counter:
     def __init__(self):
         self.added = 0
@@ -332,9 +361,18 @@ def _page_logged_in(html: str) -> bool:
                for m in ("تسجيل الخروج", "خروج", "logout", "حسابي", "ملفي", "لوحة التحكم"))
 
 
+# تسجيل الدخول لفرصة يمر عبر منصة هوية موحّدة لمجموعة «تسعة أعشار» على نطاق
+# منفصل تماماً عن forsah.sa (اكتُشف عبر رابط «سجل معنا» في قائمة الموقع).
+# بعد الدخول تُعيد esso التوجيه لـ forsah.sa مع token في الرابط.
+_SSO_LOGIN_URL = (
+    "https://esso.910ths.sa/login?redirect_uri="
+    + urllib.parse.quote(BASE + "/", safe="") + "&source=forsah&lang=ar&client_id=9"
+)
+
+
 def _browser_login(page, email: str, password: str) -> tuple[bool, str]:
     """تعبئة نموذج الدخول المرسوم بالمتصفح: حقل بريد + كلمة مرور + زر إرسال."""
-    for url in (f"{BASE}/login", f"{BASE}/ar/login", f"{BASE}/signin", BASE):
+    for url in (_SSO_LOGIN_URL, f"{BASE}/login", f"{BASE}/ar/login", f"{BASE}/signin", BASE):
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=45_000)
             page.wait_for_timeout(2_500)  # مهلة لرسم النموذج بالجافاسكربت
@@ -347,8 +385,9 @@ def _browser_login(page, email: str, password: str) -> tuple[bool, str]:
         except Exception:
             continue
         user_input = None
-        for sel in ("input[type='email']", "input[name*='email' i]", "input[name*='user' i]",
-                    "input[placeholder*='بريد']", "input[type='text']", "input[type='tel']"):
+        for sel in ("input[name='email']", "input[type='email']", "input[name*='email' i]",
+                    "input[name*='user' i]", "input[placeholder*='بريد']",
+                    "input[type='text']", "input[type='tel']"):
             loc = page.locator(sel).first
             try:
                 if loc.is_visible(timeout=1_000):
@@ -440,8 +479,9 @@ def _browser_fetch(email: str, password: str, max_pages_per_cat: int, counter: _
                 return ("متصفح السحب غير مثبت على الخادم — شغّل: "
                         f"playwright install --with-deps chromium ثم أعد المحاولة. ({exc})")
         try:
+            used_saved_state = STATE_FILE.exists()
             ctx_kwargs = {"locale": "ar"}
-            if STATE_FILE.exists():
+            if used_saved_state:
                 ctx_kwargs["storage_state"] = str(STATE_FILE)
             context = browser.new_context(**ctx_kwargs)
             page = context.new_page()
@@ -452,21 +492,40 @@ def _browser_fetch(email: str, password: str, max_pages_per_cat: int, counter: _
                         f"تأكد من السماح بالاتصال بالنطاق. التفاصيل: {exc}")
             if not _page_logged_in(home_html):
                 ok, diag = _browser_login(page, email, password)
+                if not ok and used_saved_state:
+                    # الجلسة المحفوظة قد تكون منتهية أو فاسدة وتُعطّل نموذج الدخول —
+                    # نتجاهلها ونبدأ بسياق نظيف بدل التعثر دائماً حتى تُحذف يدوياً.
+                    context.close()
+                    context = browser.new_context(locale="ar")
+                    page = context.new_page()
+                    _browser_render(page, BASE)
+                    ok, diag = _browser_login(page, email, password)
                 if not ok:
                     return f"فشل تسجيل الدخول لمنصة فرصة: {diag}"
                 context.storage_state(path=str(STATE_FILE))
-                home_html = _browser_render(page, BASE)
 
-            cat_links = _category_links(home_html, page.url)
-            defaults = _default_category_urls()
-            for cat in CATEGORIES:
-                cat_links.setdefault(cat, defaults[cat])
+            # ساحة الفرص (marketplace) هي صفحة القوائم الفعلية — منها نكتشف تصنيفات
+            # فرصة الحقيقية (UUID) لنطابقها مع تصنيفات عزوم الستة.
+            try:
+                marketplace_html = _browser_render(page, f"{BASE}/marketplace")
+            except Exception as exc:
+                return f"تعذر الوصول لساحة الفرص بعد الدخول. التفاصيل: {exc}"
+
+            real_cats = _discover_category_uuids(marketplace_html)
+            cat_uuids = _match_categories_to_uuids(real_cats) if real_cats else {}
 
             for cat in CATEGORIES:
-                url = cat_links[cat]
+                uuids = cat_uuids.get(cat)
+                if not uuids:
+                    problems.append(f"{cat}: لم يُعثر على تصنيف مطابق في فرصة")
+                    per_category[cat] = 0
+                    continue
+                query = "&".join(f"category[{i}]={uid}" for i, uid in enumerate(uuids))
+                # status[]=open يقصر النتائج على المنافسات المتاحة فعلياً (غير المنتهية/المعمّدة/الملغاة)
+                url = f"{BASE}/marketplace?status[0]=open&{query}"
                 before = counter.added
                 for pg in range(1, max_pages_per_cat + 1):
-                    page_url = url if pg == 1 else f"{url}{'&' if '?' in url else '?'}page={pg}"
+                    page_url = url if pg == 1 else f"{url}&page={pg}"
                     try:
                         html = _browser_render(page, page_url)
                     except Exception as exc:
