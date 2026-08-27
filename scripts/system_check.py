@@ -275,6 +275,58 @@ seed_if_empty()
 after = c.get("/api/status").json()["price_items"]
 check("إعادة التشغيل لا تكرر البذور", before == after, f"{before} -> {after}")
 
+# ---------- 16. تعدد الشركات والأدوار ----------
+c.post("/api/login", json={"username": "azoom", "password": "Azoom@2026"})
+me = c.get("/api/me").json()
+check("me: الدور والشركة ومدير المنصة", me.get("role") == "owner" and me.get("company_id") == 1
+      and me.get("is_platform_admin") and me.get("is_admin"), str(me))
+r = c.get("/api/me/companies")
+check("قائمة شركات المستخدم", r.status_code == 200 and len(r.json()) >= 1)
+azoom_prices_before = c.get("/api/status").json()["price_items"]
+
+# شركة معزولة للاختبار (قابلة للتكرار: 409 عند إعادة التشغيل)
+r = c.post("/api/companies", json={"name": "شركة الفحص المعزولة", "plan": "trial",
+                                   "owner_username": "isocheck", "owner_password": "Iso@12345"})
+check("إنشاء شركة جديدة بمالكها (أو موجودة من فحص سابق)", r.status_code in (200, 409), r.text[:120])
+
+c2 = TestClient(app)
+r = c2.post("/api/login", json={"username": "isocheck", "password": "Iso@12345"})
+check("دخول مالك الشركة الثانية", r.status_code == 200)
+me2 = c2.get("/api/me").json()
+check("سياق الشركة الثانية (اسم وخطة ودور)",
+      me2.get("company_name") == "شركة الفحص المعزولة" and me2.get("role") == "owner"
+      and me2.get("company_id") != 1, str(me2))
+st2 = c2.get("/api/status").json()
+check("العزل: لا أسعار ولا عروض من عزوم في الشركة الثانية",
+      st2["price_items"] == 0 or st2["price_items"] < 5, str(st2))
+check("العزل: أرشيف عروض فارغ", len(c2.get("/api/proposals").json()) == 0)
+s2 = c2.get("/api/settings").json()
+check("العزل: إعدادات مستقلة (لا آيبان عزوم)",
+      s2.get("company_name") == "شركة الفحص المعزولة" and not s2.get("company_iban"))
+r = c2.post("/api/prices", json={"code": "LIT-LB.1", "category": "اختبار عزل",
+                                 "name": "بند بكود مكرر عبر الشركات", "unit": "م2", "unit_price": 77})
+check("نفس كود البند مسموح عبر شركتين", r.status_code == 200, r.text[:120])
+check("وعدد أسعار الشركة الثانية = 1", len(c2.get("/api/prices").json()) == 1)
+r = c2.post("/api/session/company/1")
+check("تبديل لشركة بلا عضوية → 403", r.status_code == 403)
+
+# دور المشاهد في عزوم
+r = c.post("/api/members", json={"username": "viewcheck", "password": "View@12345", "role": "viewer"})
+check("دعوة مُشاهد لشركة عزوم", r.status_code == 200, r.text[:120])
+c3 = TestClient(app)
+r = c3.post("/api/login", json={"username": "viewcheck", "password": "View@12345"})
+check("دخول المُشاهد", r.status_code == 200)
+check("المُشاهد محجوب عن قاعدة الأسعار (403)", c3.get("/api/prices").status_code == 403)
+check("المُشاهد محجوب عن التحليلات (403)", c3.get("/api/analytics").status_code == 403)
+check("المُشاهد يقرأ لوحة التحكم", c3.get("/api/proposals").status_code == 200)
+check("المُشاهد لا يكتب (403)",
+      c3.put("/api/settings", json={"profit_pct": "99"}).status_code == 403)
+check("المُشاهد لا يولد عروضاً (403)",
+      c3.post("/api/proposals/generate", data={"title": "x", "client": "y"}).status_code == 403)
+check("المُشاهد لا يدير الأعضاء (403)", c3.get("/api/members").status_code == 403)
+check("بيانات عزوم سليمة بعد كل الفحوص",
+      c.get("/api/status").json()["price_items"] == azoom_prices_before)
+
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)
 failed = [(n, d) for n, ok, d in RESULTS if not ok]

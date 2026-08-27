@@ -26,8 +26,60 @@ async function refreshEngineStatus() {
   $("#engineHint").textContent = lastAiEnabled ? t("ai_engine_hint_on") : t("ai_engine_hint_off");
 }
 
+/* ---------- الأدوار والشركات ---------- */
+const ADMIN_PAGES = ["prices", "library", "repo", "analytics", "proposals"];
+let ME = { role: "owner", is_admin: true, is_platform_admin: false };
+
+async function loadMe() {
+  try { ME = await api("/api/me"); } catch { return; }
+  $("#roleChip").textContent = ME.role_ar || ME.role;
+  $("#tenantName").textContent = ME.company_name || "—";
+  $("#tenantMark").textContent = (ME.company_short || ME.company_name || "ع").slice(0, 1);
+  $("#tenantPlan").textContent = ME.plan_ar || "";
+  const showTenants = ME.is_admin || ME.is_platform_admin;
+  $("#navgrpPlatform").hidden = !showTenants;
+  $("#navTenants").hidden = !showTenants;
+  if (!ME.is_admin) {
+    ADMIN_PAGES.forEach((pg) => {
+      const btn = document.querySelector(`.nav-btn[data-page="${pg}"]`);
+      if (btn) { btn.classList.add("locked"); const c = btn.querySelector(".nav-count"); if (c) c.textContent = "🔒"; }
+    });
+  }
+}
+
+function toggleTenantMenu() {
+  const menu = $("#tenantMenu");
+  if (menu.hidden) fillTenantMenu();
+  menu.hidden = !menu.hidden;
+}
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".tenant")) $("#tenantMenu").hidden = true;
+});
+
+async function fillTenantMenu() {
+  const companies = await api("/api/me/companies");
+  $("#tenantList").innerHTML = companies.map((c) => `
+    <button onclick="switchCompany(${c.id})" ${c.id === ME.company_id ? 'style="background:var(--accent-soft)"' : ""}>
+      <span class="tenant-mark">${(c.short_name || c.name).slice(0, 1)}</span>
+      <span style="font-size:12.5px;font-weight:500">${c.name}</span>
+      <span class="plan" style="margin-inline-start:auto">${t("role_" + c.role) || c.role}</span>
+    </button>`).join("") || `<p class="muted" style="padding:8px">${t("tenant_none")}</p>`;
+}
+
+async function switchCompany(id) {
+  if (id === ME.company_id) { $("#tenantMenu").hidden = true; return; }
+  await api(`/api/session/company/${id}`, { method: "POST" });
+  location.reload();
+}
+
 /* ---------- تنقّل ---------- */
 function go(page) {
+  if (ADMIN_PAGES.includes(page) && !ME.is_admin) {
+    $$(".page").forEach((p) => p.classList.remove("active"));
+    $("#page-denied").classList.add("active");
+    $("#deniedRole").textContent = ME.role_ar || ME.role;
+    return;
+  }
   $$(".page").forEach((p) => p.classList.remove("active"));
   $(`#page-${page}`).classList.add("active");
   $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.page === page));
@@ -41,6 +93,7 @@ function go(page) {
   if (page === "docs") loadDocs();
   if (page === "analytics") loadAnalytics();
   if (page === "settings") loadSettings();
+  if (page === "tenants") loadTenants();
   const navBtn = document.querySelector(`.nav-btn[data-page="${page}"]`);
   const titleEl = document.getElementById("pageTitle");
   if (navBtn && titleEl) titleEl.textContent = (navBtn.childNodes[0]?.nodeValue || navBtn.textContent).trim();
@@ -554,6 +607,77 @@ function etToProposal(name, agency) {
   toast(t("msg_etimad_loaded_hint"));
 }
 
+/* ---------- الشركات والمستخدمون ---------- */
+async function loadTenants() {
+  const members = await api("/api/members");
+  const canManage = ME.role === "owner" || ME.is_platform_admin;
+  $("#membersTable tbody").innerHTML = members.map((m) => `
+    <tr>
+      <td class="code">${m.username}</td>
+      <td>${m.display_name || "—"}</td>
+      <td>${canManage && m.id !== ME.user_id ? `
+        <select onchange="changeRole(${m.id}, this.value)" style="padding:4px 8px;font-size:12px">
+          ${["viewer", "editor", "admin", "owner"].map((r) => `<option value="${r}" ${r === m.role ? "selected" : ""}>${t("role_" + r)}</option>`).join("")}
+        </select>` : `<span class="tag ${m.role === "owner" || m.role === "admin" ? "admin" : "est"}">${t("role_" + m.role) || m.role}</span>`}</td>
+      <td class="num-cell muted">${(m.last_login_at || "").slice(0, 10) || "—"}</td>
+      <td>${canManage && m.id !== ME.user_id ? `<button class="btn sm danger" onclick="removeMember(${m.id})">${t("member_remove")}</button>` : ""}</td>
+    </tr>`).join("");
+
+  if (ME.is_platform_admin) {
+    $("#platformPanel").hidden = false;
+    const companies = await api("/api/companies");
+    $("#companiesTable tbody").innerHTML = companies.map((c) => `
+      <tr>
+        <td><b>${c.name}</b>${c.id === ME.company_id ? ` <span class="tag src">${t("company_current")}</span>` : ""}</td>
+        <td><span class="tag est">${t("plan_" + c.plan) || c.plan}</span></td>
+        <td class="num-cell">${c.usage.users}</td>
+        <td class="num-cell">${c.usage.proposals_month}</td>
+        <td class="num-cell">${c.usage.price_items}</td>
+        <td><button class="btn sm ghost" onclick="switchCompany(${c.id})">${t("company_open")}</button></td>
+      </tr>`).join("");
+  }
+}
+
+async function inviteMember() {
+  const username = $("#invUsername").value.trim();
+  if (!username) return toast(t("invite_need_user"), true);
+  try {
+    await api("/api/members", { method: "POST", json: {
+      username, password: $("#invPassword").value, role: $("#invRole").value } });
+    toast(t("invite_done"));
+    $("#invUsername").value = ""; $("#invPassword").value = "";
+    loadTenants();
+  } catch (err) { toast(err.message, true); }
+}
+
+async function changeRole(uid, role) {
+  try {
+    await api(`/api/members/${uid}`, { method: "PUT", json: { role } });
+    toast(t("role_changed"));
+  } catch (err) { toast(err.message, true); loadTenants(); }
+}
+
+async function removeMember(uid) {
+  if (!confirm(t("member_remove_confirm"))) return;
+  try {
+    await api(`/api/members/${uid}`, { method: "DELETE" });
+    loadTenants();
+  } catch (err) { toast(err.message, true); }
+}
+
+async function createCompany() {
+  const name = $("#ncName").value.trim(), owner = $("#ncOwner").value.trim();
+  if (!name || !owner) return toast(t("newco_need_fields"), true);
+  try {
+    const c = await api("/api/companies", { method: "POST", json: {
+      name, plan: $("#ncPlan").value,
+      owner_username: owner, owner_password: $("#ncOwnerPass").value } });
+    toast(`🏢 ${t("newco_done")} — ${c.name}`);
+    $("#ncName").value = ""; $("#ncOwner").value = ""; $("#ncOwnerPass").value = "";
+    loadTenants();
+  } catch (err) { toast(err.message, true); }
+}
+
 /* ---------- مشاريع منصة فرصة ---------- */
 const FS_STATUSES = ["جديد", "مهتمون", "مستبعد", "أُنشئ عرض"];
 let forsahCredsLoaded = false;
@@ -888,4 +1012,4 @@ async function saveSettings() {
 }
 
 /* ---------- بدء التشغيل ---------- */
-loadDashboard();
+loadMe().then(() => loadDashboard());

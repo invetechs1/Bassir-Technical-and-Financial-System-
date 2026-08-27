@@ -44,15 +44,17 @@ def _verify_password(password: str, stored: str) -> bool:
 
 
 def _auth_secret() -> bytes:
-    settings = get_settings()
+    # سر المنصة يعيش في إعدادات الشركة 1 دائماً — التحقق من الرمز يسبق حل الشركة
+    settings = get_settings(company_id=1)
     secret = settings.get("auth_secret", "")
     if not secret:
         secret = secrets.token_hex(32)
-        update_settings({"auth_secret": secret})
+        update_settings({"auth_secret": secret}, company_id=1)
     return secret.encode()
 
 
 def init_auth():
+    from .database import ensure_memberships
     with get_db() as db:
         db.executescript(USERS_SCHEMA)
         has_users = db.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
@@ -63,14 +65,41 @@ def init_auth():
                 "VALUES (?, ?, ?, 'admin', ?)",
                 (username, _hash_password(password), "مدير النظام", now_iso()),
             )
+    ensure_memberships()
     _auth_secret()
+
+
+def get_user(username: str) -> dict | None:
+    with get_db() as db:
+        row = db.execute(
+            "SELECT id, username, display_name, is_platform_admin, last_login_at "
+            "FROM users WHERE username = ?", (username.strip(),)).fetchone()
+    return dict(row) if row else None
+
+
+def create_user(username: str, password: str, display_name: str = "") -> dict:
+    """إنشاء مستخدم منصة (بلا عضويات) — يُستخدم في دعوات الشركات."""
+    if len(password) < 8:
+        raise ValueError("كلمة المرور 8 أحرف على الأقل")
+    with get_db() as db:
+        db.execute(
+            "INSERT INTO users (username, password_hash, display_name, role, created_at) "
+            "VALUES (?, ?, ?, 'member', ?)",
+            (username.strip(), _hash_password(password), display_name, now_iso()),
+        )
+        row = db.execute("SELECT id, username, display_name FROM users WHERE username = ?",
+                         (username.strip(),)).fetchone()
+    return dict(row)
 
 
 def authenticate(username: str, password: str) -> dict | None:
     with get_db() as db:
         row = db.execute("SELECT * FROM users WHERE username = ?", (username.strip(),)).fetchone()
     if row and _verify_password(password, row["password_hash"]):
-        return {"username": row["username"], "display_name": row["display_name"], "role": row["role"]}
+        with get_db() as db:
+            db.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now_iso(), row["id"]))
+        return {"id": row["id"], "username": row["username"],
+                "display_name": row["display_name"], "role": row["role"]}
     return None
 
 

@@ -17,6 +17,7 @@ from pathlib import Path
 
 from .config import DATA_DIR
 from .database import get_db, now_iso
+from .tenancy import cid
 
 VISITOR_API = "https://tenders.etimad.sa/Tender/AllSupplierTendersForVisitorAsync"
 VISITOR_API_FALLBACK = "https://tenders.etimad.sa/Tender/AllTendersForVisitorAsync"
@@ -32,6 +33,7 @@ _HEADERS = {
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS etimad_tenders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL DEFAULT 1,
     tender_key TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     agency TEXT DEFAULT '',
@@ -50,8 +52,10 @@ CREATE TABLE IF NOT EXISTS etimad_tenders (
 
 
 def init_etimad_table():
+    from .database import _ensure_column
     with get_db() as db:
         db.executescript(SCHEMA)
+        _ensure_column(db, "etimad_tenders", "company_id", "INTEGER NOT NULL DEFAULT 1")
 
 
 def _pick(d: dict, *keys, default=""):
@@ -108,10 +112,10 @@ def fetch_tenders(pages: int = 3, page_size: int = 50) -> dict:
             with get_db() as db:
                 cur = db.execute(
                     "INSERT OR IGNORE INTO etimad_tenders "
-                    "(tender_key, name, agency, activity, tender_type, deadline, booklet_price, "
+                    "(company_id, tender_key, name, agency, activity, tender_type, deadline, booklet_price, "
                     " details_url, relevance, matched_ref, raw, fetched_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (key, name, agency,
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (cid(), key, name, agency,
                      str(_pick(t, "tenderActivityName", "activityName")),
                      str(_pick(t, "tenderTypeName", "tenderType")),
                      str(_pick(t, "lastOfferPresentationDate", "offersDeadline", "submitionDate"))[:16],
@@ -129,8 +133,8 @@ def list_tenders(status: str = "", q: str = "", min_relevance: int = 0) -> list[
     init_etimad_table()
     query = ("SELECT id, tender_key, name, agency, activity, tender_type, deadline, "
              "booklet_price, details_url, relevance, matched_ref, status, fetched_at "
-             "FROM etimad_tenders WHERE relevance >= ?")
-    params: list = [min_relevance]
+             "FROM etimad_tenders WHERE company_id = ? AND relevance >= ?")
+    params: list = [cid(), min_relevance]
     if status:
         query += " AND status = ?"
         params.append(status)
@@ -145,7 +149,7 @@ def list_tenders(status: str = "", q: str = "", min_relevance: int = 0) -> list[
 
 def update_tender_status(tid: int, status: str):
     with get_db() as db:
-        db.execute("UPDATE etimad_tenders SET status = ? WHERE id = ?", (status, tid))
+        db.execute("UPDATE etimad_tenders SET status = ? WHERE id = ? AND company_id = ?", (status, tid, cid()))
 
 
 def has_session() -> bool:

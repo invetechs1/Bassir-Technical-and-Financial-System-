@@ -36,6 +36,8 @@
     <button class="nav-btn" data-page="docs" data-i18n="nav_docs">وثائق الشركة<span class="nav-count" id="cntDocs">—</span></button>
     <button class="nav-btn" data-page="analytics" data-i18n="nav_analytics">التحليلات</button>
     <button class="nav-btn" data-page="settings" data-i18n="nav_settings">الإعدادات</button>
+    <div class="nav-group" id="navgrpPlatform" data-i18n="navgrp_platform" hidden>المنصة</div>
+    <button class="nav-btn" data-page="tenants" id="navTenants" data-i18n="nav_tenants" hidden>الشركات والمستخدمون</button>
     <button class="nav-btn" onclick="logout()" style="margin-top:auto" data-i18n="nav_logout">تسجيل الخروج</button>
     <div class="engine-badge" id="engineBadge">…</div>
   </aside>
@@ -44,8 +46,20 @@
 
     <div class="topbar">
       <div class="title"><h2 id="pageTitle">لوحة التحكم</h2></div>
+      <div class="tenant">
+        <button class="tenant-btn" id="tenantBtn" onclick="toggleTenantMenu()">
+          <span class="tenant-mark" id="tenantMark">ع</span>
+          <span class="name" id="tenantName">—</span>
+          <span class="plan" id="tenantPlan"></span>
+          <span style="font-size:8px;color:var(--muted-2)">▼</span>
+        </button>
+        <div class="tenant-menu" id="tenantMenu" hidden>
+          <h6 data-i18n="tenant_menu_title">الشركات المسجّلة في المنصة</h6>
+          <div id="tenantList"></div>
+        </div>
+      </div>
       <div class="spacer" style="flex:1"></div>
-      <span class="tag admin" id="roleChip" hidden>أدمن</span>
+      <span class="tag admin" id="roleChip">—</span>
       <button class="btn" onclick="go('new')" data-i18n="topbar_new_btn">+ إنشاء عرض جديد</button>
     </div>
 
@@ -448,6 +462,65 @@
           <div><label data-i18n="new_pw_label">كلمة المرور الجديدة (8 أحرف فأكثر)</label><input type="password" id="pwNew" autocomplete="new-password"></div>
         </div>
         <div class="mt"><button class="btn" onclick="savePassword()" data-i18n="change_pw_btn">تغيير كلمة المرور</button></div>
+      </div>
+    </section>
+
+    <!-- الشركات والمستخدمون -->
+    <section class="page" id="page-tenants">
+      <div class="page-head">
+        <div><h2 data-i18n="tenants_title">الشركات والمستخدمون</h2><p data-i18n="tenants_sub">إدارة أعضاء شركتك وأدوارهم — ولمدير المنصة: إنشاء شركات جديدة على النظام بعزل كامل للبيانات</p></div>
+      </div>
+      <div class="panel">
+        <h3 data-i18n="members_title">أعضاء الشركة الحالية</h3>
+        <div class="t-wrap"><table id="membersTable">
+          <thead><tr><th data-i18n="th_member">المستخدم</th><th data-i18n="th_display">الاسم</th><th data-i18n="th_role">الدور</th><th data-i18n="th_last_login">آخر دخول</th><th data-i18n="th_actions">إجراءات</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <h3 class="mt" data-i18n="invite_title">دعوة مستخدم</h3>
+        <div class="grid-3">
+          <div><label data-i18n="invite_user">اسم المستخدم *</label><input type="text" id="invUsername" autocomplete="off"></div>
+          <div><label data-i18n="invite_pass">كلمة المرور (لمستخدم جديد)</label><input type="password" id="invPassword" autocomplete="new-password" placeholder="8 أحرف فأكثر"></div>
+          <div><label data-i18n="invite_role">الدور</label>
+            <select id="invRole">
+              <option value="viewer">مُشاهد — قراءة وتصدير فقط</option>
+              <option value="editor">مُحرِّر — يعد العروض دون الصفحات الإدارية</option>
+              <option value="admin">أدمن — كل الصفحات ودعوة مستخدمين</option>
+              <option value="owner">مالك الحساب</option>
+            </select></div>
+        </div>
+        <button class="btn mt" onclick="inviteMember()" data-i18n="invite_btn">➕ دعوة العضو</button>
+      </div>
+      <div class="panel" id="platformPanel" hidden>
+        <h3 data-i18n="companies_title">شركات المنصة <span class="tag admin">مدير المنصة</span></h3>
+        <div class="t-wrap"><table id="companiesTable">
+          <thead><tr><th data-i18n="th_company">الشركة</th><th data-i18n="th_plan">الخطة</th><th data-i18n="th_members">الأعضاء</th><th data-i18n="th_proposals_m">عروض الشهر</th><th data-i18n="th_prices_n">بنود الأسعار</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <h3 class="mt" data-i18n="newco_title">إنشاء شركة جديدة</h3>
+        <div class="grid-3">
+          <div><label data-i18n="newco_name">اسم الشركة *</label><input type="text" id="ncName"></div>
+          <div><label data-i18n="newco_plan">الخطة</label>
+            <select id="ncPlan">
+              <option value="trial">تجريبي</option><option value="basic">أساسي</option>
+              <option value="pro">احترافي</option><option value="enterprise">مؤسسي</option>
+            </select></div>
+          <div><label data-i18n="newco_owner">مالك الحساب (اسم مستخدم) *</label><input type="text" id="ncOwner" autocomplete="off"></div>
+        </div>
+        <div class="grid-2">
+          <div><label data-i18n="newco_owner_pass">كلمة مرور المالك (لمستخدم جديد)</label><input type="password" id="ncOwnerPass" autocomplete="new-password"></div>
+          <div style="display:flex;align-items:flex-end"><button class="btn" onclick="createCompany()" data-i18n="newco_btn">🏢 إنشاء الشركة</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- صفحة المنع -->
+    <section class="page" id="page-denied">
+      <div class="denied">
+        <div class="lock">🔒</div>
+        <h3 data-i18n="denied_title">هذه الصفحة للأدمن فقط</h3>
+        <p data-i18n="denied_body">صلاحية الاطلاع والتعديل في قاعدة الأسعار، المكتبة الفنية، المستودع المعرفي، التحليلات، وأرشيف العروض محصورة على الأدمن.</p>
+        <p><span data-i18n="denied_role_label">دورك الحالي:</span> <b id="deniedRole">—</b></p>
+        <p class="muted" data-i18n="denied_hint">اطلب من مالك الحساب ترقية صلاحيتك من صفحة «الشركات والمستخدمون».</p>
       </div>
     </section>
 
