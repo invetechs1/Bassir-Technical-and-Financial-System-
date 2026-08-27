@@ -249,6 +249,9 @@ def _migrate_multitenant(db):
             " 'SAR', 'المقاولات العامة', 'enterprise', 'active', ?)",
             (now_iso(),),
         )
+    # شعار عزوم الافتراضي (الأصل الثابت في الواجهة) إن لم يُرفع شعار
+    db.execute("UPDATE companies SET logo_url = '/static/img/azoom-mark.png' "
+               "WHERE id = 1 AND (logo_url IS NULL OR logo_url = '')")
 
 
 def ensure_memberships():

@@ -132,6 +132,8 @@ def api_me(request: Request):
         "company_short": company.get("short_name", ""),
         "plan": company.get("plan", "trial"),
         "plan_ar": tenancy.PLAN_AR.get(company.get("plan", ""), company.get("plan", "")),
+        "logo_url": company.get("logo_url") or "",
+        "brand_color": _brand_color(request.state.company_id),
     }
 
 
@@ -279,6 +281,63 @@ def members_remove(request: Request, uid: int):
     db.remove_membership(uid, request.state.company_id)
     db.log_audit("memberships", uid, "remove")
     return {"ok": True}
+
+
+# شعار كل شركة — الصيغ النقطية فقط (SVG مرفوض: ثغرة XSS إن عُرض بلا تعقيم)
+_LOGO_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+_MAX_LOGO_BYTES = 2 * 1024 * 1024
+_BRAND_COLORS = ["#175934", "#2E7D8C", "#7A5A2E", "#5A3E86"]
+
+
+def _brand_color(company_id: int) -> str:
+    return _BRAND_COLORS[company_id % len(_BRAND_COLORS)]
+
+
+def _logo_path(company_id: int):
+    from .config import DATA_DIR
+    branding = DATA_DIR / "branding"
+    branding.mkdir(exist_ok=True)
+    for ext in (".png", ".jpg", ".webp"):
+        pth = branding / f"logo_{company_id}{ext}"
+        if pth.exists():
+            return pth
+    return None
+
+
+@app.post("/api/companies/{company_id}/logo")
+async def upload_company_logo(request: Request, company_id: int,
+                              logo: UploadFile = File(...)):
+    m = db.get_membership(request.state.user_id, company_id)
+    allowed = request.state.is_platform_admin or (m and m["role"] in tenancy.ADMIN_ROLES)
+    if not allowed:
+        raise HTTPException(403, "رفع الشعار لأدمن الشركة أو مدير المنصة")
+    if logo.content_type not in _LOGO_TYPES:
+        raise HTTPException(415, "الصيغ المقبولة: PNG أو JPG أو WebP (حتى 2 ميجابايت)")
+    content = await logo.read()
+    if len(content) > _MAX_LOGO_BYTES:
+        raise HTTPException(413, "حجم الملف يتجاوز 2 ميجابايت")
+    from .config import DATA_DIR
+    branding = DATA_DIR / "branding"
+    branding.mkdir(exist_ok=True)
+    old = _logo_path(company_id)
+    if old:
+        old.unlink()
+    path = branding / f"logo_{company_id}{_LOGO_TYPES[logo.content_type]}"
+    path.write_bytes(content)
+    with db.get_db() as conn:
+        conn.execute("UPDATE companies SET logo_url = ? WHERE id = ?",
+                     (f"/api/companies/{company_id}/logo", company_id))
+    db.log_audit("companies", company_id, "update", "logo uploaded")
+    return {"ok": True, "logo_url": f"/api/companies/{company_id}/logo"}
+
+
+@app.get("/api/companies/{company_id}/logo")
+def get_company_logo(request: Request, company_id: int):
+    # أي عضو مسجل دخوله يرى شعارات الشركات (تظهر في مبدل الشركات)
+    path = _logo_path(company_id)
+    if not path:
+        raise HTTPException(404, "لا شعار مرفوعاً لهذه الشركة")
+    return FileResponse(path)
 
 
 @app.get("/api/usage")
