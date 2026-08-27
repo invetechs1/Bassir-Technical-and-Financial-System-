@@ -24,7 +24,16 @@ def compute_financials(boq: list[dict], settings: dict | None = None) -> dict:
 
     for line in boq:
         line["qty"] = float(line.get("qty", 1) or 1)
-        line["unit_price"] = float(line.get("unit_price", 0) or 0)
+        children = line.get("children") or []
+        if children:
+            # بند مقسّم إلى مراحل فرعية (نفس الكمية، سعر كل مرحلة مستقل) —
+            # سعر البند الأب يُحسب تلقائياً كمجموع أسعار مراحله ولا يُحرَّر يدوياً.
+            for c in children:
+                c["unit_price"] = float(c.get("unit_price", 0) or 0)
+                c["total"] = round(line["qty"] * c["unit_price"], 2)
+            line["unit_price"] = round(sum(c["unit_price"] for c in children), 2)
+        else:
+            line["unit_price"] = float(line.get("unit_price", 0) or 0)
         line["total"] = round(line["qty"] * line["unit_price"], 2)
 
     direct_cost = round(sum(l["total"] for l in boq), 2)
@@ -46,6 +55,21 @@ def compute_financials(boq: list[dict], settings: dict | None = None) -> dict:
         "bid_bond_pct": bid_bond_pct,
         "bid_bond": round(grand_total * bid_bond_pct / 100, 2),
     }
+
+
+def flatten_boq_rows(boq: list[dict]) -> list[tuple]:
+    """يفكك جدول الكميات إلى صفوف مسطّحة للتصدير (Word/Excel) — كل بند أب
+    مقسّم إلى مراحل فرعية يظهر متبوعاً بصفوفه الفرعية مرقّمة (1.1، 1.2 ...)
+    وبادئة ↳، بنفس الكمية والوحدة، وسعر/إجمالي خاص بكل مرحلة."""
+    rows = []
+    for i, l in enumerate(boq, 1):
+        rows.append((str(i), l.get("code", ""), l["name"], l["unit"], l["qty"],
+                     l["unit_price"], l["total"]))
+        for j, c in enumerate(l.get("children") or [], 1):
+            total = c.get("total", round(l["qty"] * float(c.get("unit_price", 0) or 0), 2))
+            rows.append((f"{i}.{j}", "", f"↳ {c['name']}", l["unit"], l["qty"],
+                         c["unit_price"], total))
+    return rows
 
 
 def match_price_catalog(boq: list[dict]) -> list[dict]:

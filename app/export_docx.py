@@ -8,6 +8,7 @@ from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor, Cm
 
 from .config import BRAND
+from .proposal_builder import flatten_boq_rows
 
 PRIMARY = RGBColor.from_string(BRAND["primary"])
 ACCENT = RGBColor.from_string(BRAND["accent"])
@@ -217,8 +218,7 @@ def export_proposal_docx(proposal: dict, settings: dict, path: str):
     _table(
         doc,
         ["م", "الكود", "البند", "الوحدة", "الكمية", "سعر الوحدة (ر.س)", "الإجمالي (ر.س)"],
-        [(i, l.get("code", ""), l["name"], l["unit"], l["qty"], l["unit_price"], l["total"])
-         for i, l in enumerate(boq, 1)],
+        flatten_boq_rows(boq),
         widths=[1, 2, 6, 2, 2, 3, 3],
         money_cols=(5, 6),
     )

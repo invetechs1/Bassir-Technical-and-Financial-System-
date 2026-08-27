@@ -3,6 +3,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from .config import BRAND
+from .proposal_builder import flatten_boq_rows
 
 HEADER_FILL = PatternFill("solid", fgColor=BRAND["primary"])
 ACCENT_FILL = PatternFill("solid", fgColor=BRAND["accent"])
@@ -34,9 +35,8 @@ def export_boq_xlsx(proposal: dict, path: str):
         cell.border = BORDER
 
     row = 3
-    for i, line in enumerate(data.get("boq", []), 1):
-        values = [i, line.get("code", ""), line["name"], line["unit"],
-                  line["qty"], line["unit_price"], line["total"]]
+    for values in flatten_boq_rows(data.get("boq", [])):
+        is_sub = "." in str(values[0])
         for col, value in enumerate(values, 1):
             cell = ws.cell(row=row, column=col, value=value)
             cell.border = BORDER
@@ -44,6 +44,8 @@ def export_boq_xlsx(proposal: dict, path: str):
                                        vertical="center", wrap_text=True)
             if col in (6, 7):
                 cell.number_format = "#,##0.00"
+            if is_sub:
+                cell.font = Font(italic=True, size=10, color="555555")
         row += 1
 
     fin = data.get("financial", {})

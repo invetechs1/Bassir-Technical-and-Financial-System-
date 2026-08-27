@@ -260,6 +260,17 @@ td.ellipsis { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-spa
 .tag.won       { background: var(--ok); color: #fff; }
 .tag.lost      { background: #F6E4E4; color: var(--danger); }
 .tag.src       { background: var(--accent-soft); color: var(--ok); }
+
+/* ============ جدول الكميات — مراحل فرعية ============ */
+tr.boq-parent td:nth-child(3) { font-weight: 600; }
+tr.boq-parent td:first-child { color: var(--ink-2); font-weight: 700; }
+tr.boq-sub-row td { background: var(--card-2); border-bottom: 1px solid var(--card-2); padding-top: 6px; padding-bottom: 6px; }
+tr.boq-sub-row.last td { border-bottom: 1px solid var(--line-2); }
+tr.boq-sub-row td:nth-child(3) { padding-inline-start: 8px; border-inline-start: 3px solid var(--accent-light); }
+.boq-sub-name { display: flex; align-items: center; gap: 7px; }
+.boq-sub-name input { flex: 1; min-width: 0; }
+.boq-sub-arrow { color: var(--primary-2); font-size: 13px; flex: none; }
+td input:disabled { background: var(--card-2); color: var(--muted); cursor: not-allowed; }
 .tag.est       { background: var(--warn-soft); color: var(--warn); }
 
 /* شريط الملاءمة: <span class="fit"><i style="width:88%"></i></span> 88% */

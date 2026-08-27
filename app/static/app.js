@@ -55,6 +55,9 @@ function toggleTenantMenu() {
 document.addEventListener("click", (e) => {
   if (!e.target.closest(".tenant")) $("#tenantMenu").hidden = true;
 });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $("#subItemModal").style.display === "flex") closeSubItemModal();
+});
 
 async function fillTenantMenu() {
   const companies = await api("/api/me/companies");
@@ -343,19 +346,7 @@ function renderFin(d) {
       <h3>${t("boq_title")} <span class="muted">${t("boq_hint")}</span></h3>
       <div class="t-wrap"><table>
         <thead><tr><th>${t("th_num")}</th><th>${t("th_code")}</th><th>${t("th_item")}</th><th>${t("th_unit")}</th><th>${t("th_qty")}</th><th>${t("th_unit_price")}</th><th>${t("th_total")}</th><th>${t("th_source")}</th><th></th></tr></thead>
-        <tbody>${boq.map((l, i) => `
-          <tr>
-            <td>${i + 1}</td>
-            <td class="num-cell">${l.code || "—"}</td>
-            <td>${l.name}</td>
-            <td>${l.unit}</td>
-            <td style="width:90px"><input type="number" value="${l.qty}" step="0.01" onchange="editBoq(${i},'qty',this.value)"></td>
-            <td style="width:120px"><input type="number" value="${l.unit_price}" step="0.01" onchange="editBoq(${i},'unit_price',this.value)"></td>
-            <td class="num-cell">${fmt(l.total)}</td>
-            <td><span class="tag ${l.source === "قاعدة الأسعار" ? "src" : "est"}">${boqSourceLabel(l.source)}</span></td>
-            <td><button class="btn sm danger" onclick="removeBoqLine(${i})">✕</button></td>
-          </tr>`).join("")}
-        </tbody>
+        <tbody>${boq.map((l, i) => renderBoqRow(l, i)).join("")}</tbody>
       </table></div>
       <div class="mt"><button class="btn ghost sm" onclick="addBoqLine()">${t("add_item_btn")}</button></div>
     </div>
@@ -371,6 +362,41 @@ function renderFin(d) {
       <p class="muted mt">${t("fin_bid_bond")} (${f.bid_bond_pct ?? 1}%): <b>${fmt(f.bid_bond)} ${cur}</b></p>
     </div>
     ${(d.assumptions || []).length ? `<div class="panel"><h3>${t("assumptions_title")}</h3>${d.assumptions.map((a) => `<p class="muted">• ${a}</p>`).join("")}</div>` : ""}`;
+}
+
+function renderBoqRow(l, i) {
+  const kids = l.children || [];
+  const hasKids = kids.length > 0;
+  const parentRow = `
+    <tr class="${hasKids ? "boq-parent" : ""}">
+      <td>${i + 1}</td>
+      <td class="num-cell">${l.code || "—"}</td>
+      <td>${l.name}</td>
+      <td>${l.unit}</td>
+      <td style="width:90px"><input type="number" value="${l.qty}" step="0.01" onchange="editBoq(${i},'qty',this.value)"></td>
+      <td style="width:120px">${hasKids
+        ? `<input type="number" value="${l.unit_price}" disabled title="${t("boq_computed_hint")}">`
+        : `<input type="number" value="${l.unit_price}" step="0.01" onchange="editBoq(${i},'unit_price',this.value)">`}</td>
+      <td class="num-cell">${fmt(l.total)}</td>
+      <td><span class="tag ${l.source === "قاعدة الأسعار" ? "src" : "est"}">${boqSourceLabel(l.source)}</span></td>
+      <td>
+        <button class="btn sm ghost" onclick="addBoqSubItem(${i})" title="${t("add_sub_item_hint")}">${t("add_sub_item_btn")}</button>
+        <button class="btn sm danger" onclick="removeBoqLine(${i})">✕</button>
+      </td>
+    </tr>`;
+  const subRows = kids.map((c, j) => `
+    <tr class="boq-sub-row${j === kids.length - 1 ? " last" : ""}">
+      <td class="muted num-cell">${i + 1}.${j + 1}</td>
+      <td></td>
+      <td><div class="boq-sub-name"><span class="boq-sub-arrow">↳</span><input type="text" value="${c.name}" onchange="editBoqSub(${i},${j},'name',this.value)"></div></td>
+      <td class="muted">${l.unit}</td>
+      <td class="muted num-cell">${l.qty}</td>
+      <td style="width:120px"><input type="number" value="${c.unit_price}" step="0.01" onchange="editBoqSub(${i},${j},'unit_price',this.value)"></td>
+      <td class="num-cell muted">${fmt(c.total ?? (l.qty * c.unit_price))}</td>
+      <td></td>
+      <td><button class="btn sm danger" onclick="removeBoqSub(${i},${j})">✕</button></td>
+    </tr>`).join("");
+  return parentRow + subRows;
 }
 
 function boqSourceLabel(source) {
@@ -429,6 +455,41 @@ function addBoqLine() {
   const name = prompt(t("new_item_prompt"));
   if (!name) return;
   currentProposal.data.boq.push({ code: "", name, unit: "وحدة", qty: 1, unit_price: 0, source: "يدوي" });
+  saveBoqChanges();
+}
+
+/* مراحل فرعية داخل بند واحد: نفس الكمية، وسعر البند الأب = مجموع أسعار مراحله */
+let _subItemTargetIndex = null;
+
+function addBoqSubItem(i) {
+  _subItemTargetIndex = i;
+  $("#boqStageLabel").value = "";
+  $("#boqStagePrice").value = "0";
+  $("#subItemModal").style.display = "flex";
+  $("#boqStageLabel").focus();
+}
+function closeSubItemModal() {
+  $("#subItemModal").style.display = "none";
+  _subItemTargetIndex = null;
+}
+function confirmAddSubItem() {
+  const name = $("#boqStageLabel").value.trim();
+  if (!name) return toast(t("msg_sub_item_name_required"), true);
+  const price = Number($("#boqStagePrice").value || 0);
+  const line = currentProposal.data.boq[_subItemTargetIndex];
+  if (!line.children) line.children = [];
+  line.children.push({ name, unit_price: price });
+  closeSubItemModal();
+  saveBoqChanges();
+}
+function editBoqSub(i, j, field, value) {
+  currentProposal.data.boq[i].children[j][field] = field === "unit_price" ? Number(value) : value;
+  saveBoqChanges();
+}
+function removeBoqSub(i, j) {
+  const line = currentProposal.data.boq[i];
+  line.children.splice(j, 1);
+  if (!line.children.length) delete line.children;
   saveBoqChanges();
 }
 
