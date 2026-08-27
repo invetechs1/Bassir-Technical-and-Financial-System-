@@ -97,12 +97,20 @@ def index():
 
 @app.get("/api/status")
 def status():
+    from .etimad import list_tenders
+    from .forsah import list_projects
+    stats = db.market_stats()
     return {
         "ok": True,
         "ai_enabled": ai_available(),
         "engine": "claude" if ai_available() else "template",
         "proposals": len(db.list_proposals()),
         "price_items": len(db.list_price_items()),
+        "library": len(db.list_library()),
+        "repo_files": stats["repo_files"],
+        "etimad": len(list_tenders()),
+        "forsah": len(list_projects()),
+        "docs": len(db.list_company_docs()),
     }
 
 

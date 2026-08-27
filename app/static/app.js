@@ -41,6 +41,23 @@ function go(page) {
   if (page === "docs") loadDocs();
   if (page === "analytics") loadAnalytics();
   if (page === "settings") loadSettings();
+  const navBtn = document.querySelector(`.nav-btn[data-page="${page}"]`);
+  const titleEl = document.getElementById("pageTitle");
+  if (navBtn && titleEl) titleEl.textContent = (navBtn.childNodes[0]?.nodeValue || navBtn.textContent).trim();
+}
+
+const setCount = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? "—"; };
+async function loadNavCounts() {
+  try {
+    const c = await api("/api/status");
+    setCount("cntProposals", c.proposals);
+    setCount("cntPrices", c.price_items);
+    setCount("cntLibrary", c.library);
+    setCount("cntRepo", c.repo_files);
+    setCount("cntEtimad", c.etimad);
+    setCount("cntForsah", c.forsah);
+    setCount("cntDocs", c.docs);
+  } catch {}
 }
 $$(".nav-btn").forEach((b) => b.addEventListener("click", () => go(b.dataset.page)));
 
@@ -84,6 +101,7 @@ async function savePassword() {
 
 /* ---------- لوحة التحكم ---------- */
 async function loadDashboard() {
+  loadNavCounts();
   const [status, proposals] = await Promise.all([api("/api/status"), api("/api/proposals")]);
   lastAiEnabled = status.ai_enabled;
   refreshEngineStatus();
@@ -107,10 +125,9 @@ async function loadDashboard() {
     const parts = [];
     if (expired.length) parts.push(`⛔ ${t("docs_alert_expired")} ${expired.map((d) => d.name).join("، ")}`);
     if (expiring.length) parts.push(`⚠️ ${t("docs_alert_expiring")} ${expiring.map((d) => `${d.name} (${d.days_left} ${t("docs_alert_days")})`).join("، ")}`);
-    $("#docsAlert").innerHTML = `<div class="panel" style="border-inline-start:4px solid var(--warn)">
-      <b>${t("docs_alert_title")}</b>
-      <p class="muted mt" style="line-height:1.9">${parts.join("<br>")}</p>
-      <button class="btn sm ghost mt" onclick="go('docs')">${t("docs_alert_btn")}</button></div>`;
+    $("#docsAlert").innerHTML = `<div class="alert">
+      <div><b>${t("docs_alert_title")}</b><br><span style="line-height:1.9">${parts.join("<br>")}</span></div>
+      <button class="btn ghost sm" onclick="go('docs')">${t("docs_alert_btn")}</button></div>`;
   } else {
     $("#docsAlert").innerHTML = "";
   }
@@ -118,7 +135,7 @@ async function loadDashboard() {
 
 function rowHtml(p) {
   return `<tr>
-    <td>${p.ref_no}</td><td>${p.title}</td><td>${p.client}</td>
+    <td class="code">${p.ref_no}</td><td class="ellipsis">${p.title}</td><td class="ellipsis">${p.client}</td>
     <td><span class="tag ${p.entity_type === "government" ? "gov" : "private"}">${t(SECTOR_KEY[p.entity_type]) || p.entity_type}</span></td>
     <td><span class="tag ${p.status}">${t(STATUS_KEY[p.status]) || p.status}</span></td>
     <td class="num-cell">${p.created_at.slice(0, 10)}</td>
@@ -144,9 +161,10 @@ function addFiles(list) {
   for (const f of list) pendingFiles.push(f);
   renderFileList();
 }
+const fileSize = (b) => b > 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.ceil(b / 1024) + " KB";
 function renderFileList() {
   $("#fileList").innerHTML = pendingFiles.map((f, i) =>
-    `<span class="file-chip">${f.name}<button onclick="pendingFiles.splice(${i},1);renderFileList()">✕</button></span>`
+    `<span class="file-chip">${f.name}<span class="size">${fileSize(f.size)}</span><button onclick="pendingFiles.splice(${i},1);renderFileList()">✕</button></span>`
   ).join("");
 }
 
@@ -594,7 +612,7 @@ async function loadForsah() {
       <td><span class="tag est">${p.category}</span></td>
       <td class="num-cell">${p.budget || "—"}</td>
       <td class="num-cell">${p.deadline || "—"}</td>
-      <td><span class="tag ${p.relevance >= 30 ? "src" : p.relevance >= 15 ? "est" : "draft"}">${p.relevance}%</span></td>
+      <td><span class="fit${p.relevance < 15 ? " low" : ""}"><i style="width:${Math.min(p.relevance * 2, 100)}%"></i></span> <span class="num-cell">${p.relevance}%</span></td>
       <td><select onchange="setFsStatus(${p.id}, this.value)" style="padding:4px 8px;font-size:12px">
         ${FS_STATUSES.map((s) => `<option ${s === p.status ? "selected" : ""}>${s}</option>`).join("")}</select></td>
       <td>
@@ -633,7 +651,7 @@ repoInput.addEventListener("change", () => {
 });
 function renderRepoFiles() {
   $("#repoFileList").innerHTML = repoFiles.map((f, i) =>
-    `<span class="file-chip">${f.name}<button onclick="repoFiles.splice(${i},1);renderRepoFiles()">✕</button></span>`).join("");
+    `<span class="file-chip">${f.name}<span class="size">${fileSize(f.size)}</span><button onclick="repoFiles.splice(${i},1);renderRepoFiles()">✕</button></span>`).join("");
 }
 
 async function uploadRepo() {
