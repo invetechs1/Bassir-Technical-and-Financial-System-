@@ -36,6 +36,7 @@ async function loadMe() {
   $("#tenantName").textContent = ME.company_name || "—";
   $("#tenantMark").textContent = (ME.company_short || ME.company_name || "ع").slice(0, 1);
   $("#tenantPlan").textContent = ME.plan_ar || "";
+  applyBrand();
   const showTenants = ME.is_admin || ME.is_platform_admin;
   $("#navgrpPlatform").hidden = !showTenants;
   $("#navTenants").hidden = !showTenants;
@@ -44,6 +45,24 @@ async function loadMe() {
       const btn = document.querySelector(`.nav-btn[data-page="${pg}"]`);
       if (btn) { btn.classList.add("locked"); const c = btn.querySelector(".nav-count"); if (c) c.textContent = "🔒"; }
     });
+  }
+}
+
+function applyBrand() {
+  // شعار الشركة النشطة — وشركة بلا شعار تعرض حرفها الأول بلونها، لا شعار غيرها
+  const img = $("#brandLogoImg"), init = $("#brandInitial");
+  if (ME.logo_url) {
+    img.src = ME.logo_url;
+    img.hidden = false; init.hidden = true;
+  } else {
+    img.hidden = true;
+    init.hidden = false;
+    init.textContent = (ME.company_name || "؟").slice(0, 1);
+    init.style.background = ME.brand_color || "#175934";
+  }
+  if (ME.company_id !== 1) {
+    $("#brandWordmark").textContent = ME.company_short || ME.company_name || "";
+    $("#brandTagline").textContent = (ME.company_name || "") + " — نظام العروض الفنية والمالية";
   }
 }
 
@@ -697,6 +716,20 @@ async function loadTenants() {
         <td><button class="btn sm ghost" onclick="switchCompany(${c.id})">${t("company_open")}</button></td>
       </tr>`).join("");
   }
+}
+
+async function uploadCompanyLogo() {
+  const f = $("#logoInput").files[0];
+  if (!f) return;
+  const form = new FormData();
+  form.append("logo", f);
+  try {
+    await api(`/api/companies/${ME.company_id}/logo`, { method: "POST", body: form });
+    toast(t("logo_uploaded"));
+    ME.logo_url = `/api/companies/${ME.company_id}/logo?v=${Date.now()}`;
+    applyBrand();
+  } catch (err) { toast(err.message, true); }
+  $("#logoInput").value = "";
 }
 
 async function inviteMember() {

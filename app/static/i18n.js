@@ -72,6 +72,10 @@ const I18N = {
   denied_body: { ar: "صلاحية الاطلاع والتعديل في قاعدة الأسعار، المكتبة الفنية، المستودع المعرفي، التحليلات، وأرشيف العروض محصورة على الأدمن.", en: "Access to the price catalog, content library, knowledge repository, analytics, and proposal archive is restricted to admins." },
   denied_role_label: { ar: "دورك الحالي:", en: "Your current role:" },
   denied_hint: { ar: "اطلب من مالك الحساب ترقية صلاحيتك من صفحة «الشركات والمستخدمون».", en: "Ask the account owner to upgrade your role from the Companies & Users page." },
+  logo_slot: { ar: "رفع<br>الشعار", en: "Upload<br>Logo" },
+  logo_title: { ar: "شعار الشركة الحالية", en: "Current Company Logo" },
+  logo_hint: { ar: "يظهر أعلى الشريط الجانبي وفي ترويسة العروض المصدَّرة. PNG أو JPG أو WebP بخلفية شفافة، 512×512 على الأقل، حتى 2 ميجابايت.", en: "Shown atop the sidebar and in exported proposal headers. PNG/JPG/WebP with transparent background, at least 512×512, up to 2 MB." },
+  logo_uploaded: { ar: "🖼️ رُفع شعار الشركة وظهر في الواجهة", en: "🖼️ Company logo uploaded" },
   topbar_new_btn: { ar: "+ إنشاء عرض جديد", en: "+ New Proposal" },
 
   // لوحة التحكم

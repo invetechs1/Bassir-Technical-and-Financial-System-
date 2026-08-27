@@ -12,12 +12,13 @@
 <div class="layout">
   <aside class="sidebar">
     <div class="brand">
-      <div class="logo" title="AZOOM United Co.">
-        <img src="/static/img/azoom-mark.png" alt="AZOOM">
+      <div class="logo" id="brandLogo" title="AZOOM United Co.">
+        <img id="brandLogoImg" src="/static/img/azoom-mark.png" alt="AZOOM">
+        <span class="initial" id="brandInitial" hidden></span>
       </div>
       <div>
-        <h1>AZOOM</h1>
-        <p data-i18n-html="brand_tagline"><span dir="ltr">United Co.</span> — نظام العروض الفنية والمالية</p>
+        <h1 id="brandWordmark">AZOOM</h1>
+        <p id="brandTagline" data-i18n-html="brand_tagline"><span dir="ltr">United Co.</span> — نظام العروض الفنية والمالية</p>
       </div>
       <button class="lang-btn" id="langToggle" onclick="toggleLang()">EN</button>
     </div>
@@ -40,6 +41,7 @@
     <button class="nav-btn" data-page="tenants" id="navTenants" data-i18n="nav_tenants" hidden>الشركات والمستخدمون</button>
     <button class="nav-btn" onclick="logout()" style="margin-top:auto" data-i18n="nav_logout">تسجيل الخروج</button>
     <div class="engine-badge" id="engineBadge">…</div>
+    <div class="powered-by" dir="ltr">powered by Bassir Technology Company</div>
   </aside>
 
   <main class="main">
@@ -476,6 +478,14 @@
           <thead><tr><th data-i18n="th_member">المستخدم</th><th data-i18n="th_display">الاسم</th><th data-i18n="th_role">الدور</th><th data-i18n="th_last_login">آخر دخول</th><th data-i18n="th_actions">إجراءات</th></tr></thead>
           <tbody></tbody>
         </table></div>
+        <div class="logo-upload mt">
+          <label class="slot" for="logoInput" data-i18n-html="logo_slot">رفع<br>الشعار</label>
+          <input type="file" id="logoInput" accept=".png,.jpg,.jpeg,.webp" hidden onchange="uploadCompanyLogo()">
+          <div>
+            <strong data-i18n="logo_title">شعار الشركة الحالية</strong>
+            <span data-i18n="logo_hint">يظهر أعلى الشريط الجانبي وفي ترويسة العروض المصدَّرة. PNG أو JPG أو WebP بخلفية شفافة، 512×512 على الأقل، حتى 2 ميجابايت.</span>
+          </div>
+        </div>
         <h3 class="mt" data-i18n="invite_title">دعوة مستخدم</h3>
         <div class="grid-3">
           <div><label data-i18n="invite_user">اسم المستخدم *</label><input type="text" id="invUsername" autocomplete="off"></div>

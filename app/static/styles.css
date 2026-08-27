@@ -57,6 +57,9 @@ body {
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .num-cell { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+/* نسبة مثل «6 / 10» داخل صفحة RTL — بلا هذه القاعدة ينقلب ترتيب الرقمين */
+.ratio { direction: ltr; unicode-bidi: isolate; font-family: var(--font-mono); white-space: nowrap; }
+
 .layout { display: flex; min-height: 100vh; }
 
 /* ============ الشريط الجانبي ============ */
@@ -84,7 +87,15 @@ body {
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
 }
-.brand .logo img, .brand .logo svg { width: 32px; height: 32px; object-fit: contain; }
+.brand .logo img { width: 32px; height: 32px; object-fit: contain; display: block; }
+
+/* بديل الشعار حين لا ترفع الشركة صورة — حرف أول بلون الشركة، لا شعار شركة أخرى */
+.brand .logo .initial {
+  width: 32px; height: 32px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-head); font-size: 14px; font-weight: 700; color: #fff;
+  background: var(--primary);
+}
 .brand h1 { font-family: var(--font-head); font-size: 15px; font-weight: 700; letter-spacing: 2px; direction: ltr; text-align: start; }
 .brand p { font-size: 10.5px; color: #9BC6AC; margin-top: 2px; }
 .brand p span[dir="ltr"] { display: inline-block; }   /* يمنع انقلاب النقطة في "United Co." */
@@ -147,6 +158,15 @@ body {
   border-radius: 50%; background: #5FD68F;
 }
 
+/* تذييل إلزامي في كل الأنظمة */
+.powered-by {
+  direction: ltr;
+  margin-top: 10px; padding: 10px 12px 2px;
+  border-top: 1px solid rgba(255,255,255,.10);
+  font-size: 10px; letter-spacing: .03em;
+  color: #6E9B7F; text-align: center;
+}
+
 /* ============ المحتوى ============ */
 .main { flex: 1; min-width: 0; padding: 24px 26px 34px; max-width: none; }
 .page { display: none; }
@@ -185,6 +205,18 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+
+/* رفع الشعار في نماذج الشركة */
+.logo-upload { display: flex; align-items: center; gap: 14px; padding: 13px 14px; border: 1px solid #EDF2EE; border-radius: 10px; background: var(--card-2); }
+.logo-upload .slot {
+  width: 64px; height: 64px; flex: 0 0 64px;
+  border: 1.5px dashed #A9D3B9; border-radius: 10px; background: var(--card);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: var(--muted-2); text-align: center; line-height: 1.5; cursor: pointer;
+}
+.logo-upload .slot:hover { background: #F4FAF6; }
+.logo-upload strong { display: block; font-size: 12px; color: var(--ink-2); }
+.logo-upload span { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.65; margin-top: 3px; }
 
 /* ============ الأزرار ============ */
 .btn {
@@ -272,26 +304,66 @@ tr.boq-sub-row td:nth-child(3) { padding-inline-start: 8px; border-inline-start:
 .boq-sub-arrow { color: var(--primary-2); font-size: 13px; flex: none; }
 td input:disabled { background: var(--card-2); color: var(--muted); cursor: not-allowed; }
 .tag.est       { background: var(--warn-soft); color: var(--warn); }
+/* خطط الاشتراك */
+.tag.plan-ent   { background: var(--primary); color: #fff; }
+.tag.plan-pro   { background: #E4F1EA; color: var(--ok); }
+.tag.plan-basic { background: #E5EDF8; color: #1B4C86; }
+.tag.plan-trial { background: var(--warn-soft); color: var(--warn); }
+/* الفواتير */
+.tag.paid    { background: #E4F1EA; color: var(--ok); }
+.tag.due     { background: #E5EDF8; color: #1B4C86; }
+.tag.overdue { background: #F6E4E4; color: var(--danger); }
 
 /* شريط الملاءمة: <span class="fit"><i style="width:88%"></i></span> 88% */
 .fit { display: inline-block; width: 62px; height: 6px; border-radius: 3px; background: #EDF2EE; overflow: hidden; vertical-align: middle; }
 .fit i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
 .fit.low i { background: #C9D6CD; }
 
-/* ============ تبويبات العارض ============ */
+/* شريط الاستهلاك مقابل حد الخطة */
+.usage { display: flex; align-items: center; gap: 8px; }
+.usage .bar { flex: 1; height: 6px; border-radius: 3px; background: #EDF2EE; overflow: hidden; }
+.usage .bar i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.usage .bar.warn i { background: #C79A3E; }     /* ≥ 80% */
+.usage .bar.crit i { background: var(--warn); } /* ≥ 95% */
+
+/* ============ التبويبات ============ */
 .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
 .tab-btn {
   background: none; border: none; font-family: var(--font-head);
   padding: 10px 18px; font-size: 13px; cursor: pointer; color: #7C8C82;
   border-bottom: 2.5px solid transparent; margin-bottom: -1px;
+  display: flex; align-items: center;
 }
 .tab-btn.active { color: var(--ink-2); font-weight: 600; border-bottom-color: var(--accent); }
 .tab-pane { display: none; }
 .tab-pane.active { display: block; }
 
 .section-block { margin-bottom: 22px; }
-.section-block h4 { font-family: var(--font-head); font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 9px; padding-bottom: 6px; border-bottom: 1px solid #EDF2EE; }
+.section-block h4 {
+  font-family: var(--font-head); font-size: 14px; font-weight: 600; color: var(--accent);
+  margin-bottom: 9px; padding-bottom: 6px; border-bottom: 1px solid #EDF2EE;
+  display: flex; align-items: baseline; gap: 10px;
+}
+.section-block h4 .src { flex: 0 0 auto; font-family: var(--font-body); font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 5px; white-space: nowrap; }
+.section-block h4 .src.bank { background: var(--accent-soft); color: var(--ok); }
+.section-block h4 .src.new  { background: var(--warn-soft); color: var(--warn); }
 .section-block p { line-height: 1.95; font-size: 13px; color: #33413A; white-space: pre-wrap; }
+
+/* شريط مطابقة الأسلوب أعلى العرض الفني */
+.style-match {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 12px 16px; margin-bottom: 12px;
+  border: 1px solid #D8E8DD; border-radius: var(--radius); background: #F4FAF6;
+  font-size: 12px; color: #4A5B51; line-height: 1.7;
+}
+.style-match .score { font-family: var(--font-mono); font-size: 15px; font-weight: 500; color: var(--primary); font-variant-numeric: tabular-nums; }
+
+/* بنك الفقرات */
+.para-card { border: 1px solid #EDF2EE; border-radius: 9px; padding: 12px 13px; background: var(--card-2); }
+.para-card .head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.para-card .head strong { flex: 1; font-size: 12px; font-weight: 600; color: var(--ink-2); min-width: 0; }
+.para-card .head .uses { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted-2); }
+.para-card p { font-size: 11.5px; line-height: 1.75; color: #5C6A61; }
 
 /* ============ الخطة التنفيذية ============ */
 .phase {
@@ -407,6 +479,13 @@ td input:disabled { background: var(--card-2); color: var(--muted); cursor: not-
 .modal .body { padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
 .modal footer { padding: 14px 22px; border-top: 1px solid #EDF2EE; display: flex; justify-content: flex-end; gap: 9px; }
 
+/* خطوات التسجيل الذاتي */
+.step-card { background: var(--card); border: 1px solid var(--line); border-top: 2px solid var(--accent); border-radius: var(--radius); padding: 15px 16px; }
+.step-card .head { display: flex; align-items: center; gap: 9px; margin-bottom: 7px; }
+.step-card .n { width: 22px; height: 22px; flex: 0 0 22px; border-radius: 50%; background: var(--accent-soft); color: var(--primary); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.step-card strong { font-family: var(--font-head); font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.step-card p { font-size: 12px; line-height: 1.75; color: #4A5B51; }
+
 /* ============ أشرطة التمرير ============ */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #D6E0D8; border-radius: 6px; border: 3px solid var(--canvas); }
@@ -422,6 +501,13 @@ td input:disabled { background: var(--card-2); color: var(--muted); cursor: not-
   .main { padding: 16px; }
   .topbar { padding: 0 16px; }
   .topbar .search { display: none; }
+}
+
+/* ============ الطباعة ============ */
+@media print {
+  .sidebar, .topbar, .tabs, .btn, .style-match, .section-block h4 .src { display: none !important; }
+  .main { padding: 0; }
+  body { background: #fff; }
 }
 
 /* ===== أدوات مساعدة محفوظة من النسخة السابقة ===== */
