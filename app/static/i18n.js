@@ -3,21 +3,27 @@
    هذه محتوى حقيقي بالعربية ويبقى كما هو. */
 const I18N = {
   app_title: { ar: "نظام عزوم — العروض الفنية والمالية", en: "AZOOM — Technical & Financial Proposals" },
-  brand_tagline: { ar: "United Co. — نظام العروض الفنية والمالية", en: "United Co. — Proposals System" },
+  brand_tagline: { ar: "<span dir=\"ltr\">United Co.</span> — نظام العروض الفنية والمالية", en: "<span dir=\"ltr\">United Co.</span> — Proposals System" },
   lang_toggle: { ar: "English", en: "العربية" },
 
-  nav_dashboard: { ar: "📊 لوحة التحكم", en: "📊 Dashboard" },
-  nav_new: { ar: "✨ عرض جديد", en: "✨ New Proposal" },
-  nav_proposals: { ar: "🗂️ أرشيف العروض", en: "🗂️ Proposal Archive" },
-  nav_prices: { ar: "💰 قاعدة الأسعار", en: "💰 Price Catalog" },
-  nav_library: { ar: "📚 المكتبة الفنية", en: "📚 Content Library" },
-  nav_etimad: { ar: "🏛️ منافسات اعتماد", en: "🏛️ Etimad Tenders" },
-  nav_forsah: { ar: "🚀 مشاريع منصة فرصة", en: "🚀 Forsah Projects" },
-  nav_repo: { ar: "🗄️ المستودع المعرفي", en: "🗄️ Knowledge Repository" },
-  nav_docs: { ar: "📄 وثائق الشركة", en: "📄 Company Documents" },
-  nav_analytics: { ar: "📈 التحليلات", en: "📈 Analytics" },
-  nav_settings: { ar: "⚙️ الإعدادات", en: "⚙️ Settings" },
-  nav_logout: { ar: "🚪 تسجيل الخروج", en: "🚪 Log Out" },
+  nav_dashboard: { ar: "لوحة التحكم", en: "Dashboard" },
+  nav_new: { ar: "عرض جديد", en: "New Proposal" },
+  nav_proposals: { ar: "أرشيف العروض", en: "Proposal Archive" },
+  nav_prices: { ar: "قاعدة الأسعار", en: "Price Catalog" },
+  nav_library: { ar: "المكتبة الفنية", en: "Content Library" },
+  nav_etimad: { ar: "منافسات اعتماد", en: "Etimad Tenders" },
+  nav_forsah: { ar: "مشاريع منصة فرصة", en: "Forsah Projects" },
+  nav_repo: { ar: "المستودع المعرفي", en: "Knowledge Repository" },
+  nav_docs: { ar: "وثائق الشركة", en: "Company Documents" },
+  nav_analytics: { ar: "التحليلات", en: "Analytics" },
+  nav_settings: { ar: "الإعدادات", en: "Settings" },
+  nav_logout: { ar: "تسجيل الخروج", en: "Log Out" },
+
+  navgrp_daily: { ar: "العمل اليومي", en: "Daily Work" },
+  navgrp_knowledge: { ar: "قواعد المعرفة", en: "Knowledge" },
+  navgrp_opportunities: { ar: "الفرص", en: "Opportunities" },
+  navgrp_company: { ar: "الشركة", en: "Company" },
+  topbar_new_btn: { ar: "+ إنشاء عرض جديد", en: "+ New Proposal" },
 
   // لوحة التحكم
   dash_title: { ar: "لوحة التحكم", en: "Dashboard" },
@@ -377,7 +383,14 @@ function applyTranslations() {
   applyDir();
   document.querySelectorAll("[data-i18n]").forEach((el) => {
     const key = el.dataset.i18n;
-    el.textContent = t(key);
+    if (el.children.length) {
+      // استبدال النص فقط مع إبقاء الأبناء (مثل عدادات القائمة)
+      const first = el.firstChild;
+      if (first && first.nodeType === Node.TEXT_NODE) first.nodeValue = t(key);
+      else el.insertBefore(document.createTextNode(t(key)), el.firstChild);
+    } else {
+      el.textContent = t(key);
+    }
   });
   document.querySelectorAll("[data-i18n-html]").forEach((el) => {
     el.innerHTML = t(el.dataset.i18nHtml);

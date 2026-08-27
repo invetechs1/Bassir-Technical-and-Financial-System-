@@ -412,9 +412,3 @@ td.ellipsis { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-spa
   .topbar { padding: 0 16px; }
   .topbar .search { display: none; }
 }
-
-/* ===== أدوات مساعدة محفوظة من النسخة السابقة ===== */
-.muted { color: var(--muted); font-size: 12.5px; }
-.mb { margin-bottom: 14px; }
-.mt { margin-top: 14px; }
-.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }

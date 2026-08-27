@@ -4,33 +4,50 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title data-i18n="app_title">نظام عزوم — العروض الفنية والمالية</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
 <div class="layout">
   <aside class="sidebar">
     <div class="brand">
-      <div class="logo" title="AZOOM United Co."><svg width="34" height="38" viewBox="0 0 100 110" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><clipPath id="hex"><path d="M50 2 L95 28 L95 82 L50 108 L5 82 L5 28 Z"/></clipPath></defs><g clip-path="url(#hex)" stroke="#2E9E5B" stroke-width="6"><line x1="0" y1="10" x2="100" y2="10"/><line x1="0" y1="24" x2="100" y2="24"/><line x1="0" y1="38" x2="100" y2="38"/><line x1="0" y1="52" x2="100" y2="52"/><line x1="0" y1="66" x2="100" y2="66"/><line x1="0" y1="80" x2="100" y2="80"/><line x1="0" y1="94" x2="100" y2="94"/></g><path d="M50 2 L95 28 L95 82 L50 108 L5 82 L5 28 Z" fill="none" stroke="#175934" stroke-width="5"/></svg></div>
-      <h1 style="letter-spacing:3px">AZOOM</h1>
-      <p data-i18n="brand_tagline">United Co. — نظام العروض الفنية والمالية</p>
+      <div class="logo" title="AZOOM United Co.">
+        <img src="/static/img/azoom-mark.png" alt="AZOOM">
+      </div>
+      <div>
+        <h1>AZOOM</h1>
+        <p data-i18n-html="brand_tagline"><span dir="ltr">United Co.</span> — نظام العروض الفنية والمالية</p>
+      </div>
       <button class="lang-btn" id="langToggle" onclick="toggleLang()">EN</button>
     </div>
-    <button class="nav-btn active" data-page="dashboard" data-i18n="nav_dashboard">📊 لوحة التحكم</button>
-    <button class="nav-btn" data-page="new" data-i18n="nav_new">✨ عرض جديد</button>
-    <button class="nav-btn" data-page="proposals" data-i18n="nav_proposals">🗂️ أرشيف العروض</button>
-    <button class="nav-btn" data-page="prices" data-i18n="nav_prices">💰 قاعدة الأسعار</button>
-    <button class="nav-btn" data-page="library" data-i18n="nav_library">📚 المكتبة الفنية</button>
-    <button class="nav-btn" data-page="etimad" data-i18n="nav_etimad">🏛️ منافسات اعتماد</button>
-    <button class="nav-btn" data-page="forsah" data-i18n="nav_forsah">🚀 مشاريع منصة فرصة</button>
-    <button class="nav-btn" data-page="repo" data-i18n="nav_repo">🗄️ المستودع المعرفي</button>
-    <button class="nav-btn" data-page="docs" data-i18n="nav_docs">📄 وثائق الشركة</button>
-    <button class="nav-btn" data-page="analytics" data-i18n="nav_analytics">📈 التحليلات</button>
-    <button class="nav-btn" data-page="settings" data-i18n="nav_settings">⚙️ الإعدادات</button>
-    <button class="nav-btn" onclick="logout()" style="margin-top:auto" data-i18n="nav_logout">🚪 تسجيل الخروج</button>
+    <div class="nav-group" data-i18n="navgrp_daily">العمل اليومي</div>
+    <button class="nav-btn active" data-page="dashboard" data-i18n="nav_dashboard">لوحة التحكم</button>
+    <button class="nav-btn" data-page="new" data-i18n="nav_new">عرض جديد</button>
+    <button class="nav-btn" data-page="proposals" data-i18n="nav_proposals">أرشيف العروض<span class="nav-count" id="cntProposals">—</span></button>
+    <div class="nav-group" data-i18n="navgrp_knowledge">قواعد المعرفة</div>
+    <button class="nav-btn" data-page="prices" data-i18n="nav_prices">قاعدة الأسعار<span class="nav-count" id="cntPrices">—</span></button>
+    <button class="nav-btn" data-page="library" data-i18n="nav_library">المكتبة الفنية<span class="nav-count" id="cntLibrary">—</span></button>
+    <button class="nav-btn" data-page="repo" data-i18n="nav_repo">المستودع المعرفي<span class="nav-count" id="cntRepo">—</span></button>
+    <div class="nav-group" data-i18n="navgrp_opportunities">الفرص</div>
+    <button class="nav-btn" data-page="etimad" data-i18n="nav_etimad">منافسات اعتماد<span class="nav-count" id="cntEtimad">—</span></button>
+    <button class="nav-btn" data-page="forsah" data-i18n="nav_forsah">مشاريع منصة فرصة<span class="nav-count" id="cntForsah">—</span></button>
+    <div class="nav-group" data-i18n="navgrp_company">الشركة</div>
+    <button class="nav-btn" data-page="docs" data-i18n="nav_docs">وثائق الشركة<span class="nav-count" id="cntDocs">—</span></button>
+    <button class="nav-btn" data-page="analytics" data-i18n="nav_analytics">التحليلات</button>
+    <button class="nav-btn" data-page="settings" data-i18n="nav_settings">الإعدادات</button>
+    <button class="nav-btn" onclick="logout()" style="margin-top:auto" data-i18n="nav_logout">تسجيل الخروج</button>
     <div class="engine-badge" id="engineBadge">…</div>
   </aside>
 
   <main class="main">
+
+    <div class="topbar">
+      <div class="title"><h2 id="pageTitle">لوحة التحكم</h2></div>
+      <div class="spacer" style="flex:1"></div>
+      <span class="tag admin" id="roleChip" hidden>أدمن</span>
+      <button class="btn" onclick="go('new')" data-i18n="topbar_new_btn">+ إنشاء عرض جديد</button>
+    </div>
 
     <!-- لوحة التحكم -->
     <section class="page active" id="page-dashboard">
@@ -72,7 +89,7 @@
         </select>
         <label data-i18n="new_files_label">ملفات المشروع (PDF / Word / Excel / نص)</label>
         <div class="dropzone" id="dropzone">
-          <div class="big">📁</div>
+          <div class="big">PDF · DOCX · XLSX · TXT</div>
           <span data-i18n="dropzone_text">اسحب الملفات هنا أو اضغط للاختيار</span>
           <input type="file" id="fileInput" multiple hidden accept=".pdf,.docx,.xlsx,.xlsm,.txt,.md,.csv">
         </div>
@@ -291,7 +308,7 @@
         </div>
         <label data-i18n="files_label2">الملفات (Excel / PDF / Word / نص)</label>
         <div class="dropzone" id="repoDrop">
-          <div class="big">🗄️</div>
+          <div class="big">PDF · DOCX · XLSX · TXT</div>
           <span data-i18n="dropzone_text">اسحب الملفات هنا أو اضغط للاختيار</span>
           <input type="file" id="repoFileInput" multiple hidden accept=".pdf,.docx,.xlsx,.xlsm,.txt,.md,.csv">
         </div>

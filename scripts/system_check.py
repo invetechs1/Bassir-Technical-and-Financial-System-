@@ -56,7 +56,8 @@ r = c.get("/api/proposals"); props = r.json()
 refs = [p for p in props if p.get("is_reference") or "مرجعي" in str(p)]
 check(f"العروض المرجعية المبذورة ({len(props)} عرضاً بالأرشيف)", len(props) >= 7)
 r = c.get("/")
-check("الواجهة الرئيسية بالهوية الخضراء", "AZOOM" in r.text and "175934" in r.text.replace("#", ""))
+check("الواجهة الرئيسية بالهوية الجديدة (الشعار الرسمي + المجموعات)",
+      "AZOOM" in r.text and "azoom-mark.png" in r.text and "nav-group" in r.text)
 r = c.get("/static/app.js")
 check("ملف app.js يُقدَّم", r.status_code == 200 and "makeReference" in r.text)
 r = c.get("/static/styles.css")
