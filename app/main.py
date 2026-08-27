@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from . import database as db
+from . import tenancy
 from .auth import (LOGIN_PAGE, SESSION_COOKIE, authenticate, change_password,
                    create_session_token, init_auth, verify_session_token)
 from .ai_engine import ai_available, generate_proposal_ai
@@ -35,9 +36,15 @@ def startup():
     seed_if_empty()
 
 
-# ------------------------------ المصادقة ------------------------------
+# ------------------------------ المصادقة والصلاحيات ------------------------------
 
 _OPEN_PATHS = ("/login", "/api/login", "/static/", "/favicon")
+COMPANY_COOKIE = "azoom_company"
+
+# الصفحات الخمس الإدارية — القراءة والكتابة على الأدمن (owner/admin) فقط
+_ADMIN_API_PREFIXES = ("/api/prices", "/api/library", "/api/repo", "/api/market", "/api/analytics")
+# مسارات يجوز فيها غير-GET لدور المشاهد (شؤون حسابه فقط)
+_VIEWER_WRITE_OK = ("/api/logout", "/api/password", "/api/session/company")
 
 
 @app.middleware("http")
@@ -50,8 +57,40 @@ async def auth_guard(request: Request, call_next):
         if path.startswith("/api/"):
             return JSONResponse({"detail": "غير مصرح — سجّل الدخول أولاً"}, status_code=401)
         return RedirectResponse("/login")
+
+    # حل الشركة الحالية: كوكي الشركة إن كانت عضويته قائمة، وإلا أول عضوياته
+    from .auth import get_user
+    user = get_user(username)
+    if not user:
+        return JSONResponse({"detail": "الحساب غير موجود"}, status_code=401)
+    companies = db.user_companies(user["id"])
+    if not companies:
+        return JSONResponse({"detail": "لا عضوية لك في أي شركة — راجع مدير المنصة"}, status_code=403)
+    wanted = request.cookies.get(COMPANY_COOKIE, "")
+    current = next((c for c in companies if str(c["id"]) == wanted), companies[0])
+
     request.state.username = username
-    return await call_next(request)
+    request.state.user_id = user["id"]
+    request.state.role = current["role"]
+    request.state.company_id = current["id"]
+    request.state.company_name = current["name"]
+    request.state.is_platform_admin = bool(user.get("is_platform_admin"))
+
+    # فرض الأدوار في الخادم — إخفاء الأزرار في الواجهة ليس حماية
+    role = current["role"]
+    is_admin = role in tenancy.ADMIN_ROLES
+    if path.startswith(_ADMIN_API_PREFIXES) and not is_admin:
+        return JSONResponse({"detail": "هذه الصفحة للأدمن فقط"}, status_code=403)
+    if role == "viewer" and request.method not in ("GET", "HEAD") \
+            and not path.startswith(_VIEWER_WRITE_OK):
+        return JSONResponse({"detail": "دورك (مُشاهد) للقراءة والتصدير فقط"}, status_code=403)
+
+    tokens = tenancy.set_context(current["id"], role, user["id"],
+                                 bool(user.get("is_platform_admin")))
+    try:
+        return await call_next(request)
+    finally:
+        tenancy.reset_context(tokens)
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -64,7 +103,8 @@ def api_login(body: dict):
     user = authenticate(body.get("username", ""), body.get("password", ""))
     if not user:
         raise HTTPException(401, "بيانات الدخول غير صحيحة")
-    response = JSONResponse({"ok": True, "user": user})
+    companies = db.user_companies(user["id"])
+    response = JSONResponse({"ok": True, "user": user, "companies": companies})
     response.set_cookie(SESSION_COOKIE, create_session_token(user["username"]),
                         httponly=True, samesite="lax", max_age=12 * 3600)
     return response
@@ -79,7 +119,20 @@ def api_logout():
 
 @app.get("/api/me")
 def api_me(request: Request):
-    return {"username": request.state.username}
+    company = db.get_company(request.state.company_id) or {}
+    return {
+        "username": request.state.username,
+        "user_id": request.state.user_id,
+        "role": request.state.role,
+        "role_ar": tenancy.ROLE_AR.get(request.state.role, request.state.role),
+        "is_admin": request.state.role in tenancy.ADMIN_ROLES,
+        "is_platform_admin": request.state.is_platform_admin,
+        "company_id": request.state.company_id,
+        "company_name": request.state.company_name,
+        "company_short": company.get("short_name", ""),
+        "plan": company.get("plan", "trial"),
+        "plan_ar": tenancy.PLAN_AR.get(company.get("plan", ""), company.get("plan", "")),
+    }
 
 
 @app.post("/api/password")
@@ -88,6 +141,153 @@ def api_password(request: Request, body: dict):
     if not ok:
         raise HTTPException(400, "كلمة المرور الحالية غير صحيحة أو الجديدة أقصر من 8 أحرف")
     return {"ok": True}
+
+
+# ------------------------------ الشركات والأعضاء (SaaS) ------------------------------
+
+def _require_admin(request: Request):
+    if request.state.role not in tenancy.ADMIN_ROLES and not request.state.is_platform_admin:
+        raise HTTPException(403, "هذه العملية للأدمن فقط")
+
+
+def _require_platform_admin(request: Request):
+    if not request.state.is_platform_admin:
+        raise HTTPException(403, "هذه العملية لمدير المنصة فقط")
+
+
+def _enforce_limit(request: Request, kind: str):
+    """حدود الخطة — تُفحص قبل الفعل لا في الواجهة."""
+    company = db.get_company(request.state.company_id) or {}
+    limits = tenancy.PLAN_LIMITS.get(company.get("plan", "trial"), tenancy.PLAN_LIMITS["trial"])
+    limit = limits.get(kind)
+    if limit is None:
+        return
+    usage = db.company_usage(request.state.company_id)
+    used = {"users": usage["users"], "proposals_month": usage["proposals_month"],
+            "price_items": usage["price_items"]}.get(kind, 0)
+    if used >= limit:
+        raise HTTPException(402, f"بلغتم حد خطة «{tenancy.PLAN_AR.get(company.get('plan'), '')}» "
+                                 f"({limit}) — رقّوا الاشتراك للمتابعة")
+
+
+@app.get("/api/me/companies")
+def my_companies(request: Request):
+    return db.user_companies(request.state.user_id)
+
+
+@app.post("/api/session/company/{company_id}")
+def switch_company(request: Request, company_id: int):
+    m = db.get_membership(request.state.user_id, company_id)
+    if not m and not request.state.is_platform_admin:
+        raise HTTPException(403, "لا تملك عضوية في هذه الشركة")
+    role = m["role"] if m else "admin"
+    response = JSONResponse({"ok": True, "role": role})
+    response.set_cookie(COMPANY_COOKIE, str(company_id), httponly=True,
+                        samesite="lax", max_age=90 * 24 * 3600)
+    return response
+
+
+@app.get("/api/companies")
+def companies_list(request: Request):
+    _require_platform_admin(request)
+    out = []
+    for c in db.list_companies():
+        out.append({**c, "usage": db.company_usage(c["id"])})
+    return out
+
+
+@app.post("/api/companies")
+def companies_create(request: Request, body: dict):
+    """إنشاء شركة جديدة مع مالك حسابها — لمدير المنصة فقط."""
+    _require_platform_admin(request)
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "اسم الشركة مطلوب")
+    if db.find_company_by_name(name):
+        raise HTTPException(409, "توجد شركة بهذا الاسم مسبقاً")
+    company = db.create_company(name, body.get("short_name", ""),
+                                body.get("plan", "trial"), body.get("sector", ""),
+                                body.get("cr_no", ""), body.get("vat_no", ""))
+    owner_username = (body.get("owner_username") or "").strip()
+    if owner_username:
+        from .auth import create_user, get_user
+        owner = get_user(owner_username)
+        if not owner:
+            password = body.get("owner_password") or ""
+            try:
+                owner = create_user(owner_username, password, body.get("owner_display_name", ""))
+            except ValueError as exc:
+                raise HTTPException(400, str(exc))
+        db.set_membership(owner["id"], company["id"], "owner", request.state.user_id)
+    db.log_audit("companies", company["id"], "create", name)
+    return company
+
+
+@app.get("/api/members")
+def members_list(request: Request):
+    _require_admin(request)
+    return db.company_members(request.state.company_id)
+
+
+@app.post("/api/members")
+def members_invite(request: Request, body: dict):
+    """دعوة مستخدم للشركة الحالية بدور محدد — أدمن فما فوق، والمالك فقط يمنح owner."""
+    _require_admin(request)
+    role = body.get("role", "viewer")
+    if role not in tenancy.ROLES:
+        raise HTTPException(400, f"الدور غير معروف — المتاح: {', '.join(tenancy.ROLES)}")
+    if role == "owner" and request.state.role != "owner" and not request.state.is_platform_admin:
+        raise HTTPException(403, "منح دور مالك الحساب للمالك فقط")
+    _enforce_limit(request, "users")
+    username = (body.get("username") or "").strip()
+    if not username:
+        raise HTTPException(400, "اسم المستخدم مطلوب")
+    from .auth import create_user, get_user
+    user = get_user(username)
+    if not user:
+        try:
+            user = create_user(username, body.get("password") or "",
+                               body.get("display_name", ""))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+    db.set_membership(user["id"], request.state.company_id, role, request.state.user_id)
+    db.log_audit("memberships", user["id"], "invite", f"{username} → {role}")
+    return {"ok": True, "user_id": user["id"], "role": role}
+
+
+@app.put("/api/members/{uid}")
+def members_role(request: Request, uid: int, body: dict):
+    """تغيير دور عضو — المالك أو مدير المنصة."""
+    if request.state.role != "owner" and not request.state.is_platform_admin:
+        raise HTTPException(403, "تغيير الأدوار لمالك الحساب فقط")
+    role = body.get("role", "")
+    if role not in tenancy.ROLES:
+        raise HTTPException(400, "الدور غير معروف")
+    if not db.get_membership(uid, request.state.company_id):
+        raise HTTPException(404, "العضو غير موجود في هذه الشركة")
+    db.set_membership(uid, request.state.company_id, role)
+    db.log_audit("memberships", uid, "role_change", role)
+    return {"ok": True}
+
+
+@app.delete("/api/members/{uid}")
+def members_remove(request: Request, uid: int):
+    if request.state.role != "owner" and not request.state.is_platform_admin:
+        raise HTTPException(403, "إزالة الأعضاء لمالك الحساب فقط")
+    if uid == request.state.user_id:
+        raise HTTPException(400, "لا يمكنك إزالة نفسك")
+    db.remove_membership(uid, request.state.company_id)
+    db.log_audit("memberships", uid, "remove")
+    return {"ok": True}
+
+
+@app.get("/api/usage")
+def usage(request: Request):
+    company = db.get_company(request.state.company_id) or {}
+    plan = company.get("plan", "trial")
+    return {"usage": db.company_usage(request.state.company_id),
+            "plan": plan, "plan_ar": tenancy.PLAN_AR.get(plan, plan),
+            "limits": tenancy.PLAN_LIMITS.get(plan, {})}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -144,7 +344,9 @@ def get_prices(search: str = "", category: str = ""):
 
 
 @app.post("/api/prices")
-def post_price(item: dict):
+def post_price(request: Request, item: dict):
+    if not item.get("id"):
+        _enforce_limit(request, "price_items")
     required = {"code", "category", "name", "unit", "unit_price"}
     if not required.issubset(item):
         raise HTTPException(400, f"حقول مطلوبة: {', '.join(required)}")
@@ -368,11 +570,13 @@ async def opportunity(
 
 @app.post("/api/proposals/generate")
 async def generate_proposal(
+    request: Request,
     title: str = Form(...),
     client: str = Form(...),
     entity_type: str = Form("government"),
     files: list[UploadFile] = File(default=[]),
 ):
+    _enforce_limit(request, "proposals_month")
     texts = []
     for f in files:
         content = await f.read()

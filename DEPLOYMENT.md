@@ -113,6 +113,23 @@ sudo systemctl restart azoom
 Credentials are entered on the «مشاريع منصة فرصة» page and stored only in the
 local database. The browser session is cached in `data/forsah_state.json`.
 
+## Multi-company (SaaS) & roles
+
+The system is multi-tenant: each company has fully isolated prices, proposals,
+library, repository, documents, settings, and platform credentials. Existing
+single-company databases migrate automatically on first start after updating —
+all current AZOOM data becomes company #1, nothing is lost.
+
+- Roles per membership: `owner` / `admin` / `editor` / `viewer`. The five
+  admin pages (prices, library, repository, analytics, archive) are enforced
+  server-side, not just hidden in the UI.
+- The `azoom` account is the platform admin: it can create new companies with
+  their own owner accounts from «الشركات والمستخدمون».
+- Plan limits (trial/basic/pro/enterprise) are enforced before generation,
+  invitations, and new price items.
+- Forsah passwords are stored encrypted (Fernet key auto-created at
+  `data/secret.key` — back it up with `data/`).
+
 ## Data & backups
 
 All state lives in `data/`:
@@ -164,7 +181,7 @@ the login was done on another machine. Fetching the public tenders list
 .venv/bin/python scripts/system_check.py
 ```
 
-Runs 63 checks covering every endpoint and function: auth, seeds, settings,
+Runs 92 checks covering every endpoint and function: auth, seeds, settings,
 prices CRUD + CSV import/export, library, company docs, proposal generation
 (similarity + financial math), Word/Excel export (incl. the official footer),
 knowledge repository (upload, reference creation, market benchmark), the

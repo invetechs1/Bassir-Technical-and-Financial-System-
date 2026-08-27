@@ -22,9 +22,15 @@ import urllib.request
 
 from .config import DATA_DIR
 from .database import get_db, get_settings, now_iso
+from .tenancy import cid
 
 BASE = os.environ.get("FORSAH_BASE_URL", "https://forsah.sa")
-STATE_FILE = DATA_DIR / "forsah_state.json"  # جلسة المتصفح المحفوظة بين السحبات
+def _state_file():
+    """جلسة المتصفح لكل شركة على حدة."""
+    return DATA_DIR / f"forsah_state_{cid()}.json"
+
+
+STATE_FILE = DATA_DIR / "forsah_state.json"  # توافق خلفي — يُستخدم _state_file() فعلياً
 
 # تصنيفات نشاط عزوم المطلوب سحبها — تُطابَق مع تصنيفات فرصة الفعلية (UUID مكتشف من الصفحة)
 CATEGORIES = [
@@ -56,6 +62,7 @@ _HEADERS = {
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS forsah_projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL DEFAULT 1,
     project_key TEXT UNIQUE NOT NULL,
     title TEXT NOT NULL,
     category TEXT DEFAULT '',
@@ -73,8 +80,10 @@ CREATE TABLE IF NOT EXISTS forsah_projects (
 
 
 def init_forsah_table():
+    from .database import _ensure_column
     with get_db() as db:
         db.executescript(SCHEMA)
+        _ensure_column(db, "forsah_projects", "company_id", "INTEGER NOT NULL DEFAULT 1")
 
 
 class _Session:
@@ -333,10 +342,10 @@ def _store_batch(projects: list[dict], cat: str, counter: _Counter) -> int:
         with get_db() as db:
             cur = db.execute(
                 "INSERT OR IGNORE INTO forsah_projects "
-                "(project_key, title, category, city, budget, deadline, details_url, "
+                "(company_id, project_key, title, category, city, budget, deadline, details_url, "
                 " relevance, matched_ref, raw, fetched_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (p["key"], p["title"], cat, "", p["budget"], p["deadline"],
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (cid(), p["key"], p["title"], cat, "", p["budget"], p["deadline"],
                  p["url"], relevance, matched_ref, p["raw"], now_iso()),
             )
             if cur.rowcount:
@@ -502,7 +511,7 @@ def _browser_fetch(email: str, password: str, max_pages_per_cat: int, counter: _
                     ok, diag = _browser_login(page, email, password)
                 if not ok:
                     return f"فشل تسجيل الدخول لمنصة فرصة: {diag}"
-                context.storage_state(path=str(STATE_FILE))
+                context.storage_state(path=str(_state_file()))
 
             # ساحة الفرص (marketplace) هي صفحة القوائم الفعلية — منها نكتشف تصنيفات
             # فرصة الحقيقية (UUID) لنطابقها مع تصنيفات عزوم الستة.
@@ -630,8 +639,8 @@ def _http_fetch(email: str, password: str, max_pages_per_cat: int, counter: _Cou
 def list_projects(category: str = "", status: str = "", q: str = "") -> list[dict]:
     init_forsah_table()
     query = ("SELECT id, project_key, title, category, city, budget, deadline, details_url, "
-             "relevance, matched_ref, status, fetched_at FROM forsah_projects WHERE 1=1")
-    params: list = []
+             "relevance, matched_ref, status, fetched_at FROM forsah_projects WHERE company_id = ?")
+    params: list = [cid()]
     if category:
         query += " AND category = ?"
         params.append(category)
@@ -649,4 +658,4 @@ def list_projects(category: str = "", status: str = "", q: str = "") -> list[dic
 
 def update_project_status(pid: int, status: str):
     with get_db() as db:
-        db.execute("UPDATE forsah_projects SET status = ? WHERE id = ?", (status, pid))
+        db.execute("UPDATE forsah_projects SET status = ? WHERE id = ? AND company_id = ?", (status, pid, cid()))
