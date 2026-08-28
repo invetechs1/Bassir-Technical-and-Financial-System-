@@ -119,6 +119,13 @@ const I18N = {
   style_bar_hide: { ar: "إخفاء المصادر", en: "Hide sources" },
   prov_bank: { ar: "بنك الفقرات · معتمد", en: "Bank · approved" },
   prov_new: { ar: "جديد · يحتاج مراجعة", en: "New · needs review" },
+  mt_mrr: { ar: "الإيراد الشهري المتكرر (ر.س)", en: "MRR (SAR)" },
+  mt_paid: { ar: "اشتراكات مدفوعة", en: "Paid subscriptions" },
+  mt_trials: { ar: "حسابات تجريبية", en: "Trial accounts" },
+  mt_companies: { ar: "إجمالي الشركات", en: "Total companies" },
+  invoices_issue_btn: { ar: "🧾 إصدار فواتير الشهر", en: "🧾 Issue monthly invoices" },
+  invoices_issued: { ar: "فواتير صدرت", en: "invoices issued" },
+  invoices_skipped: { ar: "تُخُطيت", en: "skipped" },
   topbar_new_btn: { ar: "+ إنشاء عرض جديد", en: "+ New Proposal" },
 
   // لوحة التحكم

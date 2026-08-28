@@ -531,7 +531,11 @@
         <button class="btn mt" onclick="inviteMember()" data-i18n="invite_btn">➕ دعوة العضو</button>
       </div>
       <div class="panel" id="platformPanel" hidden>
-        <h3 data-i18n="companies_title">شركات المنصة <span class="tag admin">مدير المنصة</span></h3>
+        <div class="cards mb" id="platformMetrics"></div>
+        <div class="row mb" style="justify-content:space-between">
+          <h3 style="margin:0" data-i18n="companies_title">شركات المنصة <span class="tag admin">مدير المنصة</span></h3>
+          <button class="btn sm ghost" onclick="issueInvoices()" data-i18n="invoices_issue_btn">🧾 إصدار فواتير الشهر</button>
+        </div>
         <div class="t-wrap"><table id="companiesTable">
           <thead><tr><th data-i18n="th_company">الشركة</th><th data-i18n="th_plan">الخطة</th><th data-i18n="th_members">الأعضاء</th><th data-i18n="th_proposals_m">عروض الشهر</th><th data-i18n="th_prices_n">بنود الأسعار</th><th></th></tr></thead>
           <tbody></tbody>

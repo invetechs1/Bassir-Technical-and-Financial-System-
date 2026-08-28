@@ -21,12 +21,20 @@ ROLE_AR = {"owner": "مالك الحساب", "admin": "أدمن", "editor": "م�
 
 # حدود الخطط — None = غير محدود
 PLAN_LIMITS = {
-    "trial":      {"users": 2,    "proposals_month": 5,    "price_items": 100,  "platforms": False},
-    "basic":      {"users": 3,    "proposals_month": 20,   "price_items": 500,  "platforms": False},
-    "pro":        {"users": 10,   "proposals_month": None, "price_items": None, "platforms": True},
-    "enterprise": {"users": None, "proposals_month": None, "price_items": None, "platforms": True},
+    "trial":      {"users": 2,    "proposals_month": 5,    "price_items": 100,
+                   "integrations": False, "style_engine": False, "audit_days": 0},
+    "basic":      {"users": 3,    "proposals_month": 20,   "price_items": 500,
+                   "integrations": False, "style_engine": False, "audit_days": 0},
+    "pro":        {"users": 10,   "proposals_month": None, "price_items": None,
+                   "integrations": True,  "style_engine": True,  "audit_days": 90},
+    "enterprise": {"users": None, "proposals_month": None, "price_items": None,
+                   "integrations": True,  "style_engine": True,  "audit_days": None},
 }
+# الأسعار الشهرية بالريال — المؤسسي تفاوضي
+PLAN_PRICE = {"trial": 0, "basic": 1900, "pro": 3900, "enterprise": None}
 PLAN_AR = {"trial": "تجريبي", "basic": "أساسي", "pro": "احترافي", "enterprise": "مؤسسي"}
+TRIAL_DAYS = 14
+READONLY_GRACE_DAYS = 30
 
 
 def cid() -> int:

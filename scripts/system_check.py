@@ -1,4 +1,4 @@
-"""فحص شامل لنظام عزوم — يختبر كل نقطة نهاية وكل وظيفة (63 فحصاً).
+"""فحص شامل لنظام عزوم — يختبر كل نقطة نهاية وكل وظيفة (113 فحصاً).
 
 التشغيل على الخادم بعد أي نشر أو تحديث:
     .venv/bin/python scripts/system_check.py
@@ -358,7 +358,8 @@ check("وعدد أسعار الشركة الثانية = 1", len(c2.get("/api/pr
 r = c2.post("/api/session/company/1")
 check("تبديل لشركة بلا عضوية → 403", r.status_code == 403)
 r = c2.get("/api/paragraph-bank")
-check("العزل: بنك فقرات الشركة الثانية فارغ", r.status_code == 200 and len(r.json()) == 0)
+check("العزل: بنك فقرات الشركة الثانية محجوب (402 للتجريبي) أو فارغ",
+      r.status_code == 402 or (r.status_code == 200 and len(r.json()) == 0), r.text[:100])
 
 # دور المشاهد في عزوم
 r = c.post("/api/members", json={"username": "viewcheck", "password": "View@12345", "role": "viewer"})
@@ -376,6 +377,55 @@ check("المُشاهد لا يولد عروضاً (403)",
 check("المُشاهد لا يدير الأعضاء (403)", c3.get("/api/members").status_code == 403)
 check("بيانات عزوم سليمة بعد كل الفحوص",
       c.get("/api/status").json()["price_items"] == azoom_prices_before)
+
+# ---------- 17. الاشتراكات والتسجيل الذاتي ----------
+r = c.post("/api/signup", json={"name": "شركة التسجيل الذاتي للفحص", "cr_no": "9990001112",
+                                "owner_username": "signupcheck", "owner_password": "Sign@12345",
+                                "sector": "المقاولات"})
+check("التسجيل الذاتي (شركة تجريبية 14 يوماً) أو 409 عند التكرار",
+      r.status_code in (200, 409), r.text[:120])
+r = c.post("/api/signup", json={"name": "شركة أخرى", "cr_no": "9990001112",
+                                "owner_username": "someoneelse", "owner_password": "Else@12345"})
+check("سجل تجاري مكرر → 409", r.status_code == 409)
+
+c4 = TestClient(app)
+r = c4.post("/api/login", json={"username": "signupcheck", "password": "Sign@12345"})
+check("دخول مالك الشركة المسجلة ذاتياً", r.status_code == 200)
+me4 = c4.get("/api/me").json()
+check("خطة تجريبية للشركة الجديدة", me4.get("plan") == "trial", str(me4)[:120])
+
+# بوابات الميزات: التجريبي بلا اعتماد/فرصة ولا محرك أسلوب → 402
+check("بوابة الميزات: اعتماد 402 للخطة التجريبية", c4.get("/api/etimad").status_code == 402)
+check("بوابة الميزات: بصمة الكتابة 402 للخطة التجريبية",
+      c4.get("/api/style-profile").status_code == 402)
+check("عزوم (مؤسسي) تصل لاعتماد طبيعياً", c.get("/api/etimad").status_code == 200)
+
+# دورة الحياة: تجربة منتهية → قراءة وتصدير فقط (402 على الكتابة)
+from app.database import get_db as _gdb
+with _gdb() as _db:
+    _db.execute("UPDATE companies SET trial_ends_at = '2026-08-01T00:00:00+00:00' "
+                "WHERE cr_no = '9990001112'")
+check("تجربة منتهية: القراءة تعمل", c4.get("/api/proposals").status_code == 200)
+r = c4.post("/api/proposals/generate", data={"title": "x", "client": "y"})
+check("تجربة منتهية: الكتابة 402", r.status_code == 402 and "التجربة" in r.json()["detail"], r.text[:120])
+with _gdb() as _db:
+    _db.execute("UPDATE companies SET trial_ends_at = '2030-01-01T00:00:00+00:00' "
+                "WHERE cr_no = '9990001112'")
+
+# الفوترة: شركة مدفوعة تُفوتر مرة واحدة للفترة، والتجارب تُتخطى
+with _gdb() as _db:
+    _db.execute("UPDATE companies SET plan = 'basic' WHERE cr_no = '9990001112'")
+r1 = c.post("/api/platform/invoices/issue").json()
+r2 = c.post("/api/platform/invoices/issue").json()
+check("إصدار الفواتير الشهرية يعمل وبلا تكرار للفترة",
+      (r1["issued"] + r1["skipped"]) >= 1 and r2["issued"] == 0, f"{r1} ثم {r2}")
+with _gdb() as _db:
+    _db.execute("UPDATE companies SET plan = 'trial' WHERE cr_no = '9990001112'")
+r = c.get("/api/platform/metrics")
+check("مؤشرات مدير المنصة", r.status_code == 200 and "mrr" in r.json())
+check("المؤشرات محجوبة عن غير مدير المنصة", c2.get("/api/platform/metrics").status_code == 403)
+r = c.get("/signup")
+check("صفحة التسجيل الذاتي العامة", r.status_code == 200 and "تجربة مجانية" in r.text)
 
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)

@@ -41,7 +41,7 @@ def startup():
 
 # ------------------------------ المصادقة والصلاحيات ------------------------------
 
-_OPEN_PATHS = ("/login", "/api/login", "/static/", "/favicon")
+_OPEN_PATHS = ("/login", "/api/login", "/signup", "/api/signup", "/static/", "/favicon")
 COMPANY_COOKIE = "azoom_company"
 
 # الصفحات الخمس الإدارية — القراءة والكتابة على الأدمن (owner/admin) فقط
@@ -87,6 +87,28 @@ async def auth_guard(request: Request, call_next):
     if role == "viewer" and request.method not in ("GET", "HEAD") \
             and not path.startswith(_VIEWER_WRITE_OK):
         return JSONResponse({"detail": "دورك (مُشاهد) للقراءة والتصدير فقط"}, status_code=403)
+
+    # دورة حياة الاشتراك: منتهي التجربة قراءة وتصدير فقط، والموقوف محجوب
+    company_row = db.get_company(current["id"]) or {}
+    sub_status = db.effective_subscription_status(company_row)
+    request.state.sub_status = sub_status
+    if sub_status == "suspended" and path != "/api/logout" and path != "/api/me":
+        return JSONResponse({"detail": "الاشتراك موقوف — تواصلوا معنا لإعادة التفعيل. بياناتكم محفوظة."},
+                            status_code=402)
+    if sub_status == "read_only" and request.method not in ("GET", "HEAD") \
+            and not path.startswith(_VIEWER_WRITE_OK):
+        return JSONResponse({"detail": "انتهت فترة التجربة — القراءة والتصدير متاحان، ورقّوا الاشتراك للمتابعة."},
+                            status_code=402)
+
+    # بوابات الميزات: 402 لا 403 — الواجهة تعرض دعوة الترقية
+    limits = tenancy.PLAN_LIMITS.get(company_row.get("plan", "trial"), tenancy.PLAN_LIMITS["trial"])
+    if path.startswith(("/api/etimad", "/api/forsah")) and not limits.get("integrations"):
+        return JSONResponse({"detail": "ربط اعتماد وفرصة متاح في الخطة الاحترافية فأعلى — رقّوا الاشتراك."},
+                            status_code=402)
+    if path.startswith(("/api/style-profile", "/api/paragraph", "/api/repository/technical")) \
+            and not limits.get("style_engine"):
+        return JSONResponse({"detail": "بصمة الكتابة وبنك الفقرات متاحان في الخطة الاحترافية فأعلى — رقّوا الاشتراك."},
+                            status_code=402)
 
     tokens = tenancy.set_context(current["id"], role, user["id"],
                                  bool(user.get("is_platform_admin")))
@@ -572,6 +594,72 @@ def market_search(q: str, sector: str = ""):
         "max": max(prices) if prices else None,
     }
     return {"market": market, "azoom": azoom, "benchmark": bench}
+
+
+# ------------------------ التسجيل الذاتي والفوترة ------------------------
+
+@app.post("/api/signup")
+def signup(body: dict):
+    """تسجيل شركة جديدة ذاتياً: خطة تجريبية 14 يوماً مع مالك حسابها."""
+    name = (body.get("name") or "").strip()
+    cr_no = (body.get("cr_no") or "").strip()
+    owner_username = (body.get("owner_username") or "").strip()
+    password = body.get("owner_password") or ""
+    if not name or not cr_no or not owner_username:
+        raise HTTPException(400, "اسم الشركة والسجل التجاري واسم مستخدم المالك مطلوبة")
+    if db.find_company_by_cr(cr_no):
+        raise HTTPException(409, "شركة بهذا السجل التجاري مسجّلة مسبقاً — سجّلوا الدخول أو تواصلوا معنا")
+    if db.find_company_by_name(name):
+        raise HTTPException(409, "توجد شركة بهذا الاسم مسبقاً")
+    from .auth import create_user, get_user
+    if get_user(owner_username):
+        raise HTTPException(409, "اسم المستخدم محجوز — اختر اسماً آخر")
+    try:
+        owner = create_user(owner_username, password, body.get("owner_display_name", ""))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    company = db.create_company(name, body.get("short_name", ""), "trial",
+                                body.get("sector", ""), cr_no, body.get("vat_no", ""))
+    db.set_membership(owner["id"], company["id"], "owner")
+    db.log_audit("companies", company["id"], "signup", name)
+    return {"ok": True, "company_id": company["id"],
+            "trial_ends_at": company.get("trial_ends_at", ""),
+            "message": "أُنشئ حسابكم التجريبي (14 يوماً) — سجّلوا الدخول الآن"}
+
+
+@app.get("/signup", response_class=HTMLResponse)
+def signup_page():
+    from .auth import SIGNUP_PAGE
+    return SIGNUP_PAGE
+
+
+@app.get("/api/invoices")
+def invoices_mine(request: Request):
+    _require_admin(request)
+    return db.list_invoices(request.state.company_id)
+
+
+@app.post("/api/platform/invoices/issue")
+def invoices_issue(request: Request):
+    _require_platform_admin(request)
+    return db.issue_monthly_invoices()
+
+
+@app.get("/api/platform/metrics")
+def platform_metrics(request: Request):
+    _require_platform_admin(request)
+    companies = db.list_companies()
+    paid = [c for c in companies
+            if c["plan"] != "trial" and c["subscription_status"] == "active"]
+    mrr = sum(tenancy.PLAN_PRICE.get(c["plan"]) or 0 for c in paid)
+    trials = [c for c in companies if c["plan"] == "trial"]
+    return {
+        "mrr": mrr,
+        "paid_count": len(paid),
+        "trial_count": len(trials),
+        "companies_total": len(companies),
+        "invoices": db.list_invoices()[:30],
+    }
 
 
 # ------------------------ المستودع الفني ومحرك الأسلوب ------------------------
