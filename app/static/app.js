@@ -777,6 +777,14 @@ async function loadTenants() {
 
   if (ME.is_platform_admin) {
     $("#platformPanel").hidden = false;
+    try {
+      const mt = await api("/api/platform/metrics");
+      $("#platformMetrics").innerHTML = `
+        <div class="card gold"><div class="num">${fmt(mt.mrr).replace(/[.٫]00$/, "")}</div><div class="lbl">${t("mt_mrr")}</div></div>
+        <div class="card"><div class="num">${mt.paid_count}</div><div class="lbl">${t("mt_paid")}</div></div>
+        <div class="card"><div class="num">${mt.trial_count}</div><div class="lbl">${t("mt_trials")}</div></div>
+        <div class="card"><div class="num">${mt.companies_total}</div><div class="lbl">${t("mt_companies")}</div></div>`;
+    } catch {}
     const companies = await api("/api/companies");
     $("#companiesTable tbody").innerHTML = companies.map((c) => `
       <tr>
@@ -828,6 +836,13 @@ async function removeMember(uid) {
   try {
     await api(`/api/members/${uid}`, { method: "DELETE" });
     loadTenants();
+  } catch (err) { toast(err.message, true); }
+}
+
+async function issueInvoices() {
+  try {
+    const r = await api("/api/platform/invoices/issue", { method: "POST" });
+    toast(`🧾 ${t("invoices_issued")}: ${r.issued} — ${t("invoices_skipped")}: ${r.skipped}`);
   } catch (err) { toast(err.message, true); }
 }
 

@@ -142,6 +142,21 @@ CREATE TABLE IF NOT EXISTS market_prices (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ref TEXT UNIQUE NOT NULL,
+    company_id INTEGER NOT NULL REFERENCES companies(id),
+    plan TEXT NOT NULL,
+    amount REAL NOT NULL,
+    vat REAL NOT NULL,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    due_at TEXT NOT NULL,
+    paid_at TEXT DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'due'
+);
+CREATE INDEX IF NOT EXISTS idx_invoices_company ON invoices(company_id, period_start DESC);
+
 CREATE TABLE IF NOT EXISTS company_docs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     company_id INTEGER NOT NULL DEFAULT 1,
@@ -376,12 +391,17 @@ def seed_company_defaults(company_id: int, name: str):
 
 def create_company(name: str, short_name: str = "", plan: str = "trial",
                    sector: str = "", cr_no: str = "", vat_no: str = "") -> dict:
+    from datetime import timedelta
+    from .tenancy import TRIAL_DAYS
     ts = now_iso()
+    trial_ends = ((datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS))
+                  .isoformat(timespec="seconds") if plan == "trial" else "")
     with get_db() as db:
         cur = db.execute(
             "INSERT INTO companies (name, short_name, cr_no, vat_no, sector, plan, "
-            " subscription_status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'active', ?)",
-            (name, short_name or name[:12], cr_no, vat_no, sector, plan, ts),
+            " subscription_status, trial_ends_at, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)",
+            (name, short_name or name[:12], cr_no, vat_no, sector, plan, trial_ends, ts),
         )
         row = db.execute("SELECT * FROM companies WHERE id = ?", (cur.lastrowid,)).fetchone()
     seed_company_defaults(row["id"], name)
@@ -400,6 +420,94 @@ def list_companies() -> list[dict]:
             "SELECT c.*, COUNT(m.user_id) AS members FROM companies c "
             "LEFT JOIN memberships m ON m.company_id = c.id GROUP BY c.id ORDER BY c.id"
         ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def find_company_by_cr(cr_no: str) -> dict | None:
+    if not cr_no:
+        return None
+    with get_db() as db:
+        row = db.execute("SELECT * FROM companies WHERE cr_no = ?", (cr_no,)).fetchone()
+    return dict(row) if row else None
+
+
+def effective_subscription_status(company: dict) -> str:
+    """الحالة الفعلية محسوبة لحظياً — لا حاجة لمهمة مجدولة لقفل التجارب.
+
+    تجريبي منتهٍ: قراءة وتصدير فقط 30 يوماً، ثم إيقاف (البيانات محفوظة)."""
+    from datetime import timedelta
+    from .tenancy import READONLY_GRACE_DAYS
+    status = company.get("subscription_status") or "active"
+    if status in ("suspended", "read_only"):
+        return status
+    if company.get("plan") == "trial" and company.get("trial_ends_at"):
+        try:
+            ends = datetime.fromisoformat(company["trial_ends_at"])
+            now = datetime.now(timezone.utc)
+            if now > ends + timedelta(days=READONLY_GRACE_DAYS):
+                return "suspended"
+            if now > ends:
+                return "read_only"
+        except ValueError:
+            pass
+    return status
+
+
+# ------------------------- الفواتير -------------------------
+
+def next_invoice_ref() -> str:
+    year = datetime.now().year
+    prefix = f"INV-{year}-"
+    with get_db() as db:
+        row = db.execute("SELECT ref FROM invoices WHERE ref LIKE ? ORDER BY id DESC LIMIT 1",
+                         (f"{prefix}%",)).fetchone()
+    seq = int(row["ref"].rsplit("-", 1)[1]) + 1 if row else 1
+    return f"{prefix}{seq:03d}"
+
+
+def issue_monthly_invoices() -> dict:
+    """فاتورة شهرية لكل شركة مدفوعة نشطة — بلا تكرار لنفس الفترة وبلا فواتير للتجارب."""
+    from .tenancy import PLAN_PRICE
+    period_start = datetime.now(timezone.utc).strftime("%Y-%m-01")
+    month = datetime.now(timezone.utc)
+    next_month = (month.replace(day=28) + __import__("datetime").timedelta(days=4)).replace(day=1)
+    period_end = (next_month - __import__("datetime").timedelta(days=1)).strftime("%Y-%m-%d")
+    issued, skipped = 0, 0
+    with get_db() as db:
+        companies = db.execute(
+            "SELECT * FROM companies WHERE plan != 'trial' AND subscription_status = 'active'"
+        ).fetchall()
+        for comp in companies:
+            price = PLAN_PRICE.get(comp["plan"])
+            if not price:
+                skipped += 1  # مؤسسي تفاوضي أو خطة بلا سعر — فاتورة يدوية
+                continue
+            dup = db.execute(
+                "SELECT 1 FROM invoices WHERE company_id = ? AND period_start = ?",
+                (comp["id"], period_start)).fetchone()
+            if dup:
+                skipped += 1
+                continue
+            db.execute(
+                "INSERT INTO invoices (ref, company_id, plan, amount, vat, period_start, "
+                " period_end, due_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'due')",
+                (next_invoice_ref(), comp["id"], comp["plan"], price,
+                 round(price * 0.15, 2), period_start, period_end,
+                 next_month.strftime("%Y-%m-%d")),
+            )
+            issued += 1
+    return {"issued": issued, "skipped": skipped, "period": period_start}
+
+
+def list_invoices(company_id: int | None = None) -> list[dict]:
+    q = "SELECT i.*, c.name AS company_name FROM invoices i JOIN companies c ON c.id = i.company_id"
+    params: list = []
+    if company_id is not None:
+        q += " WHERE i.company_id = ?"
+        params.append(company_id)
+    q += " ORDER BY i.id DESC LIMIT 200"
+    with get_db() as db:
+        rows = db.execute(q, params).fetchall()
     return [dict(r) for r in rows]
 
 

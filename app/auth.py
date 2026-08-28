@@ -168,6 +168,7 @@ button[type=submit]:hover{opacity:.92}
   <input type="password" id="p" autocomplete="current-password" required>
   <button type="submit" id="submitBtn">تسجيل الدخول</button>
   <div class="err" id="e"></div>
+  <a href="/signup" style="color:#2E9E5B;font-size:13px;display:block;margin-top:14px">شركة جديدة؟ سجّلوا تجربة مجانية 14 يوماً</a>
 </form>
 <script>
 const L = {
@@ -205,5 +206,58 @@ document.getElementById("f").addEventListener("submit", async (ev) => {
                           password:document.getElementById("p").value})});
   if (res.ok) location.href = "/";
   else document.getElementById("e").textContent = L.err[lang()];
+});
+</script></body></html>"""
+
+
+SIGNUP_PAGE = """<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>تسجيل شركة جديدة — منصة بصير</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Segoe UI",Tahoma,sans-serif;min-height:100vh;display:flex;align-items:center;
+  justify-content:center;background:linear-gradient(160deg,#175934,#2E9E5B);padding:20px}
+.box{background:#fff;border-radius:18px;padding:36px 34px;width:min(460px,94vw);
+  box-shadow:0 20px 60px rgba(0,0,0,.35)}
+h1{font-size:20px;color:#175934;text-align:center;margin-bottom:4px}
+p.sub{color:#888;font-size:12.5px;margin-bottom:20px;text-align:center;line-height:1.8}
+label{font-size:12.5px;color:#4A5B51;display:block;margin:10px 0 4px}
+input{width:100%;padding:11px 13px;border:1px solid #ddd;border-radius:10px;font-family:inherit;
+  font-size:14px;background:#faf8f4}
+input:focus{outline:2px solid #2E9E5B;border-color:transparent}
+button{width:100%;padding:13px;border:none;border-radius:10px;background:#1E6B3C;color:#fff;
+  font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:18px}
+button:hover{opacity:.92}
+.msg{font-size:13px;margin-top:12px;min-height:18px;text-align:center}
+.msg.err{color:#a33}.msg.ok{color:#1E7D4F}
+a{color:#2E9E5B;font-size:13px;display:block;text-align:center;margin-top:12px}
+.powered{color:#6E9B7F;font-size:10px;text-align:center;margin-top:16px;direction:ltr}
+</style></head><body>
+<form class="box" id="f">
+  <h1>تسجيل شركة جديدة</h1>
+  <p class="sub">تجربة مجانية 14 يوماً — نظام العروض الفنية والمالية بعزل كامل لبيانات شركتك</p>
+  <label>اسم الشركة *</label><input id="name" required>
+  <label>السجل التجاري *</label><input id="cr" required>
+  <label>النشاط</label><input id="sector" placeholder="مثال: المقاولات العامة">
+  <label>اسم مستخدم مالك الحساب *</label><input id="user" autocomplete="off" required>
+  <label>كلمة المرور * (8 أحرف فأكثر)</label><input id="pw" type="password" autocomplete="new-password" required>
+  <button type="submit">إنشاء الحساب التجريبي</button>
+  <div class="msg" id="m"></div>
+  <a href="/login">لديكم حساب؟ تسجيل الدخول</a>
+  <div class="powered">powered by Bassir Technology Company</div>
+</form>
+<script>
+document.getElementById("f").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const m = document.getElementById("m");
+  m.className = "msg";
+  const res = await fetch("/api/signup", {method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({name: name.value, cr_no: cr.value, sector: sector.value,
+                          owner_username: user.value, owner_password: pw.value})});
+  const data = await res.json();
+  if (res.ok) { m.className = "msg ok"; m.textContent = data.message; setTimeout(() => location.href = "/login", 1800); }
+  else { m.className = "msg err"; m.textContent = data.detail || "تعذر التسجيل"; }
 });
 </script></body></html>"""
