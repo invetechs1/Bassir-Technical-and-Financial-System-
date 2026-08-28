@@ -275,6 +275,54 @@ seed_if_empty()
 after = c.get("/api/status").json()["price_items"]
 check("إعادة التشغيل لا تكرر البذور", before == after, f"{before} -> {after}")
 
+# ---------- 15ب. المستودع الفني ومحرك الأسلوب ----------
+c.post("/api/login", json={"username": "azoom", "password": "Azoom@2026"})
+tech_text = """نبذة عن الشركة
+تُعد شركة عزوم المتحدة للمقاولات من الشركات الرائدة في تنفيذ مشاريع المباني الحكومية، وقد نفذت الشركة مشاريع عزل وترميم وتشطيب تجاوزت قيمتها أربعمائة مليون ريال خلال السنوات الماضية بمعدلات إنجاز موثقة.
+نطاق العمل
+يشمل نطاق العمل تنفيذ أعمال العزل المائي والحراري للأسطح والمباني، وأعمال الترميم الإنشائي، ومعالجة التشققات، وفق كراسة الشروط والمواصفات الفنية المعتمدة من الجهة المالكة.
+منهجية التنفيذ
+تعتمد الشركة منهجية تنفيذ مرحلية تبدأ بالتعبئة واستلام الموقع، ثم تنفيذ الأعمال ببرنامج زمني معتمد من الاستشاري، مع رفع مستخلصات شهرية موثقة بنسب الإنجاز الفعلية في الموقع.
+خطة ضمان الجودة
+تطبق الشركة نظام إدارة جودة يشمل فحص المواد قبل التوريد، واختبارات معتمدة من مختبرات مستقلة، وسجلات تفتيش يومية يعتمدها الاستشاري قبل الانتقال لأي مرحلة لاحقة.
+خطة السلامة والصحة المهنية
+تلتزم الشركة بتطبيق اشتراطات السلامة في مواقع العمل، وتوفير مهمات الوقاية الشخصية لكافة العاملين، وتعيين مشرف سلامة متفرغ للموقع طوال مدة التنفيذ."""
+
+for i in range(3):
+    r = c.post("/api/repo/upload",
+               data={"source_type": "عرض فني سابق", "company": "عزوم", "notes": "فحص أسلوب",
+                     "as_reference": "", "sector": "government"},
+               files=[("files", (f"عرض فني عزل مباني {i+1}.txt",
+                                 tech_text.encode(), "text/plain"))])
+    assert r.status_code == 200, r.text
+tech_rec = r.json()[0]
+check("رفع عرض فني → استخراج أقسام وفقرات", bool(tech_rec.get("tech", {}).get("sections", 0) >= 4),
+      str(tech_rec.get("tech")))
+r = c.post("/api/style-profile/rebuild")
+sp = r.json()
+check("استخلاص بصمة الكتابة", r.status_code == 200 and sp.get("sample_count", 0) >= 10, str(sp)[:150])
+r = c.get("/api/paragraph-bank")
+bank_items = r.json()
+check(f"بنك الفقرات المعتمد ({len(bank_items)})", len(bank_items) >= 10)
+r = c.get("/api/repository/technical")
+check("قائمة المستودع الفني", r.status_code == 200 and len(r.json()["documents"]) >= 3)
+
+r = c.post("/api/proposals/generate",
+           data={"title": "مشروع عزل وترميم مبانٍ حكومية بالقصيم", "client": "أمانة القصيم",
+                 "entity_type": "government"})
+sty = r.json()["data"].get("style", {})
+spid = r.json()["id"]
+check("العرض مبني من بنك الفقرات (bank_ratio > 0)",
+      sty.get("bank_ratio", 0) > 0 and sty.get("score", 0) > 0, str(sty))
+_bodies = " ".join(sec["body"] for sec in r.json()["data"]["technical_sections"])
+check("لا عبارات من القائمة السوداء في المخرَج",
+      not any(b in _bodies for b in ("حلول مبتكرة", "شريك النجاح", "في الختام", "نسعى جاهدين")))
+c.delete(f"/api/proposals/{spid}")
+if bank_items:
+    r = c.put(f"/api/paragraphs/{bank_items[0]['id']}", json={"approved": False})
+    check("سحب اعتماد فقرة", r.status_code == 200)
+    c.put(f"/api/paragraphs/{bank_items[0]['id']}", json={"approved": True})
+
 # ---------- 16. تعدد الشركات والأدوار ----------
 c.post("/api/login", json={"username": "azoom", "password": "Azoom@2026"})
 me = c.get("/api/me").json()
@@ -309,6 +357,8 @@ check("نفس كود البند مسموح عبر شركتين", r.status_code =
 check("وعدد أسعار الشركة الثانية = 1", len(c2.get("/api/prices").json()) == 1)
 r = c2.post("/api/session/company/1")
 check("تبديل لشركة بلا عضوية → 403", r.status_code == 403)
+r = c2.get("/api/paragraph-bank")
+check("العزل: بنك فقرات الشركة الثانية فارغ", r.status_code == 200 and len(r.json()) == 0)
 
 # دور المشاهد في عزوم
 r = c.post("/api/members", json={"username": "viewcheck", "password": "View@12345", "role": "viewer"})

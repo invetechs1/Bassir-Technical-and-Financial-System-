@@ -223,6 +223,29 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
          "deliverables": ["وثائق As-Built", "محضر استلام نهائي", "تقرير إغلاق المشروع"]},
     ]
 
+    # طبقة الأسلوب: أقسام العرض تُبنى من فقرات الشركة المعتمدة متى وُجدت،
+    # والباقي يُنقّى من عبارات القوالب المكشوفة — انظر style_engine.py
+    style_meta: dict = {}
+    try:
+        import json as _json
+        from .style_engine import (_canonical_for, build_from_bank, get_style_profile,
+                                   scrub_banned, style_report)
+        bank = build_from_bank(text, entity_type)
+        profile = get_style_profile()
+        banned = _json.loads(profile.get("banned_json") or "[]") or None
+        for sec in sections:
+            canonical = _canonical_for(sec["title"])
+            if canonical and canonical in bank:
+                sec["body"] = bank[canonical]["body"]
+                sec["source"] = "bank"
+                sec["source_ref"] = bank[canonical]["ref"]
+            else:
+                sec["body"], _ = scrub_banned(sec["body"], banned)
+                sec["source"] = "new"
+        style_meta = style_report(sections, profile)
+    except Exception:
+        style_meta = {}
+
     settings = get_settings()
     return {
         "summary": f"عرض فني ومالي مقدم من شركة عزوم لتنفيذ مشروع «{title}» لصالح {client}.",
@@ -240,5 +263,6 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
         ],
         "team": [{"role": "مدير مشروع PMP", "count": 1}, {"role": "مهندس موقع", "count": 1},
                  {"role": "مهندس جودة وسلامة", "count": 1}],
+        "style": style_meta,
         "engine": "template",
     }

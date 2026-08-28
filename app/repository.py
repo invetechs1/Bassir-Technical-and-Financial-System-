@@ -272,6 +272,18 @@ def ingest_file(filename: str, content: bytes, source_type: str, company: str,
             "notes": notes, "sector": sector}
     record = create_repo_file(meta, text, items)
 
+    # العروض الفنية تدخل المستودع الفني أيضاً: أقسام وفقرات لبنك الأسلوب
+    if "فني" in source_type:
+        from .database import get_db
+        from .style_engine import ingest_technical_document
+        kind = "competitor" if "منافس" in source_type else "azoom_submitted"
+        record["tech"] = ingest_technical_document(
+            filename, text, doc_kind=kind, project_kind=sector, client=company,
+            repo_file_id=record["id"])
+        with get_db() as db2:
+            db2.execute("UPDATE repo_files SET repo_kind = 'technical' WHERE id = ?",
+                        (record["id"],))
+
     if as_reference:
         ref = build_reference_from_text(filename, company, text, items, sector=sector)
         if ref is None:
