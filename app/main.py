@@ -34,6 +34,9 @@ def startup():
     db.init_db()
     init_auth()
     seed_if_empty()
+    from .style_engine import init_style_tables, migrate_repo_to_tech
+    init_style_tables()
+    migrate_repo_to_tech()
 
 
 # ------------------------------ المصادقة والصلاحيات ------------------------------
@@ -42,7 +45,7 @@ _OPEN_PATHS = ("/login", "/api/login", "/static/", "/favicon")
 COMPANY_COOKIE = "azoom_company"
 
 # الصفحات الخمس الإدارية — القراءة والكتابة على الأدمن (owner/admin) فقط
-_ADMIN_API_PREFIXES = ("/api/prices", "/api/library", "/api/repo", "/api/market", "/api/analytics")
+_ADMIN_API_PREFIXES = ("/api/prices", "/api/library", "/api/repo", "/api/market", "/api/analytics", "/api/repository", "/api/style-profile", "/api/paragraph")
 # مسارات يجوز فيها غير-GET لدور المشاهد (شؤون حسابه فقط)
 _VIEWER_WRITE_OK = ("/api/logout", "/api/password", "/api/session/company")
 
@@ -569,6 +572,39 @@ def market_search(q: str, sector: str = ""):
         "max": max(prices) if prices else None,
     }
     return {"market": market, "azoom": azoom, "benchmark": bench}
+
+
+# ------------------------ المستودع الفني ومحرك الأسلوب ------------------------
+
+@app.get("/api/repository/technical")
+def tech_docs_list():
+    from .style_engine import get_style_profile, list_tech_documents
+    return {"documents": list_tech_documents(), "profile": get_style_profile()}
+
+
+@app.get("/api/style-profile")
+def style_profile_get():
+    from .style_engine import get_style_profile
+    return get_style_profile()
+
+
+@app.post("/api/style-profile/rebuild")
+def style_profile_rebuild():
+    from .style_engine import extract_style_profile
+    return extract_style_profile()
+
+
+@app.get("/api/paragraph-bank")
+def paragraph_bank(section: str = ""):
+    from .style_engine import list_paragraph_bank
+    return list_paragraph_bank(section)
+
+
+@app.put("/api/paragraphs/{pid}")
+def paragraph_approve(pid: int, body: dict):
+    from .style_engine import set_paragraph_approved
+    set_paragraph_approved(pid, bool(body.get("approved")))
+    return {"ok": True}
 
 
 # ------------------------ منافسات اعتماد ------------------------
