@@ -342,6 +342,36 @@ if bank_items:
     check("سحب اعتماد فقرة", r.status_code == 200)
     c.put(f"/api/paragraphs/{bank_items[0]['id']}", json={"approved": True})
 
+# ---------- 15ج. تصنيف فئة المشروع (إنشاءات / صيانة وتشغيل / ...) ----------
+from app.style_engine import detect_project_kind as _dpk
+check("المصنف: صيانة وتشغيل", _dpk("عقد صيانة وتشغيل المرافق مع الصيانة الوقائية ومعالجة الأعطال")[0] == "صيانة وتشغيل")
+check("المصنف: إنشاءات", _dpk("إنشاء وتشطيب مبنى خرسانة مسلحة مع أعمال العزل")[0] == "إنشاءات وتشطيبات")
+check("المصنف: نظافة", _dpk("خدمات نظافة وتنظيف شاملة مع مكافحة الحشرات")[0] == "نظافة")
+
+_maint_text = """نطاق العمل
+يشمل نطاق العمل تشغيل وصيانة الأنظمة الكهربائية والميكانيكية، وبرامج الصيانة الوقائية الدورية، ومعالجة الأعطال والبلاغات ضمن أزمنة الاستجابة المحددة بالعقد المعتمد.
+منهجية التنفيذ
+نبدأ باستلام المواقع وجرد الأصول، ثم تنفيذ برنامج الصيانة الوقائية الشهري بسجلات لكل أصل، ومعالجة البلاغات بفريق مناوب، وتقارير شهرية بمؤشرات الأداء المعتمدة.""".encode()
+r = c.post("/api/repo/upload",
+           data={"source_type": "عرض فني سابق", "company": "عزوم", "notes": "فحص فئة",
+                 "as_reference": "", "sector": "government"},
+           files=[("files", ("عرض صيانة فحص الفئات.txt", _maint_text, "text/plain"))])
+check("رفع عرض صيانة → تصنيف تلقائي في المستودع الفني", r.status_code == 200)
+_docs = c.get("/api/repository/technical").json()["documents"]
+_md = next((dd for dd in _docs if "صيانة فحص الفئات" in dd["filename"]), None)
+check("فئة المستند المكتشفة = صيانة وتشغيل", _md and _md["project_kind"] == "صيانة وتشغيل", str(_md))
+
+r = c.post("/api/proposals/generate",
+           data={"title": "مشروع صيانة وتشغيل مرافق تعليمية", "client": "إدارة تعليم", "entity_type": "government"})
+_dk = r.json()["data"]
+check("توليد صيانة: الفئة مكتشفة والخطة تشغيلية سنوية",
+      _dk.get("project_kind") == "صيانة وتشغيل" and "التشغيل والصيانة الدورية" in _dk["plan"][1]["phase"],
+      str((_dk.get("project_kind"), _dk["plan"][1]["phase"])))
+_bank_refs = {s3.get("source_ref", "") for s3 in _dk["technical_sections"] if s3.get("source") == "bank"}
+check("بنك الفقرات اختار عروض الصيانة لا الإنشاءات",
+      any("صيانة" in (ref or "") for ref in _bank_refs), str(_bank_refs))
+c.delete(f"/api/proposals/{r.json()['id']}")
+
 # ---------- 16. تعدد الشركات والأدوار ----------
 c.post("/api/login", json={"username": "azoom", "password": "Azoom@2026"})
 me = c.get("/api/me").json()

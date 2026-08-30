@@ -302,26 +302,38 @@ def _refresh_seed_library():
     update_settings({"library_text_version": LIBRARY_TEXT_VERSION}, company_id=1)
 
 
+# نماذج عروض عزوم الفعلية — واحد لكل فئة، تُصنَّف تلقائياً عند الزرع
+STYLE_SOURCES = [
+    ("azoom_style_source.txt", "العرض الفني النموذجي — إنشاءات وتشطيبات 2024"),
+    ("azoom_style_source_maintenance.txt", "العرض الفني النموذجي — صيانة وتشغيل HVAC"),
+]
+
+
 def _seed_style_source():
-    """زرع نص عرض عزوم الفني الحقيقي مصدراً لبصمة الكتابة (مرة واحدة)."""
+    """زرع نصوص عروض عزوم الفنية الحقيقية مصادرَ لبصمة الكتابة (مرة لكل ملف)."""
     from pathlib import Path
     from .database import get_db
-    from .style_engine import extract_style_profile, ingest_technical_document, init_style_tables
-    src = Path(__file__).parent / "seed_data" / "azoom_style_source.txt"
-    if not src.exists():
-        return
+    from .style_engine import (extract_style_profile, ingest_technical_document,
+                               init_style_tables, migrate_repo_to_tech)
     init_style_tables()
-    with get_db() as db:
-        exists = db.execute(
-            "SELECT 1 FROM tech_documents WHERE company_id = 1 AND filename = ?",
-            ("العرض الفني النموذجي — عزوم 2024",)).fetchone()
-    if exists:
-        return
-    res = ingest_technical_document(
-        "العرض الفني النموذجي — عزوم 2024", src.read_text(encoding="utf-8"),
-        doc_kind="azoom_submitted", project_kind="government",
-        client="نموذج معتمد", is_style_source=True)
-    if res["paragraphs"]:
+    migrate_repo_to_tech()  # يشمل ترقية فئات المستندات القديمة
+    added = 0
+    for fname, doc_name in STYLE_SOURCES:
+        src = Path(__file__).parent / "seed_data" / fname
+        if not src.exists():
+            continue
+        with get_db() as db:
+            exists = db.execute(
+                "SELECT 1 FROM tech_documents WHERE company_id = 1 AND filename IN (?, ?)",
+                (doc_name, "العرض الفني النموذجي — عزوم 2024" if "إنشاءات" in doc_name else doc_name)).fetchone()
+        if exists:
+            continue
+        res = ingest_technical_document(
+            doc_name, src.read_text(encoding="utf-8"),
+            doc_kind="azoom_submitted", project_kind="",
+            client="نموذج معتمد", is_style_source=True)
+        added += res["paragraphs"]
+    if added:
         extract_style_profile()
 
 

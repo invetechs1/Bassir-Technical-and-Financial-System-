@@ -172,6 +172,15 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
     boq: list[dict] = []
     matched_ref_note = ""
 
+    # فئة المشروع تُقرأ من ملفاته أولاً: إنشاءات / صيانة وتشغيل / نظافة / توريد /
+    # تصميم وإشراف — فتُبنى الأقسام من فقرات الفئة نفسها والخطة الزمنية بنمطها
+    project_kind = "إنشاءات وتشطيبات"
+    try:
+        from .style_engine import detect_project_kind
+        project_kind, _kind_scores = detect_project_kind(text)
+    except Exception:
+        pass
+
     # أولاً: البناء من أقرب عرض سابق مشابه إن وُجد تطابق قوي
     if similar_refs:
         best = similar_refs[0]
@@ -269,7 +278,28 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
         {"requirement": "متطلبات المحتوى المحلي والتوطين", "response": "ملتزمون", "reference": "خطة المحتوى المحلي"},
     ]
 
-    plan = [
+    if project_kind in ("صيانة وتشغيل", "نظافة"):
+        plan = [
+            {"phase": "مرحلة الاستلام والجرد والتعبئة", "duration_weeks": 2,
+             "description": "استلام المواقع والأصول وجردها وتوثيق حالتها الراهنة، وتجهيز الكوادر "
+                            "والمعدات والمواد، واعتماد خطة التشغيل والصيانة السنوية وسجلات الأصول.",
+             "deliverables": ["محاضر استلام المواقع", "سجل الأصول والحالة الراهنة", "خطة التشغيل والصيانة المعتمدة"]},
+            {"phase": "التشغيل والصيانة الدورية", "duration_weeks": 44,
+             "description": "تنفيذ أعمال التشغيل اليومية وبرامج الصيانة الوقائية وفق الجداول المعتمدة، "
+                            "ومعالجة البلاغات والأعطال ضمن أزمنة الاستجابة المحددة، مع تقارير شهرية "
+                            "بنسب الإنجاز ومؤشرات الأداء.",
+             "deliverables": ["سجلات الصيانة الوقائية", "تقارير معالجة البلاغات", "تقارير شهرية بمؤشرات الأداء"]},
+            {"phase": "الصيانة التصحيحية والتحسين", "duration_weeks": 4,
+             "description": "حصر الأعمال التصحيحية الكبرى وتنفيذها بالتنسيق مع الجهة المالكة، "
+                            "وتحديث سجلات الأصول وقطع الغيار.",
+             "deliverables": ["محاضر الأعمال التصحيحية", "سجل قطع الغيار المحدث"]},
+            {"phase": "التقييم السنوي والتسليم", "duration_weeks": 2,
+             "description": "تقييم أداء العقد السنوي وإقفال السجلات وتسليم التقارير الختامية، "
+                            "والتجهيز للتجديد أو التسليم النهائي.",
+             "deliverables": ["التقرير السنوي الختامي", "محضر إقفال/تجديد العقد"]},
+        ]
+    else:
+        plan = [
         {"phase": "مرحلة التجهيز والتعبئة", "duration_weeks": 2,
          "description": "استلام الموقع/المتطلبات، تجهيز فريق العمل، اعتماد الخطة الزمنية التفصيلية وخطط الجودة والسلامة.",
          "deliverables": ["خطة زمنية معتمدة", "خطة جودة وسلامة", "تشكيل فريق المشروع"]},
@@ -291,7 +321,7 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
         import json as _json
         from .style_engine import (_canonical_for, build_from_bank, get_style_profile,
                                    scrub_banned, style_report)
-        bank = build_from_bank(text, entity_type)
+        bank = build_from_bank(text, project_kind)
         profile = get_style_profile()
         banned = _json.loads(profile.get("banned_json") or "[]") or None
         _keep_dynamic = {"scope"}  # نص نطاق العمل خاص بكل مشروع — لا يُستبدل ببنك الفقرات
@@ -326,5 +356,6 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
         "team": [{"role": "مدير مشروع PMP", "count": 1}, {"role": "مهندس موقع", "count": 1},
                  {"role": "مهندس جودة وسلامة", "count": 1}],
         "style": style_meta,
+        "project_kind": project_kind,
         "engine": "template",
     }

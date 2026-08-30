@@ -29,6 +29,42 @@ CANONICAL_SECTIONS = {
     "schedule": ("الجدول الزمني", "البرنامج الزمني", "مدة التنفيذ", "الخطة الزمنية"),
 }
 
+# فئات المشاريع — يُصنَّف كل مشروع وكل عرض فني مرفوع تلقائياً بإحداها،
+# فتُبنى العروض الجديدة من فقرات وأسعار الفئة نفسها
+PROJECT_KINDS = {
+    "صيانة وتشغيل": ("صيانة", "تشغيل", "وقائية", "تصحيحية", "أعطال", "اعطال",
+                     "عقد سنوي", "مرافق", "قطع الغيار", "منظومات"),
+    "نظافة": ("نظافة", "تنظيف", "محارم", "مبيدات", "مكافحة الحشرات"),
+    "توريد": ("توريد مواد", "توريد معدات", "توريد عمالة", "توريد أجهزة", "توريد اثاث", "توريد أثاث"),
+    "تصميم وإشراف": ("تصميم", "إشراف", "اشراف", "استشاري", "مخططات", "دراسات هندسية"),
+    "إنشاءات وتشطيبات": ("إنشاء", "انشاء", "بناء", "تشطيب", "ترميم", "خرسانة", "عزل",
+                          "مبنى", "مباني", "لياسة", "دهانات", "أرضيات", "اسقف", "أسقف",
+                          "حفر", "ردم", "هيكل", "بلاط", "سور", "مظلات"),
+}
+DEFAULT_PROJECT_KIND = "إنشاءات وتشطيبات"
+
+
+def detect_project_kind(text: str) -> tuple[str, dict]:
+    """قراءة نص المشروع وتحديد فئته بترجيح الكلمات — يعيد (الفئة، الدرجات).
+
+    الصيانة والتشغيل تُرجَّح أولاً لأن كلماتها أدق دلالة: مشروع «صيانة مبنى»
+    فئته صيانة وتشغيل وإن ذُكر المبنى."""
+    text = (text or "")[:60_000]
+    scores = {}
+    for kind, keywords in PROJECT_KINDS.items():
+        scores[kind] = sum(text.count(k) for k in keywords)
+    # ترجيح الفئات الأدق دلالةً على فئة الإنشاءات العامة
+    weighted = dict(scores)
+    weighted["صيانة وتشغيل"] *= 3
+    weighted["نظافة"] *= 3
+    weighted["توريد"] *= 2
+    weighted["تصميم وإشراف"] *= 2
+    best = max(weighted, key=lambda k: weighted[k])
+    if weighted[best] == 0:
+        best = DEFAULT_PROJECT_KIND
+    return best, scores
+
+
 # ما يفضح النص المولَّد — تُحذف الجمل الحاوية عليها من أي مخرَج
 DEFAULT_BANNED = [
     "حلول مبتكرة", "أعلى معايير الجودة", "شريك النجاح", "نفخر بأن", "تجدر الإشارة",
@@ -141,6 +177,10 @@ def ingest_technical_document(filename: str, text: str, doc_kind: str = "azoom_s
     فقرات عروض الشركة نفسها تدخل بنك الفقرات معتمدةً؛ فقرات المنافسين
     تُخزَّن للاطلاع دون اعتماد (لا تدخل في بناء العروض)."""
     init_style_tables()
+    if not project_kind or project_kind in ("government", "private", "pif", "airports"):
+        # القيم القطاعية القديمة أو الفراغ → صنّف من محتوى العرض نفسه
+        detected, _ = detect_project_kind(text)
+        project_kind = detected
     sections = split_into_sections(text)
     approved_default = 1 if doc_kind.startswith("azoom") else 0
     para_total = 0
@@ -175,6 +215,18 @@ def ingest_technical_document(filename: str, text: str, doc_kind: str = "azoom_s
 def migrate_repo_to_tech():
     """ملفات المستودع القديمة الموسومة «فني» تدخل المستودع الفني مرة واحدة."""
     init_style_tables()
+    # ترقية فئات المستندات القديمة (كانت قيماً قطاعية) إلى فئات المشاريع
+    with get_db() as db:
+        stale = db.execute(
+            "SELECT id FROM tech_documents WHERE project_kind IN "
+            "('', 'government', 'private', 'pif', 'airports')").fetchall()
+        for row in stale:
+            paras = db.execute(
+                "SELECT p.body FROM tech_paragraphs p JOIN tech_sections s ON s.id = p.section_id "
+                "WHERE s.document_id = ? LIMIT 40", (row["id"],)).fetchall()
+            kind, _ = detect_project_kind(" ".join(p["body"] for p in paras))
+            db.execute("UPDATE tech_documents SET project_kind = ? WHERE id = ?",
+                       (kind, row["id"]))
     with get_db() as db:
         rows = db.execute(
             "SELECT r.* FROM repo_files r "
