@@ -57,6 +57,36 @@ def compute_financials(boq: list[dict], settings: dict | None = None) -> dict:
     }
 
 
+def client_facing_pricing(boq: list[dict], financial: dict) -> list[dict]:
+    """توزيع المصاريف الإدارية والمخاطر والربح داخل أسعار البنود.
+
+    العميل يرى أسعاراً محمَّلة فقط — لا سطر ربح ولا مخاطر في الملف المصدَّر.
+    مجموع البنود بعد التحميل يساوي «الإجمالي قبل الضريبة» تماماً؛ فرق
+    التقريب يُمتص في أكبر بند."""
+    direct = float(financial.get("direct_cost") or 0)
+    subtotal = float(financial.get("subtotal") or 0)
+    factor = (subtotal / direct) if direct else 1.0
+    loaded = []
+    for l in boq:
+        qty = float(l.get("qty") or 0)
+        unit = round(float(l.get("unit_price") or 0) * factor, 2)
+        row = {**l, "unit_price": unit, "total": round(unit * qty, 2)}
+        if l.get("children"):
+            row["children"] = [
+                {**c, "unit_price": round(float(c.get("unit_price") or 0) * factor, 2),
+                 "total": round(float(c.get("unit_price") or 0) * factor * qty, 2)}
+                for c in l["children"]
+            ]
+        loaded.append(row)
+    diff = round(subtotal - sum(l["total"] for l in loaded), 2)
+    if loaded and abs(diff) >= 0.01:
+        big = max(loaded, key=lambda l: l["total"])
+        big["total"] = round(big["total"] + diff, 2)
+        if big.get("qty"):
+            big["unit_price"] = round(big["total"] / float(big["qty"]), 4)
+    return loaded
+
+
 def flatten_boq_rows(boq: list[dict]) -> list[tuple]:
     """يفكك جدول الكميات إلى صفوف مسطّحة للتصدير (Word/Excel) — كل بند أب
     مقسّم إلى مراحل فرعية يظهر متبوعاً بصفوفه الفرعية مرقّمة (1.1، 1.2 ...)
@@ -175,28 +205,59 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
                 })
 
     library = {e["title"]: e["body"] for e in list_library()}
-    # الهيكل المعتمد للعرض الفني في المنافسات الحكومية السعودية (منصة اعتماد)
+    settings_letter = get_settings()
+    _company = settings_letter.get("company_name", "شركة عزوم المتحدة للمقاولات")
+    _validity = settings_letter.get("validity_days", "90")
+    _cr = settings_letter.get("company_cr", "")
+    cover_letter = (
+        "السلام عليكم ورحمة الله وبركاته، وبعد:\n"
+        f"إشارةً إلى مشروع «{title}» المطروح من قِبلكم، يسرّ {_company} أن تتقدم لسعادتكم "
+        "بعرضها الفني والمالي لتنفيذ الأعمال المذكورة وفق الشروط والمواصفات الواردة في وثائق المشروع.\n"
+        "ونؤكد لسعادتكم جاهزيتنا للمباشرة فور الترسية، والتزامنا بتنفيذ الأعمال حسب المواصفات "
+        f"والبرنامج الزمني المعتمد، مع سريان عرضنا هذا لمدة {_validity} يوماً من تاريخه.\n"
+        "وتفضلوا سعادتكم بقبول خالص التحية والتقدير،\n"
+        f"{_company}" + (f" — سجل تجاري رقم {_cr}" if _cr else ""))
+    # هيكل العرض الفني — يطابق بنية عروض عزوم الفعلية (معلومات الشركة، الملخص،
+    # من نحن، مشاريع سابقة، نطاق العمل، الفريق، المنهجية، المخاطر، الوثائق،
+    # السلامة، الجودة، ...) بضمير المتكلم الجمع كما تكتب الشركة
+    company_info = "\n".join(x for x in (
+        f"اسم الشركة: {_company}",
+        f"عنوان الشركة: {settings_letter.get('company_address', '')}",
+        "الخدمات: المقاولات الإنشائية، الأعمال المدنية، أعمال العزل، الترميمات وصيانة المباني، "
+        "خدمات النظافة والصيانة العامة، وأعمال التشطيبات والتوريدات.",
+        "تاريخ التأسيس: 2017م",
+        "الوضع القانوني: شركة ذات مسؤولية محدودة",
+        f"رقم السجل التجاري: {_cr}" if _cr else "",
+        f"الرقم الضريبي: {settings_letter.get('company_vat_no', '')}" if settings_letter.get('company_vat_no') else "",
+        f"الهاتف: {settings_letter.get('company_phone', '')}" if settings_letter.get('company_phone') else "",
+        f"البريد الإلكتروني: {settings_letter.get('company_email', '')}" if settings_letter.get('company_email') else "",
+    ) if x)
     sections = [
-        {"title": "الملخص التنفيذي", "body": library.get("الملخص التنفيذي القياسي", "")},
-        {"title": "التعريف بالشركة والتراخيص والشهادات", "body": library.get("نبذة عن شركة عزوم", "")},
-        {"title": "فهم نطاق العمل",
-         "body": f"اطلعت شركة عزوم على وثائق مشروع «{title}» الخاص بـ{client}، وقامت بتحليل متطلباته "
-                 "وحصر نطاق أعماله. ويغطي هذا العرض كامل نطاق العمل الوارد في الوثائق المرجعية، ويُعد "
-                 "جدول الكميات المرفق ترجمة تفصيلية لهذا النطاق. (حرّر هذا القسم لإضافة تفاصيل النطاق "
-                 "المستخلصة من كراسة الشروط.)"},
-        {"title": "منهجية التنفيذ وإدارة المشروع", "body": library.get("منهجية إدارة المشروع", "")},
-        {"title": "الهيكل التنظيمي وفريق العمل", "body":
-            "يُشكَّل فريق مشروع متكامل بقيادة مدير مشروع معتمد PMP يمثل نقطة الاتصال الوحيدة مع "
-            "صاحب العمل، وتُرفق السير الذاتية للكوادر الأساسية ضمن الملاحق. (راجع جدول فريق العمل.)"},
-        {"title": "الخبرات والمشاريع المماثلة",
-         "body": (f"نفذت شركة عزوم وقدمت عروضاً لمشاريع مماثلة مباشرة لنطاق هذا المشروع، "
-                  f"أقربها: {matched_ref_note}، وقد بُني جدول الكميات في هذا العرض على خبرة "
-                  f"التسعير الفعلية لذلك المشروع. "
-                  + library.get("الخبرات والمشاريع المماثلة", ""))
+        {"title": "خطاب التقديم", "body": cover_letter},
+        {"title": "السرية وحقوق الملكية", "body": library.get("السرية وحقوق الملكية", "")},
+        {"title": "معلومات الشركة", "body": company_info},
+        {"title": "الملخص", "body": library.get("الملخص التنفيذي القياسي", "")},
+        {"title": "من نحن", "body": library.get("نبذة عن شركة عزوم", "")},
+        {"title": "مشاريع سابقة",
+         "body": (f"نفذت الشركة وقدمت عروضاً لمشاريع مماثلة مباشرة لنطاق هذا المشروع، أقربها: "
+                  f"{matched_ref_note}، وقد بُني جدول الكميات في هذا العرض على خبرة التسعير الفعلية "
+                  f"لذلك المشروع.\n" + library.get("الخبرات والمشاريع المماثلة", ""))
          if matched_ref_note else library.get("الخبرات والمشاريع المماثلة", "")},
-        {"title": "خطة ضمان الجودة", "body": library.get("خطة ضمان الجودة", "")},
-        {"title": "خطة السلامة والصحة المهنية", "body": library.get("خطة السلامة والصحة المهنية", "")},
-        {"title": "إدارة المخاطر", "body": library.get("منهجية إدارة المخاطر", "")},
+        {"title": "نطاق العمل",
+         "body": f"اطلعنا على وثائق مشروع «{title}» الخاص بـ{client}، وحللنا متطلباته وحصرنا بنود "
+                 "أعماله. يغطي هذا العرض جميع البنود المذكورة في نطاق المشروع، ويُعد جدول الكميات "
+                 "المرفق ترجمة تفصيلية له بنداً ببند كميةً وسعراً، وسيشمل العمل كافة التوريدات "
+                 "والتركيبات والتشوينات اللازمة لإتمام الأعمال حسب الأصول الفنية."},
+        {"title": "فريق العمل", "body":
+            "يُدار المشروع بفريق مقيم بقيادة مدير مشروع يمثل الشركة أمام الجهة المالكة والمهندس "
+            "المشرف، يسانده مهندس موقع ومسؤول جودة ومشرف سلامة ومساح كميات، مع الكوادر الفنية "
+            "والعمالة حسب طبيعة كل مرحلة. تُرفق السير الذاتية للكوادر الأساسية ضمن ملاحق العرض."},
+        {"title": "النهج والمنهجية", "body": library.get("منهجية إدارة المشروع", "")},
+        {"title": "خطة إدارة المخاطر", "body": library.get("منهجية إدارة المخاطر", "")},
+        {"title": "إدارة الوثائق",
+         "body": (library.get("إدارة الوثائق", "") or "").replace("الجهة المالكة", client or "الجهة المالكة")},
+        {"title": "التأثير البيئي والصحة والسلامة المهنية", "body": library.get("خطة السلامة والصحة المهنية", "")},
+        {"title": "معايير الجودة", "body": library.get("خطة ضمان الجودة", "")},
         {"title": "خطة المحتوى المحلي والسعودة والتدريب", "body": library.get("خطة المحتوى المحلي والسعودة والتدريب", "")},
         {"title": "الضمانات والالتزامات", "body": library.get("الضمانات والالتزامات", "")},
     ]
@@ -233,9 +294,10 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
         bank = build_from_bank(text, entity_type)
         profile = get_style_profile()
         banned = _json.loads(profile.get("banned_json") or "[]") or None
+        _keep_dynamic = {"scope"}  # نص نطاق العمل خاص بكل مشروع — لا يُستبدل ببنك الفقرات
         for sec in sections:
             canonical = _canonical_for(sec["title"])
-            if canonical and canonical in bank:
+            if canonical and canonical in bank and canonical not in _keep_dynamic:
                 sec["body"] = bank[canonical]["body"]
                 sec["source"] = "bank"
                 sec["source_ref"] = bank[canonical]["ref"]
@@ -259,7 +321,7 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
         "assumptions": [
             "الأسعار بالريال السعودي وتشمل كافة الالتزامات ما لم يُذكر خلاف ذلك.",
             f"سريان العرض {settings.get('validity_days', '90')} يوماً من تاريخ تقديمه.",
-            "الكميات في جدول الكميات تقديرية وتُحاسب على الكميات الفعلية المنفذة (حرّرها حسب كراسة الشروط).",
+            "الكميات الواردة في جدول الكميات تقديرية، وتُحاسب الأعمال على الكميات الفعلية المنفذة والمعتمدة من الاستشاري.",
         ],
         "team": [{"role": "مدير مشروع PMP", "count": 1}, {"role": "مهندس موقع", "count": 1},
                  {"role": "مهندس جودة وسلامة", "count": 1}],

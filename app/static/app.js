@@ -394,6 +394,7 @@ function renderFin(d) {
       <div class="fin-row"><span>${t("fin_vat")} (${f.vat_rate ?? 15}%)</span><span class="num-cell">${fmt(f.vat)} ${cur}</span></div>
       <div class="fin-row total"><span>${t("fin_grand_total")}</span><span class="v num-cell">${fmt(f.grand_total)} ${cur}</span></div>
       <p class="muted mt">${t("fin_bid_bond")} (${f.bid_bond_pct ?? 1}%): <b>${fmt(f.bid_bond)} ${cur}</b></p>
+      <p class="muted mt" style="border-top:1px solid var(--line);padding-top:8px">🔒 ${t("fin_internal_note")}</p>
     </div>
     ${(d.assumptions || []).length ? `<div class="panel"><h3>${t("assumptions_title")}</h3>${d.assumptions.map((a) => `<p class="muted">• ${a}</p>`).join("")}</div>` : ""}`;
 }

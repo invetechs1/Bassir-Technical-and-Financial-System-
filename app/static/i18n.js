@@ -126,6 +126,7 @@ const I18N = {
   invoices_issue_btn: { ar: "🧾 إصدار فواتير الشهر", en: "🧾 Issue monthly invoices" },
   invoices_issued: { ar: "فواتير صدرت", en: "invoices issued" },
   invoices_skipped: { ar: "تُخُطيت", en: "skipped" },
+  fin_internal_note: { ar: "هذا التفصيل داخلي لكم فقط — في ملفات Word وExcel المصدَّرة تُحمَّل المصاريف الإدارية والمخاطر والربح داخل أسعار البنود، ولا يظهر للعميل إلا الإجمالي والضريبة.", en: "This breakdown is internal only — in exported Word/Excel files, overhead, risk and profit are loaded into the unit prices; the client sees only the subtotal and VAT." },
   topbar_new_btn: { ar: "+ إنشاء عرض جديد", en: "+ New Proposal" },
 
   // لوحة التحكم
