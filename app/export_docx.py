@@ -8,7 +8,7 @@ from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor, Cm
 
 from .config import BRAND
-from .proposal_builder import flatten_boq_rows
+from .proposal_builder import client_facing_pricing, flatten_boq_rows
 
 PRIMARY = RGBColor.from_string(BRAND["primary"])
 ACCENT = RGBColor.from_string(BRAND["accent"])
@@ -212,9 +212,10 @@ def export_proposal_docx(proposal: dict, settings: dict, path: str):
     doc.add_page_break()
 
     # ---------- الجزء الثالث: العرض المالي ----------
+    # أسعار البنود محمَّلة بكامل التكاليف — لا تظهر أي نسب داخلية للعميل
     _heading(doc, "ثالثاً: العرض المالي")
     _heading(doc, "جدول الكميات والأسعار", level=2)
-    boq = data.get("boq", [])
+    boq = client_facing_pricing(data.get("boq", []), data.get("financial", {}))
     _table(
         doc,
         ["م", "الكود", "البند", "الوحدة", "الكمية", "سعر الوحدة (ر.س)", "الإجمالي (ر.س)"],
@@ -229,11 +230,7 @@ def export_proposal_docx(proposal: dict, settings: dict, path: str):
         doc,
         ["البيان", "القيمة (ريال سعودي)"],
         [
-            ("التكلفة المباشرة (جدول الكميات)", fin.get("direct_cost", 0)),
-            (f"المصاريف الإدارية والعمومية ({fin.get('overhead_pct', 0):g}%)", fin.get("overhead", 0)),
-            (f"احتياطي المخاطر ({fin.get('risk_pct', 0):g}%)", fin.get("risk", 0)),
-            (f"هامش الربح ({fin.get('profit_pct', 0):g}%)", fin.get("profit", 0)),
-            ("الإجمالي قبل الضريبة", fin.get("subtotal", 0)),
+            ("إجمالي جدول الكميات والأسعار", fin.get("subtotal", 0)),
             (f"ضريبة القيمة المضافة ({fin.get('vat_rate', 15):g}%)", fin.get("vat", 0)),
             ("الإجمالي النهائي شامل الضريبة", fin.get("grand_total", 0)),
         ],

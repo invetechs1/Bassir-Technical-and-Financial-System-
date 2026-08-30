@@ -3,7 +3,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from .config import BRAND
-from .proposal_builder import flatten_boq_rows
+from .proposal_builder import client_facing_pricing, flatten_boq_rows
 
 HEADER_FILL = PatternFill("solid", fgColor=BRAND["primary"])
 ACCENT_FILL = PatternFill("solid", fgColor=BRAND["accent"])
@@ -35,7 +35,9 @@ def export_boq_xlsx(proposal: dict, path: str):
         cell.border = BORDER
 
     row = 3
-    for values in flatten_boq_rows(data.get("boq", [])):
+    # أسعار محمَّلة — لا نسب داخلية في ملف العميل
+    loaded_boq = client_facing_pricing(data.get("boq", []), data.get("financial", {}))
+    for values in flatten_boq_rows(loaded_boq):
         is_sub = "." in str(values[0])
         for col, value in enumerate(values, 1):
             cell = ws.cell(row=row, column=col, value=value)
@@ -50,11 +52,7 @@ def export_boq_xlsx(proposal: dict, path: str):
 
     fin = data.get("financial", {})
     summary = [
-        ("التكلفة المباشرة", fin.get("direct_cost", 0)),
-        (f"المصاريف الإدارية والعمومية ({fin.get('overhead_pct', 0):g}%)", fin.get("overhead", 0)),
-        (f"احتياطي المخاطر ({fin.get('risk_pct', 0):g}%)", fin.get("risk", 0)),
-        (f"هامش الربح ({fin.get('profit_pct', 0):g}%)", fin.get("profit", 0)),
-        ("الإجمالي قبل الضريبة", fin.get("subtotal", 0)),
+        ("إجمالي جدول الكميات والأسعار", fin.get("subtotal", 0)),
         (f"ضريبة القيمة المضافة ({fin.get('vat_rate', 15):g}%)", fin.get("vat", 0)),
         ("الإجمالي النهائي شامل الضريبة", fin.get("grand_total", 0)),
     ]

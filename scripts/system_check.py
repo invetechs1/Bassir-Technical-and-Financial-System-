@@ -152,6 +152,12 @@ r = c.put(f"/api/proposals/{pid}", json={"status": "won"})
 check("تحديث حالة العرض (فائز)", r.status_code == 200)
 
 # ---------- 9. التصدير Word + Excel ----------
+_titles = [sec["title"] for sec in data.get("technical_sections", [])]
+check("بنية العرض الحقيقية (خطاب التقديم أولاً + معلومات الشركة + من نحن)",
+      _titles[:1] == ["خطاب التقديم"] and "معلومات الشركة" in _titles and "من نحن" in _titles,
+      str(_titles[:5]))
+_bodies_all = " ".join(sec["body"] for sec in data.get("technical_sections", []))
+check("لا ملاحظات تحريرية في نصوص العميل", "حرّر هذا القسم" not in _bodies_all)
 r = c.get(f"/api/proposals/{pid}/export/docx")
 check("تصدير Word", r.status_code == 200 and len(r.content) > 10000)
 from docx import Document
@@ -159,11 +165,24 @@ d = Document(io.BytesIO(r.content))
 footer_ok = any("+966114880122" in p.text and "1010467099" in p.text
                 for s in d.sections for p in s.footer.paragraphs)
 check("تذييل Word الرسمي في كل صفحة", footer_ok)
+_doc_text = "\n".join(p2.text for p2 in d.paragraphs)
+for _t2 in d.tables:
+    for _row in _t2.rows:
+        _doc_text += "\n" + " ".join(cell.text for cell in _row.cells)
+check("Word للعميل: لا هامش ربح ولا مخاطر ولا مصاريف إدارية",
+      all(x not in _doc_text for x in ("هامش الربح", "احتياطي المخاطر", "المصاريف الإدارية", "التكلفة المباشرة")))
+from app.proposal_builder import client_facing_pricing as _cfp
+_loaded = _cfp(data["boq"], fin)
+check("الأسعار المحمَّلة: مجموع البنود = الإجمالي قبل الضريبة",
+      abs(round(sum(l["total"] for l in _loaded), 2) - fin["subtotal"]) < 0.01)
 r = c.get(f"/api/proposals/{pid}/export/xlsx")
 check("تصدير Excel", r.status_code == 200 and len(r.content) > 3000)
 from openpyxl import load_workbook
 wb2 = load_workbook(io.BytesIO(r.content))
 check("ملف Excel سليم", len(wb2.sheetnames) >= 1)
+_xl_text = " ".join(str(c2.value) for _r2 in wb2.active.iter_rows() for c2 in _r2 if c2.value)
+check("Excel للعميل: لا نسب داخلية",
+      all(x not in _xl_text for x in ("هامش الربح", "احتياطي المخاطر", "المصاريف الإدارية")))
 
 # ---------- 10. المستودع المعرفي ----------
 boq_txt = """عرض مالي — مشروع إنشاء حدائق وممرات مشاة

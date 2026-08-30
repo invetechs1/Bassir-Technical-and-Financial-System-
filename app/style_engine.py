@@ -105,6 +105,7 @@ _HEADING_MAX_WORDS = 8
 
 
 def _canonical_for(title: str) -> str:
+    title = (title or "").replace("ـ", "")  # عناوين العروض الفعلية تُزخرف بالكشيدة
     for canonical, keywords in CANONICAL_SECTIONS.items():
         if any(k in title for k in keywords):
             return canonical
@@ -118,7 +119,7 @@ def split_into_sections(text: str) -> list[dict]:
         line = raw.strip()
         if not line:
             continue
-        clean = re.sub(r"^[\d\.\-–•)\s:]+|[\s:]+$", "", line)
+        clean = re.sub(r"^[\d\.\-–•)\s:]+|[\s:]+$", "", line).replace("ـ", "")
         words = clean.split()
         is_heading = (0 < len(words) <= _HEADING_MAX_WORDS
                       and not re.search(r"[.،؛]$", line)
