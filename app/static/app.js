@@ -330,7 +330,7 @@ function viewProposal(p) {
   if (p.data.similar_refs?.length) {
     meta += ` • ${t("built_on_label")} ${p.data.similar_refs.map((r) => `${r.title.slice(0, 30)}… (${r.score}%)`).join("، ")}`;
   }
-  $("#vMeta").textContent = meta;
+  $("#vMeta").textContent = meta + (p.data.project_kind ? " • " + t("kind_label") + " " + p.data.project_kind : "");
   $("#vStatus").value = p.status;
   renderTech(p.data);
   renderFin(p.data);
