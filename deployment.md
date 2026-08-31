@@ -130,6 +130,16 @@ all current AZOOM data becomes company #1, nothing is lost.
 - Forsah passwords are stored encrypted (Fernet key auto-created at
   `data/secret.key` — back it up with `data/`).
 
+## Billing & self-signup (SaaS layer)
+
+- Public signup at `/signup`: creates a 14-day trial company with its owner.
+- Plan gates return **402** (not 403): Etimad/Forsah and the style engine need
+  Pro or Enterprise; expired trials become read-only for 30 days, then suspended
+  (data kept). All computed live — no cron needed.
+- Monthly invoices: platform admin presses «إصدار فواتير الشهر» (or POST
+  `/api/platform/invoices/issue` from cron). Trials and negotiated enterprise
+  plans are skipped; a period is never invoiced twice.
+
 ## Data & backups
 
 All state lives in `data/`:
@@ -181,7 +191,7 @@ the login was done on another machine. Fetching the public tenders list
 .venv/bin/python scripts/system_check.py
 ```
 
-Runs 92 checks covering every endpoint and function: auth, seeds, settings,
+Runs 113 checks covering every endpoint and function: auth, seeds, settings,
 prices CRUD + CSV import/export, library, company docs, proposal generation
 (similarity + financial math), Word/Excel export (incl. the official footer),
 knowledge repository (upload, reference creation, market benchmark), the

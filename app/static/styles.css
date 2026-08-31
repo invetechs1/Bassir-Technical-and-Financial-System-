@@ -318,6 +318,8 @@ td input:disabled { background: var(--card-2); color: var(--muted); cursor: not-
 .fit { display: inline-block; width: 62px; height: 6px; border-radius: 3px; background: #EDF2EE; overflow: hidden; vertical-align: middle; }
 .fit i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
 .fit.low i { background: #C9D6CD; }
+.fit.warn i { background: var(--warn); }
+.fit.danger i { background: var(--danger); }
 
 /* شريط الاستهلاك مقابل حد الخطة */
 .usage { display: flex; align-items: center; gap: 8px; }

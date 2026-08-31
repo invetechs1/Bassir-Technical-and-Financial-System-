@@ -39,6 +39,9 @@
     <button class="nav-btn" data-page="settings" data-i18n="nav_settings">الإعدادات</button>
     <div class="nav-group" id="navgrpPlatform" data-i18n="navgrp_platform" hidden>المنصة</div>
     <button class="nav-btn" data-page="tenants" id="navTenants" data-i18n="nav_tenants" hidden>الشركات والمستخدمون</button>
+    <button class="nav-btn" data-page="companies" id="navCompanies" data-i18n="nav_companies" hidden>بنية تعدد الشركات</button>
+    <button class="nav-btn" data-page="newco" id="navNewco" data-i18n="nav_newco" hidden>تسجيل شركة جديدة</button>
+    <button class="nav-btn" data-page="billing" id="navBilling" data-i18n="nav_billing" hidden>الاشتراكات والفوترة</button>
     <button class="nav-btn" onclick="logout()" style="margin-top:auto" data-i18n="nav_logout">تسجيل الخروج</button>
     <div class="engine-badge" id="engineBadge">…</div>
     <div class="powered-by" dir="ltr">powered by Bassir Technology Company</div>
@@ -500,10 +503,19 @@
     <!-- الشركات والمستخدمون -->
     <section class="page" id="page-tenants">
       <div class="page-head">
-        <div><h2 data-i18n="tenants_title">الشركات والمستخدمون</h2><p data-i18n="tenants_sub">إدارة أعضاء شركتك وأدوارهم — ولمدير المنصة: إنشاء شركات جديدة على النظام بعزل كامل للبيانات</p></div>
+        <div><h2 data-i18n="tenants_title">الشركات والمستخدمون</h2><p data-i18n="tenants_sub">كل شركة مساحة عمل مستقلة: أسعارها وعروضها ومكتبتها الفنية ووثائقها ومستخدموها منفصلون تماماً. تبيع النظام لعميل جديد بإضافة شركة جديدة وتحديد خطتها.</p></div>
+        <button class="btn" id="btnGoNewco" onclick="go('newco')" hidden data-i18n="newco_btn">🏢 إضافة شركة جديدة</button>
+      </div>
+      <div class="panel" id="platformOverviewPanel" hidden>
+        <div class="cards mb" id="platformOverviewStats"></div>
+        <h3 data-i18n="companies_title">شركات المنصة <span class="tag admin">مدير المنصة</span></h3>
+        <div class="t-wrap"><table id="companiesTableOverview">
+          <thead><tr><th data-i18n="th_company">الشركة</th><th data-i18n="th_plan">الخطة</th><th data-i18n="th_sector">القطاع</th><th data-i18n="th_members">الأعضاء</th><th data-i18n="th_proposals_m">عروض</th><th data-i18n="th_prices_n">بنود الأسعار</th><th data-i18n="th_status">الحالة</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
       </div>
       <div class="panel">
-        <h3 data-i18n="members_title">أعضاء الشركة الحالية</h3>
+        <h3 data-i18n="members_title" id="membersTitle">أعضاء الشركة الحالية</h3>
         <div class="t-wrap"><table id="membersTable">
           <thead><tr><th data-i18n="th_member">المستخدم</th><th data-i18n="th_display">الاسم</th><th data-i18n="th_role">الدور</th><th data-i18n="th_last_login">آخر دخول</th><th data-i18n="th_actions">إجراءات</th></tr></thead>
           <tbody></tbody>
@@ -529,18 +541,85 @@
             </select></div>
         </div>
         <button class="btn mt" onclick="inviteMember()" data-i18n="invite_btn">➕ دعوة العضو</button>
+        <p class="muted mt" data-i18n="roles_explainer">مالك الحساب والأدمن وحدهما يطّلعان على قاعدة الأسعار، المكتبة الفنية، المستودع المعرفي، التحليلات، وأرشيف العروض ويعدلانها ويضيفان محتوى لها. المُحرِّر يعد العروض من لوحة التحكم وصفحة «عرض جديد» دون الوصول لتلك الصفحات، والمُشاهد يقرأ فقط ويصدّر.</p>
       </div>
-      <div class="panel" id="platformPanel" hidden>
-        <div class="cards mb" id="platformMetrics"></div>
-        <div class="row mb" style="justify-content:space-between">
-          <h3 style="margin:0" data-i18n="companies_title">شركات المنصة <span class="tag admin">مدير المنصة</span></h3>
-          <button class="btn sm ghost" onclick="issueInvoices()" data-i18n="invoices_issue_btn">🧾 إصدار فواتير الشهر</button>
+      <div class="panel" id="plansOverviewPanel" hidden>
+        <h3 data-i18n="plans_title">خطط الاشتراك</h3>
+        <div class="cards" id="plansCards"></div>
+      </div>
+    </section>
+
+    <!-- بنية تعدد الشركات -->
+    <section class="page" id="page-companies">
+      <div class="page-head">
+        <div><h2 data-i18n="companies_page_title">بنية تعدد الشركات (الباك‌إند)</h2><p data-i18n="companies_page_sub">كيف يعزل النظام الحالي بيانات كل شركة عن غيرها — نقاط النهاية والجداول التي تنفّذ ذلك، مرجع لمن يطوّر على الكود.</p></div>
+      </div>
+      <div class="grid-2">
+        <div class="panel">
+          <h3 data-i18n="endpoints_title">نقاط النهاية الرئيسية</h3>
+          <div class="t-wrap"><table>
+            <thead><tr><th data-i18n="th_endpoint">النقطة</th><th data-i18n="th_endpoint_desc">الوصف</th></tr></thead>
+            <tbody>
+              <tr><td class="code">POST /api/companies</td><td data-i18n="ep_1">إنشاء شركة جديدة مع مالك حسابها — لمدير المنصة فقط.</td></tr>
+              <tr><td class="code">GET /api/companies</td><td data-i18n="ep_2">قائمة كل شركات المنصة مع استخدامها وحدود خطتها — لمدير المنصة فقط.</td></tr>
+              <tr><td class="code">GET /api/me/companies</td><td data-i18n="ep_3">الشركات التي يملك المستخدم الحالي عضوية فيها.</td></tr>
+              <tr><td class="code">POST /api/session/company/:id</td><td data-i18n="ep_4">تبديل الشركة الحالية في الجلسة بعد التحقق من العضوية.</td></tr>
+              <tr><td class="code">POST /api/signup</td><td data-i18n="ep_5">تسجيل شركة جديدة ذاتياً بخطة تجريبية 14 يوماً — بلا حاجة لمدير المنصة.</td></tr>
+              <tr><td class="code">POST /api/members</td><td data-i18n="ep_6">دعوة عضو للشركة الحالية بدور محدد.</td></tr>
+              <tr><td class="code">PUT /api/members/:id</td><td data-i18n="ep_7">تغيير دور عضو — للمالك أو مدير المنصة.</td></tr>
+              <tr><td class="code">GET /api/plans</td><td data-i18n="ep_8">بيانات الخطط: الأسعار وحدود كل خطة.</td></tr>
+              <tr><td class="code">GET /api/platform/metrics</td><td data-i18n="ep_9">مؤشرات مدير المنصة: MRR، الشركات، الفواتير الأخيرة.</td></tr>
+              <tr><td class="code">POST /api/platform/invoices/issue</td><td data-i18n="ep_10">إصدار فواتير الشهر لكل شركة مدفوعة نشطة — بلا تكرار للفترة.</td></tr>
+            </tbody>
+          </table></div>
         </div>
-        <div class="t-wrap"><table id="companiesTable">
-          <thead><tr><th data-i18n="th_company">الشركة</th><th data-i18n="th_plan">الخطة</th><th data-i18n="th_members">الأعضاء</th><th data-i18n="th_proposals_m">عروض الشهر</th><th data-i18n="th_prices_n">بنود الأسعار</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table></div>
-        <h3 class="mt" data-i18n="newco_title">إنشاء شركة جديدة</h3>
+        <div class="panel">
+          <h3 data-i18n="schema_title">الجداول الجديدة والمعدّلة</h3>
+          <div class="t-wrap"><table>
+            <thead><tr><th data-i18n="th_table">الجدول</th><th data-i18n="th_table_desc">الأعمدة الأساسية / ملاحظات</th></tr></thead>
+            <tbody>
+              <tr><td class="code">companies <span class="tag src" data-i18n="tag_new">جديد</span></td><td data-i18n="tb_companies">id, name, plan, currency, sector, subscription_status, trial_ends_at — سجل الشركة المستقلة.</td></tr>
+              <tr><td class="code">memberships <span class="tag src" data-i18n="tag_new">جديد</span></td><td data-i18n="tb_memberships">user_id, company_id, role (owner|admin|editor|viewer) — يسمح للمستخدم بالعمل في أكثر من شركة بأدوار مختلفة.</td></tr>
+              <tr><td class="code">invoices <span class="tag src" data-i18n="tag_new">جديد</span></td><td data-i18n="tb_invoices">ref, company_id, plan, amount, period_start/end, due_at, status — تُنشأ من نقطة فواتير الشهر.</td></tr>
+              <tr><td class="code">subscriptions <span class="tag est" data-i18n="tag_dormant">جديد — غير مُفعَّل بعد</span></td><td data-i18n="tb_subscriptions">company_id, plan, price, period — الجدول موجود لتخزين سعر تفاوضي لكل شركة (مثل المؤسسي) لكنه غير مقروء أو مكتوب في أي مسار حالياً.</td></tr>
+              <tr><td class="code">audit_events <span class="tag src" data-i18n="tag_new">جديد</span></td><td data-i18n="tb_audit">company_id, actor_id, entity, action, at — سجل تدقيق لكل عملية إنشاء/تعديل مهمة داخل كل شركة.</td></tr>
+              <tr><td class="code">users <span class="tag est" data-i18n="tag_modified">معدّل</span></td><td data-i18n="tb_users">+ is_platform_admin, last_login_at.</td></tr>
+              <tr><td class="code" data-i18n="tb_tenant_tables_names">price_items · proposals · content_library · repo_files · company_docs · settings...</td><td data-i18n="tb_tenant_tables">+ company_id <span class="tag est" data-i18n="tag_modified">معدّل</span> — أُضيف لكل جداول البيانات القابلة للعزل.</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3 data-i18n="isolation_rules_title">قواعد العزل والتنفيذ</h3>
+        <p class="muted" data-i18n="rule_1">• الشركة الحالية تُحل من كوكي الجلسة بعد التحقق من العضوية، وتُخزَّن في contextvars (app/tenancy.py) تقرؤها طبقة قاعدة البيانات تلقائياً — لا SQL خام في طبقة الويب، فلا يُنسى شرط العزل.</p>
+        <p class="muted" data-i18n="rule_2">• كل دالة قراءة أو كتابة في database.py تمرّر company_id ضمن شرط WHERE — هذه الطبقة هي المسار الوحيد للوصول للبيانات.</p>
+        <p class="muted" data-i18n="rule_3">• مدير المنصة (is_platform_admin) وحده يتجاوز هذا العزل، وفقط من صفحات المنصة (الشركات والمستخدمون، الاشتراكات والفوترة، تسجيل شركة جديدة).</p>
+        <p class="muted" data-i18n="rule_4">• انتهاء التجربة دون ترقية: قراءة وتصدير فقط لمدة 30 يوماً إضافية، ثم تعليق الحساب بالكامل — دون حذف أي بيانات.</p>
+        <p class="muted" data-i18n="rule_5">• لا يوجد حالياً نظام بريد/تنبيهات تلقائية (لا قبل انتهاء التجربة ولا عند إصدار فاتورة) — كل ذلك يتطلب متابعة يدوية من مدير المنصة حالياً.</p>
+      </div>
+    </section>
+
+    <!-- تسجيل شركة جديدة -->
+    <section class="page" id="page-newco">
+      <div class="page-head">
+        <div><h2 data-i18n="newco_page_title">تسجيل شركة جديدة</h2><p data-i18n="newco_page_sub">أنشئ شركة عميل جديدة على المنصة مع حساب مالكها وخطتها — لبيعها كاشتراك مستقل بعزل كامل عن باقي الشركات</p></div>
+      </div>
+      <div class="panel">
+        <div class="grid-2">
+          <div class="phase"><h4 data-i18n="newco_step1_title">١ بيانات الشركة</h4><p data-i18n="newco_step1_body">الاسم والسجل التجاري والرقم الضريبي والنشاط والعملة.</p></div>
+          <div class="phase"><h4 data-i18n="newco_step2_title">٢ مالك الحساب</h4><p data-i18n="newco_step2_body">اسم مستخدم المالك وكلمة مروره — يصبح أول مستخدم في الشركة بدور مالك الحساب. الدخول باسم المستخدم لا بالبريد.</p></div>
+          <div class="phase"><h4 data-i18n="newco_step3_title">٣ المكتبة الفنية</h4><p data-i18n="newco_step3_body">يبدأ الحساب بنسخة من المكتبة الفنية القياسية لعزوم. استيراد ملفات وعروض سابقة للمستودعين المالي والفني غير متاح بعد كخطوة تسجيل — يمكن رفعها لاحقاً من داخل حساب الشركة.</p></div>
+          <div class="phase"><h4 data-i18n="newco_step4_title">٤ اختيار الخطة</h4><p data-i18n="newco_step4_body">تجريبي يبدأ 14 يوماً بلا بطاقة، أو اختر خطة مدفوعة مباشرة عند البيع.</p></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3 data-i18n="newco_form_title">نموذج التسجيل</h3>
+        <div class="logo-upload mb">
+          <label class="slot" for="ncLogo" data-i18n-html="logo_slot">رفع<br>الشعار</label>
+          <input type="file" id="ncLogo" accept=".png,.jpg,.jpeg,.webp" hidden onchange="$('#ncLogoName').textContent = this.files[0]?.name || t('newco_logo_hint')">
+          <div><strong data-i18n="newco_logo_title">شعار الشركة *</strong>
+            <span id="ncLogoName" class="muted" data-i18n="newco_logo_hint">PNG أو JPG أو WebP بخلفية شفافة، 512×512 على الأقل</span></div>
+        </div>
         <div class="grid-3">
           <div><label data-i18n="newco_name">اسم الشركة *</label><input type="text" id="ncName"></div>
           <div><label data-i18n="newco_plan">الخطة</label>
@@ -550,10 +629,57 @@
             </select></div>
           <div><label data-i18n="newco_owner">مالك الحساب (اسم مستخدم) *</label><input type="text" id="ncOwner" autocomplete="off"></div>
         </div>
-        <div class="grid-2">
-          <div><label data-i18n="newco_owner_pass">كلمة مرور المالك (لمستخدم جديد)</label><input type="password" id="ncOwnerPass" autocomplete="new-password"></div>
-          <div style="display:flex;align-items:flex-end"><button class="btn" onclick="createCompany()" data-i18n="newco_btn">🏢 إنشاء الشركة</button></div>
+        <div class="grid-3">
+          <div><label data-i18n="newco_cr">السجل التجاري</label><input type="text" id="ncCr"></div>
+          <div><label data-i18n="newco_vat">الرقم الضريبي</label><input type="text" id="ncVat"></div>
+          <div><label data-i18n="newco_sector">النشاط</label><input type="text" id="ncSector" data-i18n-ph="newco_sector_ph" placeholder="مثال: المقاولات العامة"></div>
         </div>
+        <div class="grid-3">
+          <div><label data-i18n="newco_currency">العملة</label>
+            <select id="ncCurrency"><option value="SAR" selected>ريال سعودي (SAR)</option></select></div>
+          <div><label data-i18n="newco_phone">جوال التواصل</label><input type="text" id="ncPhone" data-i18n-ph="newco_phone_ph" placeholder="05XXXXXXXX"></div>
+          <div><label data-i18n="newco_owner_pass">كلمة مرور المالك (لمستخدم جديد)</label><input type="password" id="ncOwnerPass" autocomplete="new-password"></div>
+        </div>
+        <div class="mt"><button class="btn" onclick="createCompany()" data-i18n="newco_btn">🏢 إنشاء الشركة</button></div>
+      </div>
+      <div class="panel">
+        <h3 data-i18n="newco_auto_title">ما يُنشأ تلقائياً عند التسجيل</h3>
+        <p class="muted" data-i18n="newco_auto_1">• سجل شركة جديد بخطة وحالة اشتراك مستقلة، وتاريخ انتهاء تجربة بعد 14 يوماً إن كانت تجريبية.</p>
+        <p class="muted" data-i18n="newco_auto_2">• مستخدم مالك الحساب وعضويته بدور owner في هذه الشركة وحدها.</p>
+        <p class="muted" data-i18n="newco_auto_3">• مساحة بيانات منفصلة بالكامل: قاعدة الأسعار، المكتبة الفنية، المستودع المعرفي، الوثائق، والإعدادات — بلا أي محتوى من أي شركة أخرى.</p>
+        <p class="muted" data-i18n="newco_auto_4">• نسخة من نموذج التسعير القياسي (إداري 12%، مخاطر 3%، ربح 15%، ضريبة 15%) قابلة للتعديل من إعدادات الشركة.</p>
+      </div>
+      <div class="panel">
+        <h3 data-i18n="trial_end_title">نهاية التجربة</h3>
+        <p class="muted" data-i18n="trial_end_body">عند انتهاء الفترة التجريبية بلا ترقية: القراءة والتصدير يستمران فقط (بدون إنشاء عروض أو بنود جديدة) لمدة 30 يوماً إضافية، ثم يُعلَّق الحساب بالكامل — دون حذف أي بيانات. الترقية إلى خطة مدفوعة في أي وقت تعيد الوصول الكامل فوراً. لا يوجد حالياً تنبيه بريدي تلقائي قبل الانتهاء — يحتاج متابعة يدوية من مدير المنصة.</p>
+      </div>
+    </section>
+
+    <!-- الاشتراكات والفوترة -->
+    <section class="page" id="page-billing">
+      <div class="page-head">
+        <div><h2 data-i18n="billing_page_title">الاشتراكات والفوترة</h2><p data-i18n="billing_page_sub">إيرادات المنصة واستهلاك كل شركة لحدود خطتها. تجاوز الحد يمنع الفعل في الخادم ويعرض رسالة ترقية للعميل.</p></div>
+        <button class="btn sm ghost" onclick="issueInvoices()" data-i18n="invoices_issue_btn">🧾 إصدار فواتير الشهر</button>
+      </div>
+      <div class="panel">
+        <div class="cards mb" id="platformMetrics"></div>
+        <h3 data-i18n="plan_usage_title">استهلاك الخطط</h3>
+        <div class="t-wrap"><table id="planUsageTable">
+          <thead><tr><th data-i18n="th_company">الشركة</th><th data-i18n="th_plan">الخطة</th><th data-i18n="th_members">الأعضاء</th><th data-i18n="th_proposals_m">عروض هذا الشهر</th><th data-i18n="th_prices_n">بنود الأسعار</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <h3 class="mt" data-i18n="invoices_title">الفواتير</h3>
+        <div class="t-wrap"><table id="invoicesTable">
+          <thead><tr><th data-i18n="th_invoice_ref">المرجع</th><th data-i18n="th_company">الشركة</th><th data-i18n="th_plan">الخطة</th><th data-i18n="th_amount">المبلغ (ر.س)</th><th data-i18n="th_period">الفترة</th><th data-i18n="th_due">الاستحقاق</th><th data-i18n="th_status">الحالة</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+      <div class="panel">
+        <h3 data-i18n="plan_compare_title">مقارنة الخطط</h3>
+        <div class="t-wrap"><table id="planCompareTable">
+          <thead><tr id="planCompareHead"></tr></thead>
+          <tbody id="planCompareBody"></tbody>
+        </table></div>
       </div>
     </section>
 

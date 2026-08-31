@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS companies (
     vat_no TEXT DEFAULT '',
     currency TEXT NOT NULL DEFAULT 'SAR',
     sector TEXT DEFAULT '',
+    contact_phone TEXT DEFAULT '',
     plan TEXT NOT NULL DEFAULT 'trial',
     subscription_status TEXT NOT NULL DEFAULT 'active',
     trial_ends_at TEXT DEFAULT '',
@@ -296,6 +297,7 @@ def init_db():
         _migrate_multitenant(db)
         _ensure_column(db, "repo_files", "sector", "TEXT DEFAULT ''")
         _ensure_column(db, "market_prices", "sector", "TEXT DEFAULT ''")
+        _ensure_column(db, "companies", "contact_phone", "TEXT DEFAULT ''")
         for key, value in DEFAULT_SETTINGS.items():
             db.execute(
                 "INSERT OR IGNORE INTO settings (company_id, key, value) VALUES (1, ?, ?)",
@@ -390,7 +392,8 @@ def seed_company_defaults(company_id: int, name: str):
 # ------------------------- الشركات والعضويات -------------------------
 
 def create_company(name: str, short_name: str = "", plan: str = "trial",
-                   sector: str = "", cr_no: str = "", vat_no: str = "") -> dict:
+                   sector: str = "", cr_no: str = "", vat_no: str = "",
+                   currency: str = "SAR", contact_phone: str = "") -> dict:
     from datetime import timedelta
     from .tenancy import TRIAL_DAYS
     ts = now_iso()
@@ -398,10 +401,11 @@ def create_company(name: str, short_name: str = "", plan: str = "trial",
                   .isoformat(timespec="seconds") if plan == "trial" else "")
     with get_db() as db:
         cur = db.execute(
-            "INSERT INTO companies (name, short_name, cr_no, vat_no, sector, plan, "
-            " subscription_status, trial_ends_at, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)",
-            (name, short_name or name[:12], cr_no, vat_no, sector, plan, trial_ends, ts),
+            "INSERT INTO companies (name, short_name, cr_no, vat_no, sector, contact_phone, plan, "
+            " currency, subscription_status, trial_ends_at, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)",
+            (name, short_name or name[:12], cr_no, vat_no, sector, contact_phone, plan,
+             currency or "SAR", trial_ends, ts),
         )
         row = db.execute("SELECT * FROM companies WHERE id = ?", (cur.lastrowid,)).fetchone()
     seed_company_defaults(row["id"], name)
@@ -511,6 +515,20 @@ def list_invoices(company_id: int | None = None) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def mrr_delta() -> float:
+    """فرق إجمالي الفواتير الصادرة بين الشهر الحالي والشهر السابق — مؤشر اتجاه لا حساب توقّعي."""
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    this_month = now.strftime("%Y-%m-01")
+    prev_month = (now.replace(day=1) - timedelta(days=1)).strftime("%Y-%m-01")
+    with get_db() as db:
+        cur = db.execute("SELECT COALESCE(SUM(amount), 0) AS s FROM invoices WHERE period_start = ?",
+                         (this_month,)).fetchone()["s"]
+        prev = db.execute("SELECT COALESCE(SUM(amount), 0) AS s FROM invoices WHERE period_start = ?",
+                          (prev_month,)).fetchone()["s"]
+    return round(cur - prev, 2)
+
+
 def find_company_by_name(name: str) -> dict | None:
     with get_db() as db:
         row = db.execute("SELECT * FROM companies WHERE name = ?", (name,)).fetchone()
@@ -577,6 +595,41 @@ def company_usage(company_id: int) -> dict:
                                      (company_id,)).fetchone()["n"]
     return {"users": users, "price_items": prices,
             "proposals_month": proposals_month, "proposals_total": proposals_total}
+
+
+def platform_active_users(days: int = 30) -> int:
+    """عدد المستخدمين الذين سجّلوا دخولاً خلال آخر N يوماً — عبر كل الشركات."""
+    from datetime import timedelta
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+    with get_db() as db:
+        row = db.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE last_login_at >= ?", (since,)
+        ).fetchone()
+    return row["n"]
+
+
+def trials_ending_soon(days: int = 30) -> list[dict]:
+    """الشركات التجريبية التي تنتهي صلاحيتها خلال N يوماً — الأقرب أولاً."""
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    horizon = (now + timedelta(days=days)).isoformat(timespec="seconds")
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT id, name, trial_ends_at FROM companies "
+            "WHERE plan = 'trial' AND trial_ends_at != '' AND trial_ends_at <= ? "
+            "ORDER BY trial_ends_at",
+            (horizon,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        try:
+            ends = datetime.fromisoformat(r["trial_ends_at"])
+            days_left = max(0, (ends - now).days)
+        except ValueError:
+            days_left = None
+        out.append({"id": r["id"], "name": r["name"], "trial_ends_at": r["trial_ends_at"],
+                    "days_left": days_left})
+    return out
 
 
 # ------------------------- قاعدة الأسعار -------------------------

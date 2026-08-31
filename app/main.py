@@ -219,8 +219,20 @@ def companies_list(request: Request):
     _require_platform_admin(request)
     out = []
     for c in db.list_companies():
-        out.append({**c, "usage": db.company_usage(c["id"])})
+        out.append({**c, "usage": db.company_usage(c["id"]),
+                   "limits": tenancy.PLAN_LIMITS.get(c["plan"], {}),
+                   "effective_status": db.effective_subscription_status(c)})
     return out
+
+
+@app.get("/api/plans")
+def plans_list(request: Request):
+    """بيانات الخطط (الأسعار والحدود) لعرضها في مقارنة الخطط ونموذج تسجيل الشركة."""
+    return [
+        {"id": p, "name_ar": tenancy.PLAN_AR.get(p, p), "price": tenancy.PLAN_PRICE.get(p),
+         **tenancy.PLAN_LIMITS.get(p, {})}
+        for p in ("trial", "basic", "pro", "enterprise")
+    ]
 
 
 @app.post("/api/companies")
@@ -234,7 +246,8 @@ def companies_create(request: Request, body: dict):
         raise HTTPException(409, "توجد شركة بهذا الاسم مسبقاً")
     company = db.create_company(name, body.get("short_name", ""),
                                 body.get("plan", "trial"), body.get("sector", ""),
-                                body.get("cr_no", ""), body.get("vat_no", ""))
+                                body.get("cr_no", ""), body.get("vat_no", ""),
+                                body.get("currency", "SAR"), body.get("contact_phone", ""))
     owner_username = (body.get("owner_username") or "").strip()
     if owner_username:
         from .auth import create_user, get_user
@@ -655,10 +668,13 @@ def platform_metrics(request: Request):
     trials = [c for c in companies if c["plan"] == "trial"]
     return {
         "mrr": mrr,
+        "mrr_delta": db.mrr_delta(),
         "paid_count": len(paid),
         "trial_count": len(trials),
         "companies_total": len(companies),
         "invoices": db.list_invoices()[:30],
+        "active_users_30d": db.platform_active_users(30),
+        "trials_ending": db.trials_ending_soon(30),
     }
 
 
