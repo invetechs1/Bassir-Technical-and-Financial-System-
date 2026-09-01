@@ -67,6 +67,19 @@ CREATE TABLE IF NOT EXISTS report_edit_requests (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS sub_agreements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL DEFAULT 1,
+    project_id INTEGER NOT NULL REFERENCES exec_projects(id) ON DELETE CASCADE,
+    subcontractor_id INTEGER NOT NULL DEFAULT 0,
+    item TEXT NOT NULL,
+    unit TEXT DEFAULT '',
+    unit_rate REAL NOT NULL,
+    notes TEXT DEFAULT '',
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agreements_project ON sub_agreements(company_id, project_id);
+
 CREATE TABLE IF NOT EXISTS notifications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     company_id INTEGER NOT NULL DEFAULT 1,
@@ -410,6 +423,148 @@ def delete_report(rid: int):
     log_audit("daily_reports", rid, "delete")
 
 
+# ------------------------- أسعار اتفاقيات الباطن والربحية (للمالك والأدمن حصراً) -------------------------
+# حساسية عالية: هذه الدوال تُستدعى من نقاط نهاية خلف _require_admin فقط —
+# مهندس الموقع وبقية الأدوار لا يصلهم أي سعر من هنا (شاشاته كميات بلا أسعار).
+
+def _norm_item(name: str) -> str:
+    return " ".join((name or "").split())
+
+
+def list_agreements(project_id: int) -> list[dict]:
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT a.*, COALESCE(s.name, ?) AS executor_name "
+            "FROM sub_agreements a "
+            "LEFT JOIN subcontractors s ON s.id = a.subcontractor_id AND s.company_id = a.company_id "
+            "WHERE a.company_id = ? AND a.project_id = ? ORDER BY a.item, executor_name",
+            (COMPANY_LABOR_LABEL, cid(), project_id)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_agreement(item: dict) -> dict:
+    """سعر اتفاق منفّذ على بند: subcontractor_id=0 يعني تكلفة عمالة الشركة الداخلية."""
+    with get_db() as db:
+        if item.get("id"):
+            db.execute(
+                "UPDATE sub_agreements SET item=?, unit=?, unit_rate=?, subcontractor_id=?, notes=?, updated_at=? "
+                "WHERE id=? AND company_id=?",
+                (_norm_item(item["item"]), item.get("unit", ""), float(item["unit_rate"]),
+                 int(item.get("subcontractor_id") or 0), item.get("notes", ""), now_iso(),
+                 item["id"], cid()),
+            )
+            aid = item["id"]
+        else:
+            cur = db.execute(
+                "INSERT INTO sub_agreements (company_id, project_id, subcontractor_id, item, unit, "
+                " unit_rate, notes, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (cid(), int(item["project_id"]), int(item.get("subcontractor_id") or 0),
+                 _norm_item(item["item"]), item.get("unit", ""), float(item["unit_rate"]),
+                 item.get("notes", ""), now_iso()),
+            )
+            aid = cur.lastrowid
+    log_audit("sub_agreements", aid, "upsert", item.get("item", ""))
+    return {"ok": True, "id": aid}
+
+
+def delete_agreement(aid: int):
+    with get_db() as db:
+        db.execute("DELETE FROM sub_agreements WHERE id=? AND company_id=?", (aid, cid()))
+    log_audit("sub_agreements", aid, "delete")
+
+
+def _boq_price_map(project: dict) -> dict[str, dict]:
+    """أسعار العرض المرتبط لكل بند مفلطح: الداخلي والمحمَّل (ما يدفعه العميل) والكمية التعاقدية."""
+    if not project.get("proposal_id"):
+        return {}
+    with get_db() as db:
+        row = db.execute("SELECT data FROM proposals WHERE id=? AND company_id=?",
+                         (project["proposal_id"], cid())).fetchone()
+    if not row:
+        return {}
+    try:
+        data = json.loads(row["data"])
+    except json.JSONDecodeError:
+        return {}
+    fin = data.get("financial", {})
+    direct = float(fin.get("direct_cost") or 0)
+    subtotal = float(fin.get("subtotal") or 0)
+    factor = (subtotal / direct) if direct else 1.0
+    out = {}
+    for line in data.get("boq", []):
+        children = line.get("children") or []
+        if children:
+            for c in children:
+                name = _norm_item(f"{line.get('name', '')} — {c.get('name', '')}")
+                price = float(c.get("unit_price") or 0)
+                out[name] = {"unit": c.get("unit") or line.get("unit", ""),
+                             "contract_qty": float(c.get("qty") or 0),
+                             "internal_price": price,
+                             "client_price": round(price * factor, 2)}
+        else:
+            name = _norm_item(line.get("name", ""))
+            price = float(line.get("unit_price") or 0)
+            out[name] = {"unit": line.get("unit", ""),
+                         "contract_qty": float(line.get("qty") or 0),
+                         "internal_price": price,
+                         "client_price": round(price * factor, 2)}
+    return out
+
+
+def project_profitability(project_id: int) -> dict:
+    """الربحية الفعلية أولاً بأول: الإيراد (سعر العميل المحمَّل × المنفَّذ) مقابل
+    التكلفة الفعلية (سعر اتفاق المنفّذ × المنفَّذ) — مع راية للبنود بلا سعر اتفاق
+    ورايات تجاوز الكمية التعاقدية."""
+    project = get_project(project_id)
+    if not project:
+        raise ValueError("المشروع غير موجود")
+    prices = _boq_price_map(project)
+    rates = {(a["subcontractor_id"], _norm_item(a["item"])): a["unit_rate"]
+             for a in list_agreements(project_id)}
+    rows: dict[tuple, dict] = {}
+    for rep in list_reports(project_id):
+        for l in rep["lines"]:
+            item = _norm_item(l.get("item", ""))
+            sub_id = int(l.get("subcontractor_id") or 0)
+            key = (item, l.get("executor_name") or COMPANY_LABOR_LABEL)
+            row = rows.setdefault(key, {"item": item, "executor": key[1],
+                                        "unit": l.get("unit", ""), "executed_qty": 0.0,
+                                        "rate": rates.get((sub_id, item)),
+                                        "sub_id": sub_id})
+            row["executed_qty"] = round(row["executed_qty"] + float(l.get("qty") or 0), 2)
+    out_rows, tot_rev, tot_cost, missing = [], 0.0, 0.0, 0
+    for row in rows.values():
+        p = prices.get(row["item"], {})
+        client_price = p.get("client_price")
+        contract_qty = p.get("contract_qty")
+        revenue = round(client_price * row["executed_qty"], 2) if client_price else None
+        cost = round(row["rate"] * row["executed_qty"], 2) if row["rate"] is not None else None
+        if cost is None:
+            missing += 1
+        profit = round(revenue - cost, 2) if (revenue is not None and cost is not None) else None
+        out_rows.append({
+            "item": row["item"], "executor": row["executor"], "unit": row["unit"],
+            "executed_qty": row["executed_qty"], "contract_qty": contract_qty,
+            "over_qty": bool(contract_qty and row["executed_qty"] > contract_qty),
+            "client_price": client_price, "rate": row["rate"],
+            "revenue": revenue, "cost": cost, "profit": profit,
+            "margin_pct": round(profit / revenue * 100, 1) if (profit is not None and revenue) else None,
+        })
+        tot_rev += revenue or 0
+        tot_cost += cost or 0
+    out_rows.sort(key=lambda r: (r["item"], r["executor"]))
+    total_profit = round(tot_rev - tot_cost, 2)
+    return {
+        "project": {"id": project["id"], "name": project["name"],
+                    "linked_proposal": bool(project.get("proposal_id"))},
+        "rows": out_rows,
+        "totals": {"revenue": round(tot_rev, 2), "cost": round(tot_cost, 2),
+                   "profit": total_profit,
+                   "margin_pct": round(total_profit / tot_rev * 100, 1) if tot_rev else None,
+                   "missing_rates": missing},
+    }
+
+
 # ------------------------- الإشعارات -------------------------
 
 def notify(to_user: int, title: str, body: str = "", kind: str = "info", ref: str = ""):
@@ -419,6 +574,9 @@ def notify(to_user: int, title: str, body: str = "", kind: str = "info", ref: st
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (cid(), to_user, kind, title, body, ref, now_iso()),
         )
+    # القنوات الخارجية (بريد/واتساب) إن فُعّلت — في الخلفية ولا تعطّل شيئاً
+    from .notify_channels import dispatch_external
+    dispatch_external(cid(), to_user, title, body)
 
 
 def my_notifications(uid: int, limit: int = 30) -> dict:

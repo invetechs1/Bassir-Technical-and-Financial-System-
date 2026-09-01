@@ -569,6 +569,44 @@ check("كم اشتغل كل منفّذ: التفصيل بالوحدة صحيح",
       and {"unit": "م3", "qty": 65.0} in _by.get("عمالة الشركة", {}).get("by_unit", []),
       str(_ps)[:200])
 
+# ---------- 20. التكلفة والربحية الفعلية + قنوات الإشعارات الخارجية ----------
+r = c.post("/api/execution/agreements", json={
+    "project_id": _xp, "subcontractor_id": _sub_id, "item": "صب خرسانة",
+    "unit": "م3", "unit_rate": 100})
+check("تسجيل سعر اتفاق مقاول باطن", r.status_code == 200, r.text[:120])
+_pr = c.get(f"/api/execution/profitability?project_id={_xp}")
+check("شاشة الربحية تعمل للمالك", _pr.status_code == 200, _pr.text[:120])
+_prj = _pr.json()
+_row = next((x for x in _prj["rows"] if x["item"] == "صب خرسانة"), None)
+check("تكلفة فعلية = المنفَّذ × سعر الاتفاق (45×100)",
+      _row is not None and _row["cost"] == 4500.0 and _row["rate"] == 100,
+      str(_row)[:150])
+check("راية البنود بلا سعر اتفاق", _prj["totals"]["missing_rates"] >= 1)
+check("المهندس محجوب عن الربحية وأسعار الاتفاقيات (403)",
+      c_eng.get(f"/api/execution/profitability?project_id={_xp}").status_code == 403
+      and c_eng.get(f"/api/execution/agreements?project_id={_xp}").status_code == 403)
+check("تقارير المهندس بلا أي حقل سعر",
+      all(k not in str(c_eng.get("/api/execution/reports").json())
+          for k in ("unit_rate", "client_price", "profit")))
+r = c.post("/api/members/{}/contact".format(
+    next(m["id"] for m in c.get("/api/members").json() if m["username"] == "engcheck")),
+    json={"email": "eng@example.com", "phone": "966500000000"})
+check("حفظ بريد وجوال العضو للإشعارات", r.status_code == 200)
+c.put("/api/settings", json={"smtp_pass": "Secret123", "whatsapp_token": "TOK-abc"})
+with _gdb() as _db:
+    _raw = {x["key"]: x["value"] for x in _db.execute(
+        "SELECT key, value FROM settings WHERE company_id=1 "
+        "AND key IN ('smtp_pass','whatsapp_token')")}
+check("أسرار قنوات الإشعارات مشفرة في القاعدة",
+      _raw.get("smtp_pass", "").startswith("enc:v1:")
+      and _raw.get("whatsapp_token", "").startswith("enc:v1:"))
+c.put("/api/settings", json={"notify_email_enabled": "0", "notify_whatsapp_enabled": "0"})
+r = c.post("/api/notify/test", json={})
+check("اختبار القنوات يتخطى بأمان وهي معطلة",
+      r.status_code == 200 and r.json() == {"email": "skipped", "whatsapp": "skipped"})
+check("قنوات الإشعارات محجوبة عن المهندس (403)",
+      c_eng.post("/api/notify/test", json={}).status_code == 403)
+
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)
 failed = [(n, d) for n, ok, d in RESULTS if not ok]

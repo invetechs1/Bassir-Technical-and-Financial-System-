@@ -502,6 +502,27 @@
         <textarea data-key="payment_terms"></textarea>
         <div class="mt"><button class="btn" onclick="saveSettings()" data-i18n="save_settings_btn">حفظ الإعدادات</button></div>
       </div>
+      <div class="panel" id="notifChannelsPanel">
+        <h3 data-i18n="notify_channels_title">🔔 قنوات الإشعارات الخارجية (بريد / واتساب)</h3>
+        <p class="muted" data-i18n="notify_channels_hint">إشعارات النظام (طلبات تعديل التقارير وقراراتها وغيرها) تصل داخل النظام دائماً، وإن فعّلت قناة هنا تصل أيضاً لبريد وجوال العضو المسجّلين في صفحة «الشركات والمستخدمون». كلمة مرور البريد ورمز واتساب يُخزَّنان مشفرين.</p>
+        <div class="grid-3">
+          <div><label data-i18n="notify_email_enabled_label">تفعيل إشعارات البريد</label>
+            <select data-key="notify_email_enabled"><option value="0" data-i18n="opt_off">معطّل</option><option value="1" data-i18n="opt_on">مفعّل</option></select></div>
+          <div><label data-i18n="smtp_host_label">خادم SMTP</label><input type="text" data-key="smtp_host" placeholder="smtp.office365.com"></div>
+          <div><label data-i18n="smtp_port_label">المنفذ</label><input type="number" data-key="smtp_port" placeholder="587"></div>
+          <div><label data-i18n="smtp_user_label">مستخدم البريد</label><input type="text" data-key="smtp_user"></div>
+          <div><label data-i18n="smtp_pass_label">كلمة مرور البريد (تُخزَّن مشفرة)</label><input type="password" data-key="smtp_pass" autocomplete="new-password"></div>
+          <div><label data-i18n="smtp_from_label">عنوان المرسل</label><input type="text" data-key="smtp_from" data-i18n-ph="optional_ph" placeholder="اختياري"></div>
+          <div><label data-i18n="notify_wa_enabled_label">تفعيل إشعارات واتساب</label>
+            <select data-key="notify_whatsapp_enabled"><option value="0" data-i18n="opt_off">معطّل</option><option value="1" data-i18n="opt_on">مفعّل</option></select></div>
+          <div><label data-i18n="wa_token_label">رمز وصول WhatsApp Cloud API (يُخزَّن مشفراً)</label><input type="password" data-key="whatsapp_token" autocomplete="new-password"></div>
+          <div><label data-i18n="wa_phone_id_label">معرّف رقم الإرسال (Phone Number ID)</label><input type="text" data-key="whatsapp_phone_id"></div>
+        </div>
+        <div class="mt" style="display:flex;gap:8px">
+          <button class="btn" onclick="saveSettings()" data-i18n="save_settings_btn">حفظ الإعدادات</button>
+          <button class="btn ghost" onclick="testNotifyChannels()" data-i18n="notify_test_btn">📨 إرسال رسالة اختبار لي</button>
+        </div>
+      </div>
       <div class="panel">
         <h3 data-i18n="change_pw_title">🔐 تغيير كلمة المرور</h3>
         <div class="grid-2">
@@ -529,7 +550,7 @@
       <div class="panel">
         <h3 data-i18n="members_title" id="membersTitle">أعضاء الشركة الحالية</h3>
         <div class="t-wrap"><table id="membersTable">
-          <thead><tr><th data-i18n="th_member">المستخدم</th><th data-i18n="th_display">الاسم</th><th data-i18n="th_role">الدور</th><th data-i18n="th_last_login">آخر دخول</th><th data-i18n="th_actions">إجراءات</th></tr></thead>
+          <thead><tr><th data-i18n="th_member">المستخدم</th><th data-i18n="th_display">الاسم</th><th data-i18n="th_role">الدور</th><th data-i18n="th_contact">البريد والجوال (للإشعارات)</th><th data-i18n="th_last_login">آخر دخول</th><th data-i18n="th_actions">إجراءات</th></tr></thead>
           <tbody></tbody>
         </table></div>
         <div class="logo-upload mt">
@@ -544,6 +565,8 @@
         <div class="grid-3">
           <div><label data-i18n="invite_user">اسم المستخدم *</label><input type="text" id="invUsername" autocomplete="off"></div>
           <div><label data-i18n="invite_pass">كلمة المرور (لمستخدم جديد)</label><input type="password" id="invPassword" autocomplete="new-password" placeholder="8 أحرف فأكثر"></div>
+          <div><label data-i18n="invite_email">البريد الإلكتروني (للإشعارات)</label><input type="text" id="invEmail" data-i18n-ph="optional_ph" placeholder="اختياري"></div>
+          <div><label data-i18n="invite_phone">الجوال بصيغة دولية (لواتساب)</label><input type="text" id="invPhone" placeholder="9665xxxxxxxx"></div>
           <div><label data-i18n="invite_role">الدور</label>
             <select id="invRole">
               <option value="viewer">مُشاهد — قراءة وتصدير فقط</option>
@@ -710,6 +733,7 @@
         <button class="tab-btn" data-exec-tab="projects" onclick="execTab('projects')" data-i18n="exec_tab_projects">مشاريع التنفيذ</button>
         <button class="tab-btn" data-exec-tab="subs" onclick="execTab('subs')" data-i18n="exec_tab_subs">مقاولو الباطن</button>
         <button class="tab-btn" data-exec-tab="requests" onclick="execTab('requests')" data-i18n="exec_tab_requests">طلبات التعديل<span id="execReqBadge" style="margin-inline-start:6px;color:#c0392b;font-weight:700"></span></button>
+        <button class="tab-btn" data-exec-tab="profit" onclick="execTab('profit')" id="execProfitTabBtn" hidden data-i18n="exec_tab_profit">🔒 التكلفة والربحية</button>
       </div>
 
       <div id="execTabReports">
@@ -819,6 +843,46 @@
         <div class="panel">
           <p class="muted" data-i18n="exec_req_hint">طلبات تعديل التقارير المقفلة — مالك الحساب وحده يقبل فيُطبَّق التعديل، أو يرفض فيبقى التقرير كما هو. القرار يصل صاحب الطلب بإشعار.</p>
           <div id="execRequestsList"></div>
+        </div>
+      </div>
+
+      <div id="execTabProfit" hidden>
+        <div class="panel">
+          <p class="muted" data-i18n="exec_profit_privacy">🔒 هذه الشاشة للمالك والأدمن حصراً — مهندس الموقع والمحرر والمشاهد محجوبون عنها من الخادم نفسه، وشاشات تسجيل الإنتاجية لا تعرض أي سعر إطلاقاً.</p>
+          <div class="grid-3">
+            <div><label data-i18n="exec_profit_project">المشروع *</label>
+              <select id="execProfitProject" onchange="loadExecProfit()"></select></div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3 data-i18n="exec_agreements_title">أسعار اتفاقيات المنفّذين (تكلفتك الفعلية)</h3>
+          <p class="muted" data-i18n="exec_agreements_hint">سجّل سعر اتفاقك مع كل مقاول باطن لكل بند (أو تكلفة عمالة الشركة الداخلية) — يقارنه النظام بما ينفَّذ يومياً وبسعر العميل.</p>
+          <div class="grid-3">
+            <div><label data-i18n="exec_ag_item">البند</label><input type="text" id="execAgItem" list="execBoqList"></div>
+            <div><label data-i18n="exec_ag_executor">المنفّذ</label><select id="execAgExecutor"></select></div>
+            <div><label data-i18n="exec_ag_unit">الوحدة</label><input type="text" id="execAgUnit"></div>
+            <div><label data-i18n="exec_ag_rate">سعر الوحدة المتفق عليه (ر.س)</label><input type="number" id="execAgRate" step="0.01"></div>
+          </div>
+          <div class="mt"><button class="btn sm" onclick="saveExecAgreement()" data-i18n="exec_ag_save">حفظ سعر الاتفاق</button></div>
+          <div class="table-wrap" style="margin-top:10px"><table>
+            <thead><tr><th data-i18n="exec_ag_item">البند</th><th data-i18n="exec_ag_executor">المنفّذ</th>
+              <th data-i18n="exec_ag_unit">الوحدة</th><th data-i18n="exec_ag_rate_th">سعر الاتفاق</th><th style="width:60px"></th></tr></thead>
+            <tbody id="execAgreementsTable"></tbody>
+          </table></div>
+        </div>
+        <div class="panel">
+          <h3 data-i18n="exec_profit_title">الربحية الفعلية أولاً بأول</h3>
+          <div class="cards mb" id="execProfitCards"></div>
+          <div class="table-wrap"><table>
+            <thead><tr>
+              <th data-i18n="exec_pr_item">البند</th><th data-i18n="exec_pr_executor">المنفّذ</th>
+              <th data-i18n="exec_pr_qty">المنفَّذ / التعاقدي</th>
+              <th data-i18n="exec_pr_client">سعر العميل</th><th data-i18n="exec_pr_rate">تكلفة الوحدة</th>
+              <th data-i18n="exec_pr_revenue">الإيراد</th><th data-i18n="exec_pr_cost">التكلفة</th>
+              <th data-i18n="exec_pr_profit">الربح</th><th data-i18n="exec_pr_margin">الهامش</th>
+            </tr></thead>
+            <tbody id="execProfitTable"></tbody>
+          </table></div>
         </div>
       </div>
     </section>

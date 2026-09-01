@@ -300,6 +300,9 @@ def members_invite(request: Request, body: dict):
         except ValueError as exc:
             raise HTTPException(400, str(exc))
     db.set_membership(user["id"], request.state.company_id, role, request.state.user_id)
+    if body.get("email") or body.get("phone"):
+        db.set_user_contact(user["id"], (body.get("email") or "").strip(),
+                            (body.get("phone") or "").strip())
     db.log_audit("memberships", user["id"], "invite", f"{username} → {role}")
     return {"ok": True, "user_id": user["id"], "role": role}
 
@@ -1017,6 +1020,59 @@ def exec_edit_decide(request: Request, req_id: int, body: dict):
                                              _display_name(request))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+
+
+# أسعار اتفاقيات الباطن والربحية — للمالك والأدمن حصراً: لا يصل مهندس الموقع
+# ولا المحرر ولا المشاهد أي سعر من هنا (403 من الخادم، لا إخفاء واجهة فقط)
+@app.get("/api/execution/agreements")
+def agreements_list(request: Request, project_id: int):
+    _require_admin(request)
+    return execution.list_agreements(project_id)
+
+
+@app.post("/api/execution/agreements")
+def agreements_upsert(request: Request, body: dict):
+    _require_admin(request)
+    if not (body.get("item") or "").strip() or body.get("unit_rate") in (None, ""):
+        raise HTTPException(400, "البند وسعر الاتفاق مطلوبان")
+    if not body.get("id") and not body.get("project_id"):
+        raise HTTPException(400, "المشروع مطلوب")
+    return execution.upsert_agreement(body)
+
+
+@app.delete("/api/execution/agreements/{aid}")
+def agreements_delete(request: Request, aid: int):
+    _require_admin(request)
+    execution.delete_agreement(aid)
+    return {"ok": True}
+
+
+@app.get("/api/execution/profitability")
+def exec_profitability(request: Request, project_id: int):
+    """الربحية الفعلية مقابل التقديرية — شاشة المالك والأدمن فقط."""
+    _require_admin(request)
+    try:
+        return execution.project_profitability(project_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
+
+
+@app.post("/api/members/{uid}/contact")
+def members_contact(request: Request, uid: int, body: dict):
+    """بريد وجوال العضو لقنوات الإشعارات الخارجية — أدمن فما فوق."""
+    _require_admin(request)
+    if not db.get_membership(uid, request.state.company_id):
+        raise HTTPException(404, "العضو غير موجود في هذه الشركة")
+    db.set_user_contact(uid, (body.get("email") or "").strip(), (body.get("phone") or "").strip())
+    return {"ok": True}
+
+
+@app.post("/api/notify/test")
+def notify_test(request: Request):
+    """اختبار قنوات البريد/واتساب بإرسال رسالة تجريبية للمستخدم الحالي."""
+    _require_admin(request)
+    from .notify_channels import test_channels
+    return test_channels(request.state.company_id, request.state.user_id)
 
 
 @app.get("/api/execution/productivity")
