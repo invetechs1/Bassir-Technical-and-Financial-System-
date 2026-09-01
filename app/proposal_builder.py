@@ -26,15 +26,18 @@ def compute_financials(boq: list[dict], settings: dict | None = None) -> dict:
         line["qty"] = float(line.get("qty", 1) or 1)
         children = line.get("children") or []
         if children:
-            # بند مقسّم إلى مراحل فرعية (نفس الكمية، سعر كل مرحلة مستقل) —
-            # سعر البند الأب يُحسب تلقائياً كمجموع أسعار مراحله ولا يُحرَّر يدوياً.
+            # بند مقسّم إلى أجزاء فرعية: لكل جزء كميته ووحدته وسعره وإجماليه
+            # المستقل، وإجمالي البند الأب = مجموع إجماليات أجزائه (لا يُحرَّر يدوياً).
             for c in children:
+                c["qty"] = float(c.get("qty") or line["qty"] or 1)
+                c["unit"] = c.get("unit") or line.get("unit", "")
                 c["unit_price"] = float(c.get("unit_price", 0) or 0)
-                c["total"] = round(line["qty"] * c["unit_price"], 2)
-            line["unit_price"] = round(sum(c["unit_price"] for c in children), 2)
+                c["total"] = round(c["qty"] * c["unit_price"], 2)
+            line["total"] = round(sum(c["total"] for c in children), 2)
+            line["unit_price"] = round(line["total"] / line["qty"], 2) if line["qty"] else 0.0
         else:
             line["unit_price"] = float(line.get("unit_price", 0) or 0)
-        line["total"] = round(line["qty"] * line["unit_price"], 2)
+            line["total"] = round(line["qty"] * line["unit_price"], 2)
 
     direct_cost = round(sum(l["total"] for l in boq), 2)
     overhead = round(direct_cost * overhead_pct / 100, 2)
@@ -72,11 +75,15 @@ def client_facing_pricing(boq: list[dict], financial: dict) -> list[dict]:
         unit = round(float(l.get("unit_price") or 0) * factor, 2)
         row = {**l, "unit_price": unit, "total": round(unit * qty, 2)}
         if l.get("children"):
-            row["children"] = [
-                {**c, "unit_price": round(float(c.get("unit_price") or 0) * factor, 2),
-                 "total": round(float(c.get("unit_price") or 0) * factor * qty, 2)}
-                for c in l["children"]
-            ]
+            kids = []
+            for c in l["children"]:
+                c_qty = float(c.get("qty") or qty or 1)
+                c_price = round(float(c.get("unit_price") or 0) * factor, 2)
+                kids.append({**c, "qty": c_qty, "unit_price": c_price,
+                             "total": round(c_price * c_qty, 2)})
+            row["children"] = kids
+            row["total"] = round(sum(k["total"] for k in kids), 2)
+            row["unit_price"] = round(row["total"] / qty, 4) if qty else 0.0
         loaded.append(row)
     diff = round(subtotal - sum(l["total"] for l in loaded), 2)
     if loaded and abs(diff) >= 0.01:
@@ -96,8 +103,10 @@ def flatten_boq_rows(boq: list[dict]) -> list[tuple]:
         rows.append((str(i), l.get("code", ""), l["name"], l["unit"], l["qty"],
                      l["unit_price"], l["total"]))
         for j, c in enumerate(l.get("children") or [], 1):
-            total = c.get("total", round(l["qty"] * float(c.get("unit_price", 0) or 0), 2))
-            rows.append((f"{i}.{j}", "", f"↳ {c['name']}", l["unit"], l["qty"],
+            c_qty = float(c.get("qty") or l["qty"] or 1)
+            c_unit = c.get("unit") or l["unit"]
+            total = c.get("total", round(c_qty * float(c.get("unit_price", 0) or 0), 2))
+            rows.append((f"{i}.{j}", "", f"↳ {c['name']}", c_unit, c_qty,
                          c["unit_price"], total))
     return rows
 

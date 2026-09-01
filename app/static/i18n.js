@@ -242,6 +242,8 @@ const I18N = {
   invoices_skipped: { ar: "تُخُطيت", en: "skipped" },
   fin_internal_note: { ar: "هذا التفصيل داخلي لكم فقط — في ملفات Word وExcel المصدَّرة تُحمَّل المصاريف الإدارية والمخاطر والربح داخل أسعار البنود، ولا يظهر للعميل إلا الإجمالي والضريبة.", en: "This breakdown is internal only — in exported Word/Excel files, overhead, risk and profit are loaded into the unit prices; the client sees only the subtotal and VAT." },
   kind_label: { ar: "فئة المشروع:", en: "Project category:" },
+  sub_item_unit_label: { ar: "الوحدة", en: "Unit" },
+  sub_item_qty_label: { ar: "الكمية *", en: "Quantity *" },
   topbar_new_btn: { ar: "+ إنشاء عرض جديد", en: "+ New Proposal" },
 
   // لوحة التحكم
@@ -335,7 +337,7 @@ const I18N = {
   add_sub_item_hint: { ar: "تقسيم هذا البند إلى مراحل فرعية (نفس الكمية، سعر كل مرحلة مستقل)", en: "Split this item into sub-stages (same quantity, separate price per stage)" },
   boq_computed_hint: { ar: "محسوب تلقائياً = مجموع أسعار المراحل الفرعية", en: "Auto-computed = sum of sub-stage prices" },
   sub_item_modal_title: { ar: "إضافة مرحلة فرعية", en: "Add Sub-Stage" },
-  sub_item_modal_hint: { ar: "نفس كمية البند الأصلي، وسعر مستقل لهذه المرحلة — سعر البند الأب يُحسب تلقائياً كمجموع مراحله.", en: "Same quantity as the parent item, with its own price — the parent's price is auto-computed as the sum of its stages." },
+  sub_item_modal_hint: { ar: "لكل جزء كميته ووحدته وسعره المستقل — إجمالي البند الأب يُحسب تلقائياً كمجموع إجماليات أجزائه.", en: "Same quantity as the parent item, with its own price — the parent's price is auto-computed as the sum of its stages." },
   sub_item_name_label: { ar: "اسم المرحلة *", en: "Stage name *" },
   sub_item_name_ph: { ar: "مثال: تحضير السطح", en: "e.g. Surface preparation" },
   sub_item_price_label: { ar: "سعر الوحدة لهذه المرحلة (ر.س) *", en: "Unit price for this stage (SAR) *" },
