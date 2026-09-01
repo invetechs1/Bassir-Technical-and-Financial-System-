@@ -522,6 +522,53 @@ check("توافق رجعي: الجزء بلا كمية يرث كمية الأب 
       _sl3["children"][0]["qty"] == _sl3["qty"] and _sl3["children"][0]["unit"] == _sl3["unit"])
 c.delete(f"/api/proposals/{_sp}")
 
+# ---------- 19. تنفيذ المشاريع: مقاولو الباطن وقفل تقارير الإنتاجية ----------
+r = c.post("/api/execution/subcontractors", json={"name": "مؤسسة فحص الدرع", "trade": "خرسانة"})
+check("تسجيل مقاول باطن (أو 409 لتكرار الاسم)", r.status_code in (200, 409), r.text[:120])
+_opts = c.get("/api/execution/executors").json()
+check("القائمة المنسدلة: عمالة الشركة أولاً ثم مقاولو الباطن",
+      _opts and _opts[0]["label"] == "عمالة الشركة"
+      and any("فحص الدرع" in o["label"] for o in _opts))
+r = c.post("/api/execution/projects", json={"name": "مشروع فحص التنفيذ", "client": "جهة الفحص"})
+_xp = r.json()["id"]
+r = c.post("/api/members", json={"username": "engcheck", "password": "Eng@12345", "role": "engineer"})
+check("دعوة مهندس موقع (دور جديد)", r.status_code == 200, r.text[:120])
+c_eng = TestClient(app)
+c_eng.post("/api/login", json={"username": "engcheck", "password": "Eng@12345"})
+check("المهندس محجوب عن العروض والأسعار (403)",
+      c_eng.get("/api/proposals").status_code == 403 and c_eng.get("/api/prices").status_code == 403)
+_sub_id = next(o["id"] for o in _opts if "فحص الدرع" in o["label"])
+r = c_eng.post("/api/execution/reports", json={
+    "project_id": _xp, "report_date": "2026-09-01",
+    "lines": [{"item": "صب خرسانة", "unit": "م3", "qty": 40,
+               "executor_type": "subcontractor", "subcontractor_id": _sub_id},
+              {"item": "أعمال حفر", "unit": "م3", "qty": 65, "executor_type": "company"}]})
+check("المهندس يسجّل تقرير إنتاجية بمنفّذين مختلفين", r.status_code == 200, r.text[:120])
+_xr = r.json()["id"]
+_rep = c_eng.get(f"/api/execution/reports/{_xr}").json()
+check("سطر التقرير يحمل اسم المنفّذ", _rep["lines"][0]["executor_name"] == "مؤسسة فحص الدرع"
+      and _rep["lines"][1]["executor_name"] == "عمالة الشركة")
+r = c_eng.put(f"/api/execution/reports/{_xr}", json={
+    "project_id": _xp, "lines": [dict(_rep["lines"][0], qty=45), _rep["lines"][1]]})
+check("القفل: تعديل المهندس يتحول لطلب موافقة", r.status_code == 200 and r.json().get("pending"))
+_req = r.json().get("request_id")
+check("الكمية لم تتغير قبل قرار المالك",
+      c_eng.get(f"/api/execution/reports/{_xr}").json()["lines"][0]["qty"] == 40)
+_n = c.get("/api/notifications").json()
+check("إشعار للمالك بطلب التعديل", any("طلب تعديل" in i["title"] for i in _n["items"]))
+r = c.post(f"/api/execution/edit-requests/{_req}/decision", json={"action": "approve"})
+check("قبول المالك يطبّق التعديل",
+      r.status_code == 200
+      and c_eng.get(f"/api/execution/reports/{_xr}").json()["lines"][0]["qty"] == 45)
+check("إشعار المهندس بالقبول",
+      any("قُبل" in i["title"] for i in c_eng.get("/api/notifications").json()["items"]))
+_ps = c.get(f"/api/execution/productivity?project_id={_xp}").json()
+_by = {s["executor"]: s for s in _ps}
+check("كم اشتغل كل منفّذ: التفصيل بالوحدة صحيح",
+      {"unit": "م3", "qty": 45.0} in _by.get("مؤسسة فحص الدرع", {}).get("by_unit", [])
+      and {"unit": "م3", "qty": 65.0} in _by.get("عمالة الشركة", {}).get("by_unit", []),
+      str(_ps)[:200])
+
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)
 failed = [(n, d) for n, ok, d in RESULTS if not ok]

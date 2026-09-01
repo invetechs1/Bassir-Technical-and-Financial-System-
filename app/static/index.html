@@ -30,6 +30,7 @@
     <button class="nav-btn" data-page="prices" data-i18n="nav_prices">قاعدة الأسعار<span class="nav-count" id="cntPrices">—</span></button>
     <button class="nav-btn" data-page="library" data-i18n="nav_library">المكتبة الفنية<span class="nav-count" id="cntLibrary">—</span></button>
     <button class="nav-btn" data-page="repo" data-i18n="nav_repo">المستودع المعرفي<span class="nav-count" id="cntRepo">—</span></button>
+    <button class="nav-btn" data-page="execution" data-i18n="nav_execution">تنفيذ المشاريع</button>
     <div class="nav-group" data-i18n="navgrp_opportunities">الفرص</div>
     <button class="nav-btn" data-page="etimad" data-i18n="nav_etimad">منافسات اعتماد<span class="nav-count" id="cntEtimad">—</span></button>
     <button class="nav-btn" data-page="forsah" data-i18n="nav_forsah">مشاريع منصة فرصة<span class="nav-count" id="cntForsah">—</span></button>
@@ -64,6 +65,17 @@
         </div>
       </div>
       <div class="spacer" style="flex:1"></div>
+      <div class="tenant" id="notifWrap">
+        <button class="tenant-btn" id="notifBtn" onclick="toggleNotifMenu()" title="الإشعارات" style="position:relative">
+          🔔<span id="notifBadge" hidden
+            style="position:absolute;top:-4px;inset-inline-end:-4px;background:#c0392b;color:#fff;border-radius:9px;font-size:10px;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 3px">0</span>
+        </button>
+        <div class="tenant-menu" id="notifMenu" hidden style="min-width:330px;max-height:420px;overflow:auto">
+          <h6 data-i18n="notif_title">الإشعارات</h6>
+          <div id="notifList"></div>
+          <button class="btn sm ghost" style="margin:8px" onclick="markAllNotifs()" data-i18n="notif_mark_all">تحديد الكل كمقروء</button>
+        </div>
+      </div>
       <span class="tag admin" id="roleChip">—</span>
       <button class="btn" onclick="go('new')" data-i18n="topbar_new_btn">+ إنشاء عرض جديد</button>
     </div>
@@ -535,6 +547,7 @@
           <div><label data-i18n="invite_role">الدور</label>
             <select id="invRole">
               <option value="viewer">مُشاهد — قراءة وتصدير فقط</option>
+              <option value="engineer">مهندس موقع — تقارير الإنتاجية اليومية فقط</option>
               <option value="editor">مُحرِّر — يعد العروض دون الصفحات الإدارية</option>
               <option value="admin">أدمن — كل الصفحات ودعوة مستخدمين</option>
               <option value="owner">مالك الحساب</option>
@@ -684,6 +697,132 @@
     </section>
 
     <!-- صفحة المنع -->
+    <section class="page" id="page-execution">
+      <div class="page-head">
+        <div><h2 data-i18n="exec_title">تنفيذ المشاريع</h2>
+          <p data-i18n="exec_sub">مهندس الموقع يسجّل الإنتاجية اليومية ويحدد مَن نفّذ كل بند: عمالة الشركة أو أحد مقاولي الباطن. التقرير يُقفل فور اعتماده — أي تعديل لاحق يمر بموافقة مالك الحساب.</p></div>
+        <button class="btn" id="execNewReportBtn" onclick="openExecReportForm()" data-i18n="exec_new_report_btn">+ تقرير إنتاجية جديد</button>
+      </div>
+
+      <div class="tabs mb">
+        <button class="tab-btn active" data-exec-tab="reports" onclick="execTab('reports')" data-i18n="exec_tab_reports">التقارير اليومية</button>
+        <button class="tab-btn" data-exec-tab="summary" onclick="execTab('summary')" data-i18n="exec_tab_summary">كم اشتغل كل منفّذ</button>
+        <button class="tab-btn" data-exec-tab="projects" onclick="execTab('projects')" data-i18n="exec_tab_projects">مشاريع التنفيذ</button>
+        <button class="tab-btn" data-exec-tab="subs" onclick="execTab('subs')" data-i18n="exec_tab_subs">مقاولو الباطن</button>
+        <button class="tab-btn" data-exec-tab="requests" onclick="execTab('requests')" data-i18n="exec_tab_requests">طلبات التعديل<span id="execReqBadge" style="margin-inline-start:6px;color:#c0392b;font-weight:700"></span></button>
+      </div>
+
+      <div id="execTabReports">
+        <div class="panel" id="execReportForm" hidden>
+          <h3 id="execReportFormTitle" data-i18n="exec_report_form_title">تقرير إنتاجية يومي جديد</h3>
+          <div class="grid-3">
+            <div><label data-i18n="exec_project_label">المشروع *</label><select id="execRepProject" onchange="loadExecBoqList()"></select></div>
+            <div><label data-i18n="exec_date_label">تاريخ التقرير *</label><input type="date" id="execRepDate"></div>
+            <div><label data-i18n="exec_notes_label">ملاحظات عامة</label><input type="text" id="execRepNotes" data-i18n-ph="optional_ph" placeholder="اختياري"></div>
+          </div>
+          <div class="table-wrap" style="margin-top:12px">
+            <table>
+              <thead><tr>
+                <th style="width:26%" data-i18n="exec_line_item">البند المنفَّذ</th>
+                <th data-i18n="exec_line_unit">الوحدة</th>
+                <th data-i18n="exec_line_qty">الكمية المنفَّذة اليوم</th>
+                <th style="width:24%" data-i18n="exec_line_executor">مَن نفّذ العمل؟</th>
+                <th data-i18n="exec_line_notes">ملاحظات</th>
+                <th style="width:44px"></th>
+              </tr></thead>
+              <tbody id="execRepLines"></tbody>
+            </table>
+          </div>
+          <datalist id="execBoqList"></datalist>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button class="btn sm ghost" onclick="addExecLine()" data-i18n="exec_add_line_btn">+ إضافة سطر</button>
+            <div style="flex:1"></div>
+            <button class="btn ghost" onclick="closeExecReportForm()" data-i18n="cancel_btn">إلغاء</button>
+            <button class="btn" id="execRepSaveBtn" onclick="saveExecReport()" data-i18n="exec_save_report_btn">اعتماد التقرير 🔒</button>
+          </div>
+          <p class="muted" id="execLockHint" data-i18n="exec_lock_hint">بعد الاعتماد يُقفل التقرير — تعديل الكميات لاحقاً يتطلب موافقة مالك الحساب (يصله إشعار يقبل أو يرفض).</p>
+        </div>
+        <div class="panel">
+          <div class="table-wrap"><table>
+            <thead><tr>
+              <th data-i18n="exec_th_date">التاريخ</th><th data-i18n="exec_th_project">المشروع</th>
+              <th data-i18n="exec_th_engineer">المهندس</th><th data-i18n="exec_th_lines">الأسطر</th>
+              <th data-i18n="exec_th_status">الحالة</th><th style="width:150px"></th>
+            </tr></thead>
+            <tbody id="execReportsTable"></tbody>
+          </table></div>
+          <div id="execReportDetail" hidden style="margin-top:12px"></div>
+        </div>
+      </div>
+
+      <div id="execTabSummary" hidden>
+        <div class="panel">
+          <div class="grid-3">
+            <div><label data-i18n="exec_summary_filter">حصر على مشروع</label>
+              <select id="execSummaryProject" onchange="loadExecSummary()"></select></div>
+          </div>
+          <div class="table-wrap" style="margin-top:12px"><table>
+            <thead><tr>
+              <th data-i18n="exec_sum_executor">المنفّذ</th>
+              <th data-i18n="exec_sum_reports">عدد التقارير</th>
+              <th data-i18n="exec_sum_lines">عدد الأسطر</th>
+              <th data-i18n="exec_sum_qty">الكميات المنفَّذة (بالوحدة)</th>
+            </tr></thead>
+            <tbody id="execSummaryTable"></tbody>
+          </table></div>
+        </div>
+      </div>
+
+      <div id="execTabProjects" hidden>
+        <div class="panel" id="execProjectFormPanel">
+          <h3 data-i18n="exec_project_form_title">إضافة مشروع تنفيذ</h3>
+          <div class="grid-3">
+            <div><label data-i18n="exec_pj_name">اسم المشروع *</label><input type="text" id="execPjName"></div>
+            <div><label data-i18n="exec_pj_client">العميل</label><input type="text" id="execPjClient"></div>
+            <div><label data-i18n="exec_pj_proposal">ربط بعرض من الأرشيف (لاقتراح بنود جدول الكميات)</label><select id="execPjProposal"><option value="">—</option></select></div>
+          </div>
+          <div style="margin-top:10px"><button class="btn" onclick="saveExecProject()" data-i18n="exec_pj_save">حفظ المشروع</button></div>
+        </div>
+        <div class="panel">
+          <div class="table-wrap"><table>
+            <thead><tr>
+              <th data-i18n="exec_pj_th_name">المشروع</th><th data-i18n="exec_pj_th_client">العميل</th>
+              <th data-i18n="exec_pj_th_reports">التقارير</th><th data-i18n="exec_pj_th_status">الحالة</th>
+            </tr></thead>
+            <tbody id="execProjectsTable"></tbody>
+          </table></div>
+        </div>
+      </div>
+
+      <div id="execTabSubs" hidden>
+        <div class="panel" id="execSubFormPanel">
+          <h3 data-i18n="exec_sub_form_title">تسجيل مقاول باطن</h3>
+          <div class="grid-3">
+            <div><label data-i18n="exec_sc_name">اسم المقاول / المؤسسة *</label><input type="text" id="execScName" data-i18n-ph="exec_sc_name_ph" placeholder="مثال: مؤسسة الدرع للمقاولات"></div>
+            <div><label data-i18n="exec_sc_trade">التخصص</label><input type="text" id="execScTrade" data-i18n-ph="exec_sc_trade_ph" placeholder="كهرباء، تكييف، خرسانة..."></div>
+            <div><label data-i18n="exec_sc_phone">الجوال</label><input type="text" id="execScPhone"></div>
+          </div>
+          <div style="margin-top:10px"><button class="btn" onclick="saveExecSub()" data-i18n="exec_sc_save">حفظ المقاول</button></div>
+        </div>
+        <div class="panel">
+          <div class="table-wrap"><table>
+            <thead><tr>
+              <th data-i18n="exec_sc_th_name">المقاول</th><th data-i18n="exec_sc_th_trade">التخصص</th>
+              <th data-i18n="exec_sc_th_phone">الجوال</th><th data-i18n="exec_sc_th_active">نشط؟</th><th style="width:110px"></th>
+            </tr></thead>
+            <tbody id="execSubsTable"></tbody>
+          </table></div>
+        </div>
+      </div>
+
+      <div id="execTabRequests" hidden>
+        <div class="panel">
+          <p class="muted" data-i18n="exec_req_hint">طلبات تعديل التقارير المقفلة — مالك الحساب وحده يقبل فيُطبَّق التعديل، أو يرفض فيبقى التقرير كما هو. القرار يصل صاحب الطلب بإشعار.</p>
+          <div id="execRequestsList"></div>
+        </div>
+      </div>
+    </section>
+
     <section class="page" id="page-denied">
       <div class="denied">
         <div class="lock">🔒</div>
