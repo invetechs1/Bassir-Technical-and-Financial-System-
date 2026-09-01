@@ -15,9 +15,10 @@ _role: ContextVar[str] = ContextVar("role", default="owner")
 _user_id: ContextVar[int] = ContextVar("user_id", default=0)
 _platform_admin: ContextVar[bool] = ContextVar("platform_admin", default=False)
 
-ROLES = ("owner", "admin", "editor", "viewer")
+ROLES = ("owner", "admin", "editor", "engineer", "viewer")
 ADMIN_ROLES = {"owner", "admin"}
-ROLE_AR = {"owner": "مالك الحساب", "admin": "أدمن", "editor": "مُحرِّر", "viewer": "مُشاهد"}
+ROLE_AR = {"owner": "مالك الحساب", "admin": "أدمن", "editor": "مُحرِّر",
+           "engineer": "مهندس موقع", "viewer": "مُشاهد"}
 
 # حدود الخطط — None = غير محدود
 PLAN_LIMITS = {

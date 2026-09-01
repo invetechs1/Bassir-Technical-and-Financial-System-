@@ -21,6 +21,7 @@ from .proposal_builder import build_template_proposal, compute_financials, match
 from .etimad import fetch_tenders, has_session, list_tenders, update_tender_status
 from .opportunity import analyze_opportunity
 from .repository import find_relevant_repo_texts, ingest_file
+from . import execution
 from .seed import seed_if_empty
 from .similarity import find_similar, get_reference_content
 
@@ -37,6 +38,7 @@ def startup():
     from .style_engine import init_style_tables, migrate_repo_to_tech
     init_style_tables()
     migrate_repo_to_tech()
+    execution.init_execution_tables()
 
 
 # ------------------------------ المصادقة والصلاحيات ------------------------------
@@ -47,7 +49,11 @@ COMPANY_COOKIE = "azoom_company"
 # الصفحات الخمس الإدارية — القراءة والكتابة على الأدمن (owner/admin) فقط
 _ADMIN_API_PREFIXES = ("/api/prices", "/api/library", "/api/repo", "/api/market", "/api/analytics", "/api/repository", "/api/style-profile", "/api/paragraph")
 # مسارات يجوز فيها غير-GET لدور المشاهد (شؤون حسابه فقط)
-_VIEWER_WRITE_OK = ("/api/logout", "/api/password", "/api/session/company")
+_VIEWER_WRITE_OK = ("/api/logout", "/api/password", "/api/session/company",
+                    "/api/notifications")
+# مهندس الموقع: وحدة تنفيذ المشاريع وشؤون حسابه فقط — لا اطلاع على العروض والأسعار
+_ENGINEER_ALLOWED = ("/api/me", "/api/status", "/api/execution", "/api/notifications",
+                     "/api/logout", "/api/password", "/api/session/company")
 
 
 @app.middleware("http")
@@ -87,6 +93,9 @@ async def auth_guard(request: Request, call_next):
     if role == "viewer" and request.method not in ("GET", "HEAD") \
             and not path.startswith(_VIEWER_WRITE_OK):
         return JSONResponse({"detail": "دورك (مُشاهد) للقراءة والتصدير فقط"}, status_code=403)
+    if role == "engineer" and path.startswith("/api/") and not path.startswith(_ENGINEER_ALLOWED):
+        return JSONResponse({"detail": "دورك (مهندس موقع) مقصور على وحدة تنفيذ المشاريع"},
+                            status_code=403)
 
     # دورة حياة الاشتراك: منتهي التجربة قراءة وتصدير فقط، والموقوف محجوب
     company_row = db.get_company(current["id"]) or {}
@@ -883,6 +892,149 @@ def export_xlsx(pid: int):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=f"{proposal['ref_no']}-BOQ.xlsx",
     )
+
+
+# ------------------------------ وحدة تنفيذ المشاريع ------------------------------
+# مهندس الموقع يسجّل الإنتاجية اليومية ويختار مَن نفّذ (عمالة الشركة/مقاول باطن).
+# التقرير يُقفل فور الاعتماد: تعديل غير المالك = طلب تعديل بإشعار يقبله المالك أو يرفضه.
+
+def _display_name(request: Request) -> str:
+    return request.state.username
+
+
+def _company_owners(request: Request) -> list[dict]:
+    return [{"user_id": m["id"]} for m in db.company_members(request.state.company_id)
+            if m["role"] == "owner"]
+
+
+@app.get("/api/execution/subcontractors")
+def subs_list(active: int = 0):
+    return execution.list_subcontractors(active_only=bool(active))
+
+
+@app.post("/api/execution/subcontractors")
+def subs_upsert(request: Request, body: dict):
+    _require_admin(request)
+    if not (body.get("name") or "").strip():
+        raise HTTPException(400, "اسم مقاول الباطن مطلوب")
+    try:
+        return execution.upsert_subcontractor(body)
+    except Exception:
+        raise HTTPException(409, "مقاول باطن بهذا الاسم مسجّل مسبقاً")
+
+
+@app.delete("/api/execution/subcontractors/{sid}")
+def subs_delete(request: Request, sid: int):
+    _require_admin(request)
+    execution.delete_subcontractor(sid)
+    return {"ok": True}
+
+
+@app.get("/api/execution/executors")
+def executors_dropdown():
+    """خيارات القائمة المنسدلة «مَن نفّذ العمل» في تقرير الإنتاجية."""
+    return execution.executor_options()
+
+
+@app.get("/api/execution/projects")
+def exec_projects_list():
+    return execution.list_projects()
+
+
+@app.post("/api/execution/projects")
+def exec_projects_upsert(request: Request, body: dict):
+    if request.state.role == "engineer":
+        raise HTTPException(403, "إنشاء المشاريع للمحرر فما فوق — المهندس يسجّل التقارير")
+    if not (body.get("name") or "").strip():
+        raise HTTPException(400, "اسم المشروع مطلوب")
+    return execution.upsert_project(body)
+
+
+@app.get("/api/execution/projects/{pid}/boq")
+def exec_project_boq(pid: int):
+    return execution.project_boq_items(pid)
+
+
+@app.get("/api/execution/reports")
+def exec_reports_list(project_id: int = 0):
+    return execution.list_reports(project_id or None)
+
+
+@app.post("/api/execution/reports")
+def exec_reports_create(request: Request, body: dict):
+    try:
+        return execution.create_report(body, _display_name(request))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get("/api/execution/reports/{rid}")
+def exec_report_get(rid: int):
+    report = execution.get_report(rid)
+    if not report:
+        raise HTTPException(404, "التقرير غير موجود")
+    return report
+
+
+@app.put("/api/execution/reports/{rid}")
+def exec_report_update(request: Request, rid: int, body: dict):
+    """التقرير مقفل بعد الاعتماد: المالك يعدّل مباشرة، وغيره يقدّم طلب تعديل."""
+    is_owner = request.state.role == "owner" or request.state.is_platform_admin
+    try:
+        if is_owner:
+            return execution.owner_update_report(rid, body)
+        return execution.request_report_edit(rid, body, _display_name(request),
+                                             _company_owners(request))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.delete("/api/execution/reports/{rid}")
+def exec_report_delete(request: Request, rid: int):
+    if request.state.role != "owner" and not request.state.is_platform_admin:
+        raise HTTPException(403, "حذف التقارير لمالك الحساب فقط")
+    execution.delete_report(rid)
+    return {"ok": True}
+
+
+@app.get("/api/execution/edit-requests")
+def exec_edit_requests(request: Request):
+    """المالك يرى كل الطلبات، وغيره يرى طلباته فقط."""
+    if request.state.role == "owner" or request.state.is_platform_admin:
+        return execution.list_edit_requests()
+    return execution.list_edit_requests(mine_only_user=request.state.user_id)
+
+
+@app.post("/api/execution/edit-requests/{req_id}/decision")
+def exec_edit_decide(request: Request, req_id: int, body: dict):
+    if request.state.role != "owner" and not request.state.is_platform_admin:
+        raise HTTPException(403, "قبول أو رفض التعديلات لمالك الحساب فقط")
+    action = body.get("action", "")
+    if action not in ("approve", "reject"):
+        raise HTTPException(400, "القرار: approve أو reject")
+    try:
+        return execution.decide_edit_request(req_id, action, body.get("note", ""),
+                                             _display_name(request))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get("/api/execution/productivity")
+def exec_productivity(project_id: int = 0):
+    """كم اشتغل كل منفّذ — عمالة الشركة وكل مقاول باطن (تفصيل الكميات بالوحدة)."""
+    return execution.productivity_summary(project_id or None)
+
+
+@app.get("/api/notifications")
+def notifications_list(request: Request):
+    return execution.my_notifications(request.state.user_id)
+
+
+@app.post("/api/notifications/read")
+def notifications_read(request: Request, body: dict = None):
+    execution.mark_notifications_read(request.state.user_id,
+                                      (body or {}).get("id"))
+    return {"ok": True}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
