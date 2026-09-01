@@ -799,6 +799,10 @@ async function loadTenants() {
         <select onchange="changeRole(${m.id}, this.value)" style="padding:4px 8px;font-size:12px">
           ${["viewer", "engineer", "editor", "admin", "owner"].map((r) => `<option value="${r}" ${r === m.role ? "selected" : ""}>${t("role_" + r)}</option>`).join("")}
         </select>` : `<span class="tag ${m.role === "owner" || m.role === "admin" ? "admin" : "est"}">${t("role_" + m.role) || m.role}</span>`}</td>
+      <td>${ME.is_admin ? `
+        <input type="text" value="${escH(m.email)}" placeholder="email" style="width:150px;font-size:11.5px;margin-bottom:2px" onchange="saveMemberContact(${m.id}, this, 'email')"><br>
+        <input type="text" value="${escH(m.phone)}" placeholder="9665xxxxxxxx" style="width:150px;font-size:11.5px" onchange="saveMemberContact(${m.id}, this, 'phone')">`
+        : `<span class="muted" style="font-size:11.5px">${escH(m.email) || "—"}<br>${escH(m.phone) || ""}</span>`}</td>
       <td class="num-cell muted">${(m.last_login_at || "").slice(0, 10) || "—"}</td>
       <td>${canManage && m.id !== ME.user_id ? `<button class="btn sm danger" onclick="removeMember(${m.id})">${t("member_remove")}</button>` : ""}</td>
     </tr>`).join("");
@@ -938,14 +942,24 @@ async function uploadCompanyLogo() {
   $("#logoInput").value = "";
 }
 
+async function saveMemberContact(uid, input, field) {
+  const row = input.closest("td");
+  const inputs = row.querySelectorAll("input");
+  await api(`/api/members/${uid}/contact`, { method: "POST", json: {
+    email: inputs[0].value.trim(), phone: inputs[1].value.trim() } });
+  toast(t("msg_saved"));
+}
+
 async function inviteMember() {
   const username = $("#invUsername").value.trim();
   if (!username) return toast(t("invite_need_user"), true);
   try {
     await api("/api/members", { method: "POST", json: {
-      username, password: $("#invPassword").value, role: $("#invRole").value } });
+      username, password: $("#invPassword").value, role: $("#invRole").value,
+      email: $("#invEmail").value.trim(), phone: $("#invPhone").value.trim() } });
     toast(t("invite_done"));
     $("#invUsername").value = ""; $("#invPassword").value = "";
+    $("#invEmail").value = ""; $("#invPhone").value = "";
     loadTenants();
   } catch (err) { toast(err.message, true); }
 }
@@ -1335,6 +1349,7 @@ const escH = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
 
 async function loadExecution() {
   await Promise.all([loadExecProjects(), loadExecExecutors()]);
+  $("#execProfitTabBtn").hidden = !ME.is_admin;
   execTab("reports");
   loadExecRequestsBadge();
 }
@@ -1342,13 +1357,14 @@ async function loadExecution() {
 function execTab(which) {
   $$("[data-exec-tab]").forEach((b) => b.classList.toggle("active", b.dataset.execTab === which));
   const panes = { reports: "execTabReports", summary: "execTabSummary", projects: "execTabProjects",
-                  subs: "execTabSubs", requests: "execTabRequests" };
+                  subs: "execTabSubs", requests: "execTabRequests", profit: "execTabProfit" };
   Object.entries(panes).forEach(([k, id]) => { $("#" + id).hidden = k !== which; });
   if (which === "reports") loadExecReports();
   if (which === "summary") loadExecSummary();
   if (which === "projects") renderExecProjects();
   if (which === "subs") loadExecSubs();
   if (which === "requests") loadExecRequests();
+  if (which === "profit") initExecProfit();
 }
 
 async function loadExecProjects() {
@@ -1652,6 +1668,87 @@ async function decideExecRequest(id, action) {
   toast(action === "approve" ? t("exec_msg_approved") : t("exec_msg_rejected"));
   loadExecRequests();
   loadExecRequestsBadge();
+}
+
+/* --- التكلفة والربحية (مالك/أدمن فقط — الخادم يفرضها أيضاً) --- */
+function initExecProfit() {
+  const sel = $("#execProfitProject");
+  sel.innerHTML = EXEC.projects.map((p) => `<option value="${p.id}">${escH(p.name)}</option>`).join("")
+    || `<option value="">${t("exec_no_projects")}</option>`;
+  $("#execAgExecutor").innerHTML = EXEC.executors.map((e) =>
+    `<option value="${e.type}:${e.id}">${escH(e.label)}</option>`).join("");
+  loadExecProfit();
+}
+
+async function loadExecProfit() {
+  const pid = Number($("#execProfitProject").value || 0);
+  if (!pid) {
+    $("#execAgreementsTable").innerHTML = ""; $("#execProfitTable").innerHTML = "";
+    $("#execProfitCards").innerHTML = ""; return;
+  }
+  try {
+    const items = await api(`/api/execution/projects/${pid}/boq`);
+    $("#execBoqList").innerHTML = items.map((i) =>
+      `<option value="${escH(i.name)}">${escH(i.unit)}</option>`).join("");
+  } catch {}
+  const ags = await api(`/api/execution/agreements?project_id=${pid}`);
+  $("#execAgreementsTable").innerHTML = ags.map((a) => `
+    <tr>
+      <td>${escH(a.item)}</td><td>${escH(a.executor_name)}</td><td>${escH(a.unit)}</td>
+      <td class="num-cell">${fmt(a.unit_rate)}</td>
+      <td><button class="btn sm ghost" onclick="deleteExecAgreement(${a.id})">🗑</button></td>
+    </tr>`).join("") || `<tr><td colspan="5" class="muted">${t("exec_ag_empty")}</td></tr>`;
+
+  const pr = await api(`/api/execution/profitability?project_id=${pid}`);
+  const tt = pr.totals;
+  $("#execProfitCards").innerHTML = `
+    <div class="card"><div class="num">${fmt(tt.revenue)}</div><div class="lbl">${t("exec_pr_revenue")}</div></div>
+    <div class="card"><div class="num">${fmt(tt.cost)}</div><div class="lbl">${t("exec_pr_cost")}</div></div>
+    <div class="card"><div class="num" style="color:${tt.profit >= 0 ? "inherit" : "#c0392b"}">${fmt(tt.profit)}</div><div class="lbl">${t("exec_pr_profit")}</div></div>
+    <div class="card"><div class="num">${tt.margin_pct != null ? tt.margin_pct + "%" : "—"}</div><div class="lbl">${t("exec_pr_margin")}</div></div>
+    ${tt.missing_rates ? `<div class="card"><div class="num" style="color:#c0392b">${tt.missing_rates}</div><div class="lbl">${t("exec_pr_missing")}</div></div>` : ""}`;
+  $("#execProfitTable").innerHTML = pr.rows.map((r) => `
+    <tr ${r.over_qty ? 'style="background:#fdf3ec"' : ""}>
+      <td>${escH(r.item)}</td><td>${escH(r.executor)}</td>
+      <td class="num-cell">${r.executed_qty} / ${r.contract_qty ?? "—"} ${escH(r.unit)}
+        ${r.over_qty ? ` <span class="tag" style="background:#f3d3d0">${t("exec_pr_over")}</span>` : ""}</td>
+      <td class="num-cell">${r.client_price != null ? fmt(r.client_price) : "—"}</td>
+      <td class="num-cell">${r.rate != null ? fmt(r.rate) : `<span class="tag" style="background:#f6e3c5">${t("exec_pr_no_rate")}</span>`}</td>
+      <td class="num-cell">${r.revenue != null ? fmt(r.revenue) : "—"}</td>
+      <td class="num-cell">${r.cost != null ? fmt(r.cost) : "—"}</td>
+      <td class="num-cell" style="color:${(r.profit ?? 0) >= 0 ? "inherit" : "#c0392b"}">${r.profit != null ? fmt(r.profit) : "—"}</td>
+      <td class="num-cell">${r.margin_pct != null ? r.margin_pct + "%" : "—"}</td>
+    </tr>`).join("") || `<tr><td colspan="9" class="muted">${t("exec_no_data")}</td></tr>`;
+  if (!pr.project.linked_proposal)
+    $("#execProfitTable").innerHTML += `<tr><td colspan="9" class="muted">${t("exec_pr_link_hint")}</td></tr>`;
+}
+
+async function saveExecAgreement() {
+  const item = $("#execAgItem").value.trim();
+  const rate = $("#execAgRate").value;
+  if (!item || rate === "") return toast(t("exec_ag_required"), true);
+  const [type, id] = $("#execAgExecutor").value.split(":");
+  await api("/api/execution/agreements", { method: "POST", json: {
+    project_id: Number($("#execProfitProject").value || 0),
+    subcontractor_id: type === "subcontractor" ? Number(id) : 0,
+    item, unit: $("#execAgUnit").value.trim(), unit_rate: Number(rate),
+  } });
+  $("#execAgItem").value = ""; $("#execAgUnit").value = ""; $("#execAgRate").value = "";
+  toast(t("msg_saved"));
+  loadExecProfit();
+}
+
+async function deleteExecAgreement(id) {
+  await api(`/api/execution/agreements/${id}`, { method: "DELETE" });
+  loadExecProfit();
+}
+
+async function testNotifyChannels() {
+  try {
+    const r = await api("/api/notify/test", { method: "POST", json: {} });
+    toast(`${t("notify_test_email")}: ${r.email} — ${t("notify_test_wa")}: ${r.whatsapp}`,
+          r.email.startsWith("فشل") || r.whatsapp.startsWith("فشل"));
+  } catch (e) { toast(e.message, true); }
 }
 
 /* ---------- الإشعارات ---------- */

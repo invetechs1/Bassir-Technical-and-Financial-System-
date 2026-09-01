@@ -278,6 +278,9 @@ def ensure_memberships():
         # جدول المستخدمين يُنشأ في init_auth بعد الترحيل — نضمن أعمدته هنا
         _ensure_column(db, "users", "is_platform_admin", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(db, "users", "last_login_at", "TEXT DEFAULT ''")
+        # بيانات التواصل لقنوات الإشعارات الخارجية (بريد/واتساب)
+        _ensure_column(db, "users", "email", "TEXT DEFAULT ''")
+        _ensure_column(db, "users", "phone", "TEXT DEFAULT ''")
         rows = db.execute(
             "SELECT u.id, u.username FROM users u "
             "LEFT JOIN memberships m ON m.user_id = u.id WHERE m.user_id IS NULL"
@@ -322,7 +325,7 @@ def log_audit(entity: str, entity_id, action: str, detail: str = ""):
 # ------------------------- الإعدادات (لكل شركة) -------------------------
 
 # مفاتيح حساسة تُخزَّن مشفرة إن توفرت مكتبة التشفير
-_SECRET_KEYS = {"forsah_password"}
+_SECRET_KEYS = {"forsah_password", "smtp_pass", "whatsapp_token"}
 _ENC_PREFIX = "enc:v1:"
 
 
@@ -573,12 +576,18 @@ def remove_membership(uid: int, company_id: int):
 def company_members(company_id: int) -> list[dict]:
     with get_db() as db:
         rows = db.execute(
-            "SELECT u.id, u.username, u.display_name, u.last_login_at, m.role, m.joined_at "
+            "SELECT u.id, u.username, u.display_name, u.last_login_at, u.email, u.phone, "
+            " m.role, m.joined_at "
             "FROM memberships m JOIN users u ON u.id = m.user_id "
             "WHERE m.company_id = ? ORDER BY m.joined_at",
             (company_id,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def set_user_contact(uid: int, email: str, phone: str):
+    with get_db() as db:
+        db.execute("UPDATE users SET email = ?, phone = ? WHERE id = ?", (email, phone, uid))
 
 
 def company_usage(company_id: int) -> dict:
