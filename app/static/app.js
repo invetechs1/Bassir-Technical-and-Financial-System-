@@ -428,10 +428,10 @@ function renderBoqRow(l, i) {
       <td class="muted num-cell">${i + 1}.${j + 1}</td>
       <td></td>
       <td><div class="boq-sub-name"><span class="boq-sub-arrow">↳</span><input type="text" value="${c.name}" onchange="editBoqSub(${i},${j},'name',this.value)"></div></td>
-      <td class="muted">${l.unit}</td>
-      <td class="muted num-cell">${l.qty}</td>
+      <td style="width:80px"><input type="text" value="${c.unit ?? l.unit}" onchange="editBoqSub(${i},${j},'unit',this.value)"></td>
+      <td style="width:90px"><input type="number" value="${c.qty ?? l.qty}" step="0.01" onchange="editBoqSub(${i},${j},'qty',this.value)"></td>
       <td style="width:120px"><input type="number" value="${c.unit_price}" step="0.01" onchange="editBoqSub(${i},${j},'unit_price',this.value)"></td>
-      <td class="num-cell muted">${fmt(c.total ?? (l.qty * c.unit_price))}</td>
+      <td class="num-cell muted">${fmt(c.total ?? ((c.qty ?? l.qty) * c.unit_price))}</td>
       <td></td>
       <td><button class="btn sm danger" onclick="removeBoqSub(${i},${j})">✕</button></td>
     </tr>`).join("");
@@ -509,8 +509,11 @@ let _subItemTargetIndex = null;
 
 function addBoqSubItem(i) {
   _subItemTargetIndex = i;
+  const line = currentProposal.data.boq[i];
   $("#boqStageLabel").value = "";
   $("#boqStagePrice").value = "0";
+  $("#boqStageQty").value = line.qty || 1;
+  $("#boqStageUnit").value = line.unit || "وحدة";
   $("#subItemModal").style.display = "flex";
   $("#boqStageLabel").focus();
 }
@@ -524,12 +527,18 @@ function confirmAddSubItem() {
   const price = Number($("#boqStagePrice").value || 0);
   const line = currentProposal.data.boq[_subItemTargetIndex];
   if (!line.children) line.children = [];
-  line.children.push({ name, unit_price: price });
+  line.children.push({
+    name,
+    unit: $("#boqStageUnit").value.trim() || line.unit || "وحدة",
+    qty: Number($("#boqStageQty").value || line.qty || 1),
+    unit_price: price,
+  });
   closeSubItemModal();
   saveBoqChanges();
 }
 function editBoqSub(i, j, field, value) {
-  currentProposal.data.boq[i].children[j][field] = field === "unit_price" ? Number(value) : value;
+  currentProposal.data.boq[i].children[j][field] =
+    (field === "unit_price" || field === "qty") ? Number(value) : value;
   saveBoqChanges();
 }
 function removeBoqSub(i, j) {

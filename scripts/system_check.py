@@ -452,8 +452,9 @@ check("عزوم (مؤسسي) تصل لاعتماد طبيعياً", c.get("/api/
 # دورة الحياة: تجربة منتهية → قراءة وتصدير فقط (402 على الكتابة)
 from app.database import get_db as _gdb
 with _gdb() as _db:
-    _db.execute("UPDATE companies SET trial_ends_at = '2026-08-01T00:00:00+00:00' "
-                "WHERE cr_no = '9990001112'")
+    from datetime import datetime, timedelta, timezone
+    _ended = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
+    _db.execute("UPDATE companies SET trial_ends_at = ? WHERE cr_no = '9990001112'", (_ended,))
 check("تجربة منتهية: القراءة تعمل", c4.get("/api/proposals").status_code == 200)
 r = c4.post("/api/proposals/generate", data={"title": "x", "client": "y"})
 check("تجربة منتهية: الكتابة 402", r.status_code == 402 and "التجربة" in r.json()["detail"], r.text[:120])
@@ -475,6 +476,51 @@ check("مؤشرات مدير المنصة", r.status_code == 200 and "mrr" in r.
 check("المؤشرات محجوبة عن غير مدير المنصة", c2.get("/api/platform/metrics").status_code == 403)
 r = c.get("/signup")
 check("صفحة التسجيل الذاتي العامة", r.status_code == 200 and "تجربة مجانية" in r.text)
+
+# ---------- 18. تقسيم البند إلى أجزاء مستقلة (كمية ووحدة وسعر لكل جزء) ----------
+r = c.post("/api/proposals/generate", data={"title": "فحص تقسيم بنود جدول الكميات",
+                                            "client": "جهة الفحص", "entity_type": "government"})
+check("توليد عرض لفحص تقسيم البنود", r.status_code == 200, r.text[:120])
+_sp = r.json()["id"]
+_sd = c.get(f"/api/proposals/{_sp}").json()["data"]
+_sd["boq"][0]["children"] = [
+    {"name": "توريد المواد", "unit": "طن", "qty": 5, "unit_price": 1000},
+    {"name": "أعمال التركيب", "unit": "م2", "qty": 20, "unit_price": 150},
+    {"name": "الاختبار والتشغيل", "unit": "مقطوعية", "qty": 1, "unit_price": 2500},
+]
+c.put(f"/api/proposals/{_sp}", json={"data": _sd})
+_sd2 = c.get(f"/api/proposals/{_sp}").json()["data"]
+_sl = _sd2["boq"][0]
+check("كل جزء: الإجمالي = كميته × سعره",
+      all(abs(k["total"] - k["qty"] * k["unit_price"]) < 0.01 for k in _sl["children"])
+      and _sl["children"][0]["total"] == 5000 and _sl["children"][1]["total"] == 3000,
+      str(_sl["children"])[:200])
+check("إجمالي البند الأب = مجموع أجزائه (10500)", abs(_sl["total"] - 10500) < 0.01, str(_sl["total"]))
+check("التكلفة المباشرة متسقة بعد التقسيم",
+      abs(_sd2["financial"]["direct_cost"] - sum(l["total"] for l in _sd2["boq"])) < 0.05)
+from app.proposal_builder import client_facing_pricing as _cfp
+_cf = _cfp(_sd2["boq"], _sd2["financial"])
+check("التسعير المحمَّل: مجموع الأجزاء المحمَّلة = إجمالي الأب",
+      abs(_cf[0]["total"] - round(sum(k["total"] for k in _cf[0]["children"]), 2)) < 0.01)
+check("التسعير المحمَّل: مجموع البنود = الإجمالي قبل الضريبة",
+      abs(round(sum(l["total"] for l in _cf), 2) - _sd2["financial"]["subtotal"]) < 0.05)
+r = c.get(f"/api/proposals/{_sp}/export/xlsx")
+_rows = []
+if r.status_code == 200:
+    _wbx = load_workbook(io.BytesIO(r.content))
+    for _wsx in _wbx.worksheets:
+        for _row in _wsx.iter_rows(values_only=True):
+            _rows.append(" | ".join(str(x) for x in _row if x is not None))
+check("إكسل: صف الجزء يحمل كميته ووحدته (طن × 5)",
+      any("توريد المواد" in x and "طن" in x and (" 5 " in f" {x} " or "| 5 |" in x) for x in _rows),
+      str([x for x in _rows if "توريد" in x])[:200])
+# توافق رجعي: جزء قديم بلا كمية/وحدة يرث كمية الأب ووحدته
+_sd2["boq"][0]["children"] = [{"name": "جزء قديم", "unit_price": 100}]
+c.put(f"/api/proposals/{_sp}", json={"data": _sd2})
+_sl3 = c.get(f"/api/proposals/{_sp}").json()["data"]["boq"][0]
+check("توافق رجعي: الجزء بلا كمية يرث كمية الأب ووحدته",
+      _sl3["children"][0]["qty"] == _sl3["qty"] and _sl3["children"][0]["unit"] == _sl3["unit"])
+c.delete(f"/api/proposals/{_sp}")
 
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)

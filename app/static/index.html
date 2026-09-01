@@ -702,14 +702,20 @@
     <header>
       <div>
         <h3 data-i18n="sub_item_modal_title">إضافة مرحلة فرعية</h3>
-        <p data-i18n="sub_item_modal_hint">نفس كمية البند الأصلي، وسعر مستقل لهذه المرحلة — سعر البند الأب يُحسب تلقائياً كمجموع مراحله.</p>
+        <p data-i18n="sub_item_modal_hint">لكل جزء كميته ووحدته وسعره المستقل — إجمالي البند الأب يُحسب تلقائياً كمجموع إجماليات أجزائه.</p>
       </div>
       <button class="btn sm ghost" onclick="closeSubItemModal()">✕</button>
     </header>
     <div class="body">
       <div><label data-i18n="sub_item_name_label">اسم المرحلة *</label>
         <input type="text" id="boqStageLabel" autocomplete="off" data-i18n-ph="sub_item_name_ph" placeholder="مثال: تحضير السطح" onkeydown="if(event.key==='Enter') confirmAddSubItem()"></div>
-      <div><label data-i18n="sub_item_price_label">سعر الوحدة لهذه المرحلة (ر.س) *</label>
+      <div class="grid-2">
+        <div><label data-i18n="sub_item_unit_label">الوحدة</label>
+          <input type="text" id="boqStageUnit" autocomplete="off"></div>
+        <div><label data-i18n="sub_item_qty_label">الكمية *</label>
+          <input type="number" id="boqStageQty" autocomplete="off" step="0.01" value="1"></div>
+      </div>
+      <div><label data-i18n="sub_item_price_label">سعر الوحدة لهذا الجزء (ر.س) *</label>
         <input type="number" id="boqStagePrice" autocomplete="off" step="0.01" value="0" onkeydown="if(event.key==='Enter') confirmAddSubItem()"></div>
     </div>
     <footer>
