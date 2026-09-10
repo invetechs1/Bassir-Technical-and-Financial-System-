@@ -58,10 +58,8 @@ check(f"العروض المرجعية المبذورة ({len(props)} عرضاً 
 r = c.get("/")
 check("الواجهة الرئيسية بالهوية الجديدة (الشعار الرسمي + المجموعات)",
       "AZOOM" in r.text and "azoom-mark.png" in r.text and "nav-group" in r.text)
-r = c.get("/static/js/13-repo.js")
-check("وحدات الواجهة تُقدَّم (js/13-repo)", r.status_code == 200 and "makeReference" in r.text)
-r = c.get("/static/js/20-boot.js")
-check("وحدة بدء التشغيل تُقدَّم", r.status_code == 200 and "loadMe" in r.text)
+r = c.get("/static/app.js")
+check("ملف app.js يُقدَّم", r.status_code == 200 and "makeReference" in r.text)
 r = c.get("/static/styles.css")
 check("ملف styles.css أخضر", r.status_code == 200 and "#175934" in r.text)
 
