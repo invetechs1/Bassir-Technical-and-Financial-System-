@@ -944,6 +944,30 @@ def remove_proposal(pid: int):
     return {"ok": True}
 
 
+@app.get("/api/proposals/{pid}/quality")
+def proposal_quality(pid: int):
+    """وكيل الجودة والمراجعة: درجة الجاهزية وملاحظات الأصالة والنظافة والاتساق."""
+    from .quality_agent import review_proposal
+    proposal = db.get_proposal(pid)
+    if not proposal:
+        raise HTTPException(404, "العرض غير موجود")
+    return review_proposal(proposal["data"])
+
+
+@app.post("/api/proposals/{pid}/quality/fix")
+def proposal_quality_fix(pid: int):
+    """الإصلاح التلقائي الآمن: إزالة العبارات القالبية ثم إعادة التقييم."""
+    from .quality_agent import polish_proposal, review_proposal
+    proposal = db.get_proposal(pid)
+    if not proposal:
+        raise HTTPException(404, "العرض غير موجود")
+    data = proposal["data"]
+    fixes = polish_proposal(data)
+    db.update_proposal(pid, {"data": data})
+    db.log_audit("quality_agent", pid, "polish", "، ".join(fixes["removed_phrases"])[:400])
+    return {"fixes": fixes, "report": review_proposal(data)}
+
+
 @app.get("/api/proposals/{pid}/export/docx")
 def export_docx(pid: int):
     proposal = db.get_proposal(pid)

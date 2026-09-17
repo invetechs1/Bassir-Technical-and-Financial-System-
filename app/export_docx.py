@@ -209,6 +209,14 @@ def export_proposal_docx(proposal: dict, settings: dict, path: str):
         section.left_margin = Cm(2.2)
 
     _apply_brand(settings)
+    # خصائص الملف باسم الشركة — لا يظهر اسم أي مكتبة برمجية في Author/Company
+    from .quality_agent import clean_file_properties
+    props = clean_file_properties(settings)
+    doc.core_properties.author = props["author"]
+    doc.core_properties.last_modified_by = props["last_modified_by"]
+    doc.core_properties.title = proposal.get("title", "")
+    doc.core_properties.subject = "عرض فني ومالي"
+    doc.core_properties.comments = ""
     _page_footer(doc, settings)
     _cover_page(doc, proposal, settings)
 

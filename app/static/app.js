@@ -1830,6 +1830,45 @@ async function refreshAiModel() {
   } catch (e) { toast(e.message, true); }
 }
 
+/* ---------- وكيل الجودة والمراجعة ---------- */
+async function runQualityAgent() {
+  if (!currentProposal) return;
+  try {
+    const r = await api(`/api/proposals/${currentProposal.id}/quality`);
+    renderQuality(r);
+  } catch (e) { toast(e.message, true); }
+}
+
+function renderQuality(r) {
+  $("#qaPanel").hidden = false;
+  const col = r.score >= 85 ? "var(--accent)" : r.score >= 70 ? "#b7791f" : "#c0392b";
+  $("#qaCards").innerHTML = `
+    <div class="card"><div class="num" style="color:${col}">${r.score}</div><div class="lbl">${t("qa_score")}</div></div>
+    <div class="card"><div class="num">${r.ready ? "✅" : "⛔"}</div><div class="lbl">${t("qa_ready")}</div></div>
+    <div class="card"><div class="num">${r.bank_sections}/${r.total_sections}</div><div class="lbl">${t("qa_voice")}</div></div>
+    <div class="card"><div class="num">${r.errors}</div><div class="lbl">${t("qa_errors")}</div></div>
+    <div class="card"><div class="num">${r.warnings}</div><div class="lbl">${t("qa_warnings")}</div></div>`;
+  $("#qaIssues").innerHTML = r.issues.length
+    ? r.issues.map((i) => `<div class="alert ${i.level === "error" ? "danger" : ""}" style="margin-top:6px">
+        ${i.level === "error" ? "⛔" : "⚠️"} ${i.section ? `<b>${escH(i.section)}</b> — ` : ""}${escH(i.text)}
+        ${i.fixable ? ` <span class="tag est">${t("qa_fixable")}</span>` : ""}</div>`).join("")
+    : `<div class="alert info">✅ ${t("qa_clean")}</div>`;
+  $("#qaFixBtn").hidden = !r.issues.some((i) => i.fixable);
+  $("#qaPanel").scrollIntoView({ behavior: "smooth" });
+}
+
+async function runQualityFix() {
+  if (!currentProposal) return;
+  try {
+    const r = await api(`/api/proposals/${currentProposal.id}/quality/fix`, { method: "POST", json: {} });
+    const n = r.fixes.removed_phrases.length;
+    toast(n ? `${t("qa_fixed_msg")} (${n})` : t("qa_nothing_msg"));
+    const p = await api(`/api/proposals/${currentProposal.id}`);
+    viewProposal(p);
+    renderQuality(r.report);
+  } catch (e) { toast(e.message, true); }
+}
+
 /* ---------- الوكيلان: تحليل ثم اعتماد ---------- */
 let AGENT_SESSION = null;
 

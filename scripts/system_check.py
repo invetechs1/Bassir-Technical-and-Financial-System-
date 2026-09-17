@@ -703,6 +703,45 @@ _ups({"active_claude_model": "claude-test-check"}, company_id=1)
 check("محرك التوليد يستخدم الموديل المحدَّث تلقائياً", _am() == "claude-test-check")
 _ups({"active_claude_model": ""}, company_id=1)
 
+# ---------- 23. وكيل الجودة والمراجعة ----------
+r = c.post("/api/proposals/generate", data={"title": "فحص وكيل الجودة والمراجعة",
+                                            "client": "جهة الفحص", "entity_type": "government"})
+_qp = r.json()["id"]
+r = c.get(f"/api/proposals/{_qp}/quality")
+check("تقرير وكيل الجودة", r.status_code == 200 and 0 <= r.json()["score"] <= 100
+      and "issues" in r.json(), r.text[:120])
+_q0 = r.json()["score"]
+_qd = c.get(f"/api/proposals/{_qp}").json()["data"]
+_qd["technical_sections"][3]["body"] += " نقدم حلول مبتكرة ومما لا شك فيه أن ذلك مهم."
+_qd["technical_sections"][4]["body"] += " [placeholder هنا]"
+c.put(f"/api/proposals/{_qp}", json={"data": _qd})
+_q1 = c.get(f"/api/proposals/{_qp}/quality").json()
+check("كشف العبارات القالبية والنصوص المؤقتة",
+      {"cliche", "placeholder"} <= {i["kind"] for i in _q1["issues"]} and _q1["score"] < _q0)
+r = c.post(f"/api/proposals/{_qp}/quality/fix")
+check("الإصلاح التلقائي يزيل القالبية ويعيد التقييم",
+      r.status_code == 200 and r.json()["fixes"]["removed_phrases"]
+      and not any(i["kind"] == "cliche" for i in r.json()["report"]["issues"]))
+_qbody = c.get(f"/api/proposals/{_qp}").json()["data"]["technical_sections"][3]["body"]
+check("النص نظيف بعد الإصلاح", "حلول مبتكرة" not in _qbody and "مما لا شك فيه" not in _qbody)
+r = c.get(f"/api/proposals/{_qp}/export/docx")
+_qdoc = _Doc(io.BytesIO(r.content))
+check("خصائص Word باسم الشركة لا مكتبة برمجية",
+      _qdoc.core_properties.author == "شركة عزوم المتحدة للمقاولات"
+      and "python-docx" not in str(_qdoc.core_properties.author)
+      + str(_qdoc.core_properties.last_modified_by or ""))
+r = c.get(f"/api/proposals/{_qp}/export/xlsx")
+_qwb = load_workbook(io.BytesIO(r.content))
+check("خصائص Excel باسم الشركة",
+      _qwb.properties.creator == "شركة عزوم المتحدة للمقاولات")
+from app.quality_agent import review_proposal as _rq
+import copy as _cp
+_qbad = _cp.deepcopy(c.get(f"/api/proposals/{_qp}").json()["data"])
+_qbad["financial"]["grand_total"] += 5000
+check("كشف عدم الاتساق المالي",
+      any(i["kind"] == "finance" and i["level"] == "error" for i in _rq(_qbad)["issues"]))
+c.delete(f"/api/proposals/{_qp}")
+
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)
 failed = [(n, d) for n, ok, d in RESULTS if not ok]

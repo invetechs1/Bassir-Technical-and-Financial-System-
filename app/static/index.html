@@ -184,9 +184,19 @@
             <option value="won" data-i18n="st_won">فائز 🏆</option>
             <option value="lost" data-i18n="st_lost">غير فائز</option>
           </select>
+          <button class="btn ghost" onclick="runQualityAgent()" data-i18n="qa_btn">🛡️ وكيل الجودة والمراجعة</button>
           <button class="btn" onclick="exportDocx()" data-i18n="export_word_btn">⬇️ تصدير Word</button>
           <button class="btn ghost" onclick="exportXlsx()" data-i18n="export_excel_btn">⬇️ جدول الكميات Excel</button>
         </div>
+      </div>
+      <div id="qaPanel" hidden class="panel" style="margin-bottom:12px">
+        <div class="cards mb" id="qaCards"></div>
+        <div id="qaIssues"></div>
+        <div class="mt row">
+          <button class="btn sm" id="qaFixBtn" onclick="runQualityFix()" data-i18n="qa_fix_btn">🧹 أصلح العبارات القالبية تلقائياً</button>
+          <button class="btn sm ghost" onclick="document.getElementById('qaPanel').hidden = true" data-i18n="qa_close_btn">إغلاق</button>
+        </div>
+        <p class="muted" data-i18n="qa_disclaimer">الوكيل يرفع نسبة صوت شركتك (من بنك فقراتها البشري) ويزيل الصياغات القالبية والبصمات التقنية في خصائص الملفات ويدقق الاتساق — والمراجعة البشرية النهائية قبل التقديم تبقى مسؤوليتكم.</p>
       </div>
       <div class="tabs">
         <button class="tab-btn active" data-tab="tech" data-i18n="tab_tech">العرض الفني</button>
