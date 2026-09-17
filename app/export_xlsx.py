@@ -18,6 +18,11 @@ def export_boq_xlsx(proposal: dict, path: str, settings: dict | None = None):
     company_name = settings.get("company_name") or BRAND["name_ar"]
     data = proposal["data"]
     wb = Workbook()
+    from .quality_agent import clean_file_properties
+    _props = clean_file_properties(settings)
+    wb.properties.creator = _props["author"]
+    wb.properties.lastModifiedBy = _props["last_modified_by"]
+    wb.properties.title = proposal.get("title", "")
     ws = wb.active
     ws.title = "جدول الكميات"
     ws.sheet_view.rightToLeft = True
