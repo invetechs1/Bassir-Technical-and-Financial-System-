@@ -607,6 +607,73 @@ check("اختبار القنوات يتخطى بأمان وهي معطلة",
 check("قنوات الإشعارات محجوبة عن المهندس (403)",
       c_eng.post("/api/notify/test", json={}).status_code == 403)
 
+# ---------- 21. الوكيلان ومعالج تهيئة المستأجر والهوية في المخرجات ----------
+_ob = c.get("/api/onboarding").json()
+check("جاهزية عزوم: الشعار موجود والوكيلان جاهزان",
+      _ob["logo"] and _ob["tech_readiness"] >= 90 and _ob["fin_readiness"] >= 90, str(_ob)[:150])
+r = c.post("/api/agents/analyze", data={"title": "مشروع صيانة وتشغيل أنظمة تكييف لفحص الوكيلين",
+                                        "client": "جهة الفحص", "entity_type": "private"})
+check("تحليل الوكيلين (تشغيل جاف)", r.status_code == 200, r.text[:150])
+_an = r.json()
+check("الوكيل الفني: فئة + تغطية بنك + توصيات",
+      _an["project_kind"] == "صيانة وتشغيل" and _an["tech"]["sections_total"] >= 10
+      and isinstance(_an["recommendations"], list))
+check("وكيل التسعير: بنود ومصادر أسعار",
+      _an["fin"]["total"] > 0 and _an["fin"]["by_source"])
+r = c.post("/api/agents/generate", json={"session_id": _an["session_id"]})
+check("التوليد من جلسة التحليل", r.status_code == 200, r.text[:150])
+_ap = r.json()
+check("ما وعد به التحليل هو ما بُني (نفس الإجمالي)",
+      abs(_ap["data"]["financial"]["grand_total"] - _an["financial_preview"]["grand_total"]) < 1)
+import struct as _st, zlib as _zl
+def _png(rgb):
+    def ch(t, d):
+        x = _st.pack(">I", len(d)) + t + d
+        return x + _st.pack(">I", _zl.crc32(t + d) & 0xffffffff)
+    raw = b"".join(b"\x00" + bytes(rgb) * 40 for _ in range(40))
+    return (b"\x89PNG\r\n\x1a\n" + ch(b"IHDR", _st.pack(">IIBBBBB", 40, 40, 8, 2, 0, 0, 0))
+            + ch(b"IDAT", _zl.compress(raw)) + ch(b"IEND", b""))
+import time as _tm
+_suf = str(int(_tm.time()) % 1000000)
+r = c.post("/api/signup", json={"name": "شركة فحص الوكيلين " + _suf, "cr_no": "88" + _suf,
+                                "owner_username": "agchk" + _suf, "owner_password": "Chk@12345"})
+check("تسجيل شركة فحص الوكيلين", r.status_code == 200, r.text[:120])
+c5 = TestClient(app)
+c5.post("/api/login", json={"username": "agchk" + _suf, "password": "Chk@12345"})
+_o5 = c5.get("/api/onboarding").json()
+check("مستأجر جديد: لا شعار وجاهزية صفرية", _o5["logo"] is False and _o5["style_docs"] == 0)
+r = c5.post("/api/proposals/generate", data={"title": "x", "client": "y"})
+check("الشعار إلزامي: التوليد محجوب قبل رفعه (400)",
+      r.status_code == 400 and "شعار" in r.json()["detail"], r.text[:120])
+_me5 = c5.get("/api/me").json()
+r = c5.post(f"/api/companies/{_me5['company_id']}/logo",
+            files={"logo": ("logo.png", _png((90, 62, 134)), "image/png")})
+check("رفع شعار المستأجر", r.status_code == 200, r.text[:120])
+c5.put("/api/settings", json={"company_name": "شركة فحص الوكيلين", "brand_color": "#5A3E86"})
+r = c5.post("/api/proposals/generate", data={"title": "مشروع مكاتب صغير", "client": "جهة"})
+check("بعد الشعار: التوليد يعمل", r.status_code == 200, r.text[:150])
+_p5 = r.json()
+r = c5.get(f"/api/proposals/{_p5['id']}/export/docx")
+from docx import Document as _Doc
+_d5 = _Doc(io.BytesIO(r.content))
+_t5 = "\n".join(p.text for p in _d5.paragraphs)
+for _tb in _d5.tables:
+    for _rw in _tb.rows:
+        for _cl in _rw.cells:
+            _t5 += "\n" + _cl.text
+check("Word المستأجر: شعاره واسمه وبلا أي ذكر لعزوم",
+      "شركة فحص الوكيلين" in _t5 and "عزوم" not in _t5
+      and any(rel.reltype.endswith("/image") for rel in _d5.part.rels.values()))
+r = c5.post("/api/onboarding/technical-upload",
+            files=[("files", ("old.txt", ("العرض الفني\nنطاق العمل\n" +
+                    "نلتزم في شركتنا بتنفيذ الأعمال وفق أعلى المعايير ونحرص على رضا العميل. " * 30).encode(),
+                    "text/plain"))])
+check("رفع عرض فني سابق يغذي بنك الأسلوب",
+      r.status_code == 200 and r.json()["results"][0]["ok"]
+      and c5.get("/api/onboarding").json()["style_docs"] == 1, r.text[:150])
+r = c5.post("/api/onboarding/complete", json={})
+check("إنهاء التهيئة بعد الشعار", r.status_code == 200 and c5.get("/api/onboarding").json()["done"])
+
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)
 failed = [(n, d) for n, ok, d in RESULTS if not ok]

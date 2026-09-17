@@ -12,6 +12,23 @@ from .proposal_builder import client_facing_pricing, flatten_boq_rows
 
 PRIMARY = RGBColor.from_string(BRAND["primary"])
 ACCENT = RGBColor.from_string(BRAND["accent"])
+_PRIMARY_HEX = BRAND["primary"]
+
+
+def _apply_brand(settings: dict):
+    """هوية المستأجر في المستند: لونه الأساسي بدل الأخضر الافتراضي إن حُدد."""
+    global PRIMARY, _PRIMARY_HEX
+    hexv = (settings.get("_brand_color") or BRAND["primary"]).lstrip("#").upper()
+    try:
+        PRIMARY = RGBColor.from_string(hexv)
+        _PRIMARY_HEX = hexv
+    except Exception:
+        PRIMARY = RGBColor.from_string(BRAND["primary"])
+        _PRIMARY_HEX = BRAND["primary"]
+
+
+def _is_azoom(settings: dict) -> bool:
+    return settings.get("company_cr", "") == BRAND["footer_cr"]
 FONT = "Sakkal Majalla"
 FONT_FALLBACK = "Arial"
 
@@ -99,7 +116,7 @@ def _table(doc, headers, rows, widths=None, money_cols=()):
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         _set_rtl(p)
         _run(p, h, size=11, bold=True, color=RGBColor(0xFF, 0xFF, 0xFF))
-        _shade_cell(cell, BRAND["primary"])
+        _shade_cell(cell, _PRIMARY_HEX)
 
     for row_data in rows:
         cells = table.add_row().cells
@@ -116,9 +133,18 @@ def _table(doc, headers, rows, widths=None, money_cols=()):
     return table
 
 
-def _page_footer(doc):
+def _page_footer(doc, settings=None):
     """تذييل رسمي في كل الصفحات — كما في عروض عزوم المطبوعة."""
-    footer_text = f'{BRAND["footer_phone"]}   |   {BRAND["footer_address"]}   |   C.R. {BRAND["footer_cr"]}'
+    settings = settings or {}
+    if _is_azoom(settings) or not settings:
+        footer_text = f'{BRAND["footer_phone"]}   |   {BRAND["footer_address"]}   |   C.R. {BRAND["footer_cr"]}'
+        footer_name = BRAND["name_en"]
+    else:
+        parts = [settings.get("company_phone", ""), settings.get("company_address", "")]
+        if settings.get("company_cr"):
+            parts.append(f'C.R. {settings["company_cr"]}')
+        footer_text = "   |   ".join(x for x in parts if x) or settings.get("company_name", "")
+        footer_name = settings.get("company_name", "")
     for section in doc.sections:
         footer = section.footer
         footer.is_linked_to_previous = False
@@ -133,16 +159,30 @@ def _page_footer(doc):
         top.set(qn("w:color"), BRAND["accent"])
         borders.append(top)
         pPr.append(borders)
-        _run(p, BRAND["name_en"], size=9, bold=True, color=PRIMARY)
+        _run(p, footer_name, size=9, bold=True, color=PRIMARY)
         _run(p, "   —   ", size=9, color=ACCENT)
         _run(p, footer_text, size=9, color=RGBColor(0x66, 0x66, 0x66))
 
 
 def _cover_page(doc, proposal, settings):
-    for _ in range(4):
+    for _ in range(2):
         doc.add_paragraph()
-    _para(doc, BRAND["name_ar"], size=36, bold=True, color=PRIMARY, align=WD_ALIGN_PARAGRAPH.CENTER)
-    _para(doc, BRAND["name_en"], size=16, bold=True, color=ACCENT, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=30)
+    # شعار الشركة في صدر الغلاف — هوية كل مستأجر (WEBP غير مدعوم في Word فيُتخطى)
+    logo = settings.get("_logo_path", "")
+    if logo and not logo.lower().endswith(".webp"):
+        try:
+            pic = doc.add_paragraph()
+            pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            pic.add_run().add_picture(logo, width=Cm(4.2))
+        except Exception:
+            pass
+    doc.add_paragraph()
+    company_name = settings.get("company_name") or BRAND["name_ar"]
+    _para(doc, company_name, size=32, bold=True, color=PRIMARY, align=WD_ALIGN_PARAGRAPH.CENTER)
+    if _is_azoom(settings):
+        _para(doc, BRAND["name_en"], size=16, bold=True, color=ACCENT, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=30)
+    else:
+        _para(doc, "", size=10, space_after=24)
     _para(doc, "العرض الفني والمالي", size=26, bold=True, color=PRIMARY, align=WD_ALIGN_PARAGRAPH.CENTER)
     _para(doc, proposal["title"], size=18, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=20)
     _para(doc, f"مقدم إلى: {proposal['client']}", size=14, align=WD_ALIGN_PARAGRAPH.CENTER)
@@ -168,7 +208,8 @@ def export_proposal_docx(proposal: dict, settings: dict, path: str):
         section.right_margin = Cm(2.2)
         section.left_margin = Cm(2.2)
 
-    _page_footer(doc)
+    _apply_brand(settings)
+    _page_footer(doc, settings)
     _cover_page(doc, proposal, settings)
 
     # ---------- الجزء الأول: العرض الفني ----------

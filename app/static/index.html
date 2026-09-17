@@ -125,8 +125,26 @@
           <input type="file" id="fileInput" multiple hidden accept=".pdf,.docx,.xlsx,.xlsm,.txt,.md,.csv">
         </div>
         <div class="file-list" id="fileList"></div>
+        <div id="agentsPanel" hidden style="margin-top:14px">
+          <div class="grid-2">
+            <div class="panel" style="margin:0">
+              <h3 data-i18n="agent_tech_title">🧠 الوكيل الفني</h3>
+              <div id="agentTechBody" class="muted"></div>
+            </div>
+            <div class="panel" style="margin:0">
+              <h3 data-i18n="agent_fin_title">💰 وكيل التسعير</h3>
+              <div id="agentFinBody" class="muted"></div>
+            </div>
+          </div>
+          <div id="agentRecs" style="margin-top:10px"></div>
+          <div class="mt row">
+            <button class="btn gold" id="agentsGenerateBtn" onclick="runAgentsGenerate()" data-i18n="agents_generate_btn">✅ اعتمد وابنِ العرضين الآن</button>
+            <button class="btn ghost" onclick="openOnboarding()" data-i18n="agents_onboarding_btn">⚙️ معالج التهيئة (شعار + عروض سابقة)</button>
+          </div>
+        </div>
         <div class="mt row">
-          <button class="btn gold" id="generateBtn" data-i18n="gen_btn">⚡ توليد العرض الفني والمالي</button>
+          <button class="btn" id="agentsBtn" onclick="runAgentsAnalyze()" data-i18n="agents_btn">🤖 حلّل بالوكيلين (فني + تسعير)</button>
+          <button class="btn gold" id="generateBtn" data-i18n="gen_btn">⚡ توليد مباشر</button>
           <button class="btn ghost" id="oppBtn" onclick="runOpportunity()" data-i18n="opp_btn">🎯 تحليل فرصة الفوز أولاً</button>
           <span class="muted" id="engineHint"></span>
         </div>
@@ -898,6 +916,52 @@
     </section>
 
   </main>
+</div>
+
+<div class="modal-backdrop" id="onboardModal" style="display:none" onclick="if(event.target===this) closeOnboarding()">
+  <div class="modal" style="width:640px;max-height:88vh;overflow:auto">
+    <header>
+      <div>
+        <h3 data-i18n="onb_title">معالج تهيئة الشركة — وكيلاك الجاهزان</h3>
+        <p data-i18n="onb_sub">ثلاث خطوات تجعل الوكيل الفني ووكيل التسعير يبنيان العروض بهوية شركتك وأسلوبها وأسعارها.</p>
+      </div>
+      <button class="btn sm ghost" onclick="closeOnboarding()">✕</button>
+    </header>
+    <div class="body">
+      <div class="cards mb" id="onbMeters"></div>
+
+      <div class="panel" style="margin-bottom:10px">
+        <h3><span data-i18n="onb_step1">الخطوة ١ — شعار الشركة (إلزامي)</span> <span id="onbLogoState"></span></h3>
+        <p class="muted" data-i18n="onb_step1_hint">لا يُبنى أي عرض بلا هوية الشركة — الشعار يظهر على غلاف Word ويُعتمد في الواجهة.</p>
+        <div class="row" style="align-items:center;gap:10px">
+          <label class="btn sm" for="onbLogoInput" data-i18n="onb_logo_btn">📤 رفع الشعار</label>
+          <input type="file" id="onbLogoInput" accept=".png,.jpg,.jpeg,.webp" hidden onchange="onbUploadLogo()">
+          <label data-i18n="onb_color_label">لون الهوية</label>
+          <input type="color" id="onbBrandColor" value="#175934" onchange="onbSaveColor(this.value)" style="width:44px;height:32px;padding:2px">
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:10px">
+        <h3 data-i18n="onb_step2">الخطوة ٢ — عروضك الفنية السابقة (تغذي أسلوب الوكيل الفني)</h3>
+        <p class="muted" data-i18n="onb_step2_hint">ارفع عروضاً فنية قدمتها شركتك سابقاً (PDF/Word) — يتعلم الوكيل صياغتها فيكتب بصوت شركتك. لا عروض قديمة؟ تخطَّ الخطوة وسيبني الوكيل بأسلوب انطلاق محايد يتحسن مع أول عروضك.</p>
+        <label class="btn sm" for="onbTechInput" data-i18n="onb_tech_btn">📤 رفع عروض فنية</label>
+        <input type="file" id="onbTechInput" multiple hidden accept=".pdf,.docx,.txt,.md" onchange="onbUploadTech()">
+        <div id="onbTechResult" class="muted" style="margin-top:6px"></div>
+      </div>
+
+      <div class="panel" style="margin-bottom:10px">
+        <h3 data-i18n="onb_step3">الخطوة ٣ — عروضك المالية وجداول الكميات المسعرة (تغذي وكيل التسعير)</h3>
+        <p class="muted" data-i18n="onb_step3_hint">ارفع جداول كميات مسعرة وعروضاً مالية قديمة (Excel/PDF) — تُستخرج بنودها وأسعارها كمرجع تسعير لشركتك.</p>
+        <label class="btn sm" for="onbFinInput" data-i18n="onb_fin_btn">📤 رفع عروض مالية</label>
+        <input type="file" id="onbFinInput" multiple hidden accept=".pdf,.docx,.xlsx,.xlsm,.csv,.txt" onchange="onbUploadFin()">
+        <div id="onbFinResult" class="muted" style="margin-top:6px"></div>
+      </div>
+    </div>
+    <footer>
+      <button class="btn ghost" onclick="closeOnboarding()" data-i18n="onb_later_btn">لاحقاً</button>
+      <button class="btn" onclick="finishOnboarding()" data-i18n="onb_finish_btn">✅ إنهاء التهيئة</button>
+    </footer>
+  </div>
 </div>
 
 <div class="modal-backdrop" id="subItemModal" style="display:none" onclick="if(event.target===this) closeSubItemModal()">

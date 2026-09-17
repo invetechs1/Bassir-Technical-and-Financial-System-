@@ -11,7 +11,11 @@ THIN = Side(style="thin", color="B0B0B0")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
 
-def export_boq_xlsx(proposal: dict, path: str):
+def export_boq_xlsx(proposal: dict, path: str, settings: dict | None = None):
+    settings = settings or {}
+    brand_hex = (settings.get("_brand_color") or BRAND["primary"]).lstrip("#").upper()
+    header_fill = PatternFill("solid", fgColor=brand_hex)
+    company_name = settings.get("company_name") or BRAND["name_ar"]
     data = proposal["data"]
     wb = Workbook()
     ws = wb.active
@@ -20,9 +24,9 @@ def export_boq_xlsx(proposal: dict, path: str):
 
     ws.merge_cells("A1:G1")
     top = ws["A1"]
-    top.value = f"{BRAND['name_ar']} — جدول الكميات والأسعار | {proposal['title']} | {proposal['ref_no']}"
+    top.value = f"{company_name} — جدول الكميات والأسعار | {proposal['title']} | {proposal['ref_no']}"
     top.font = Font(bold=True, size=13, color="FFFFFF")
-    top.fill = HEADER_FILL
+    top.fill = header_fill
     top.alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 28
 
@@ -30,7 +34,7 @@ def export_boq_xlsx(proposal: dict, path: str):
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=2, column=col, value=header)
         cell.font = Font(bold=True, color="FFFFFF", size=11)
-        cell.fill = HEADER_FILL
+        cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = BORDER
 

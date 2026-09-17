@@ -517,3 +517,9 @@ td input:disabled { background: var(--card-2); color: var(--muted); cursor: not-
 .mb { margin-bottom: 14px; }
 .mt { margin-top: 14px; }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+/* تنويعات تنبيهات الوكيلين */
+.alert.danger { border-color: #E8C2C2; background: #FBEEEE; color: #7A2020; }
+.alert.danger::before { background: #C0392B; }
+.alert.info { border-color: #C2D6E8; background: #EEF5FB; color: #20527A; }
+.alert.info::before { background: #2E7D8C; }
