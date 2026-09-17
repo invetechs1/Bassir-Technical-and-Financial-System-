@@ -12,7 +12,7 @@ for d in (DATA_DIR, UPLOADS_DIR, EXPORTS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-CLAUDE_MODEL = "claude-opus-4-8"
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-5").strip()
 
 # الهوية البصرية الرسمية — AZOOM United Co. (الشعار السداسي الأخضر)
 BRAND = {
