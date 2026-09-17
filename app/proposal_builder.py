@@ -241,10 +241,9 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
     company_info = "\n".join(x for x in (
         f"اسم الشركة: {_company}",
         f"عنوان الشركة: {settings_letter.get('company_address', '')}",
-        "الخدمات: المقاولات الإنشائية، الأعمال المدنية، أعمال العزل، الترميمات وصيانة المباني، "
-        "خدمات النظافة والصيانة العامة، وأعمال التشطيبات والتوريدات.",
-        "تاريخ التأسيس: 2017م",
-        "الوضع القانوني: شركة ذات مسؤولية محدودة",
+        f"الخدمات: {settings_letter.get('company_services', 'المقاولات الإنشائية، الأعمال المدنية، أعمال العزل، الترميمات وصيانة المباني، خدمات النظافة والصيانة العامة، وأعمال التشطيبات والتوريدات.')}",
+        f"تاريخ التأسيس: {settings_letter.get('company_founded', '')}" if settings_letter.get('company_founded') else "",
+        f"الوضع القانوني: {settings_letter.get('company_legal_form', '')}" if settings_letter.get('company_legal_form') else "",
         f"رقم السجل التجاري: {_cr}" if _cr else "",
         f"الرقم الضريبي: {settings_letter.get('company_vat_no', '')}" if settings_letter.get('company_vat_no') else "",
         f"الهاتف: {settings_letter.get('company_phone', '')}" if settings_letter.get('company_phone') else "",
@@ -349,7 +348,7 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
 
     settings = get_settings()
     return {
-        "summary": f"عرض فني ومالي مقدم من شركة عزوم لتنفيذ مشروع «{title}» لصالح {client}.",
+        "summary": f"عرض فني ومالي مقدم من {settings.get('company_name', 'شركتنا')} لتنفيذ مشروع «{title}» لصالح {client}.",
         "scope": ["راجع قسم فهم نطاق العمل وجدول الكميات."],
         "technical_sections": sections,
         "compliance_matrix": compliance_matrix,

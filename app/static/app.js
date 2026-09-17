@@ -1790,10 +1790,172 @@ async function markAllNotifs() {
   loadNotifs();
 }
 
+/* ---------- الوكيلان: تحليل ثم اعتماد ---------- */
+let AGENT_SESSION = null;
+
+function agentForm() {
+  const form = new FormData();
+  form.append("title", $("#npTitle").value.trim());
+  form.append("client", $("#npClient").value.trim());
+  form.append("entity_type", $("#npEntity").value);
+  for (const f of pendingFiles) form.append("files", f);
+  return form;
+}
+
+async function runAgentsAnalyze() {
+  const title = $("#npTitle").value.trim(), client = $("#npClient").value.trim();
+  if (!title || !client) return toast(t("msg_enter_project_client"), true);
+  $("#agentsBtn").disabled = true;
+  $("#genSpinner").classList.add("on");
+  try {
+    const a = await api("/api/agents/analyze", { method: "POST", body: agentForm() });
+    AGENT_SESSION = a.session_id;
+    renderAgents(a);
+  } catch (e) { toast(e.message, true); }
+  finally { $("#agentsBtn").disabled = false; $("#genSpinner").classList.remove("on"); }
+}
+
+function renderAgents(a) {
+  $("#agentsPanel").hidden = false;
+  const sim = a.similar.length
+    ? a.similar.map((m) => `<li>${escH(m.title)} <span class="muted">(${m.ref_no} — ${Math.round((m.score || 0) * 100)}%)</span></li>`).join("")
+    : `<li class="muted">${t("agent_no_similar")}</li>`;
+  const bankList = a.tech.from_bank.length
+    ? a.tech.from_bank.map((x) => `<span class="tag est" style="margin:2px">${escH(x)}</span>`).join("")
+    : `<span class="muted">${t("agent_no_bank")}</span>`;
+  $("#agentTechBody").innerHTML = `
+    <p>📁 ${t("agent_kind")}: <b>${escH(a.project_kind)}</b></p>
+    <p>🔎 ${t("agent_similar")}:</p><ul style="margin:4px 18px">${sim}</ul>
+    <p>🏦 ${t("agent_bank_cover")}: <b>${a.tech.from_bank_count}/${a.tech.sections_total}</b>
+      ${a.tech.style_score != null ? ` — ${t("agent_style_score")}: <b>${a.tech.style_score}</b>` : ""}</p>
+    <div>${bankList}</div>`;
+  const srcRows = a.fin.by_source.map((x) => `<li>${escH(x.source)}: <b>${x.count}</b></li>`).join("");
+  $("#agentFinBody").innerHTML = `
+    <p>📋 ${t("agent_boq_items")}: <b>${a.fin.total}</b> — ${t("agent_confident")}: <b>${a.fin.confident_pct}%</b></p>
+    <ul style="margin:4px 18px">${srcRows}</ul>
+    ${a.financial_preview.grand_total ? `<p>💵 ${t("agent_grand_preview")}: <b>${fmt(a.financial_preview.grand_total)}</b> ${t("sar")}</p>` : ""}
+    ${a.fin.unpriced.length ? `<p style="color:#c0392b">⚠️ ${t("agent_unpriced")}: ${a.fin.unpriced.map(escH).join("، ")}</p>` : ""}`;
+  const icon = { blocker: "⛔", warn: "⚠️", info: "ℹ️", ok: "✅" };
+  $("#agentRecs").innerHTML = a.recommendations.map((r) => `
+    <div class="alert ${r.level === "blocker" ? "danger" : r.level === "warn" ? "warning" : "info"}" style="margin-top:6px">
+      ${icon[r.level] || ""} ${escH(r.text)}</div>`).join("");
+  $("#agentsGenerateBtn").disabled = !a.can_generate;
+  $("#agentsGenerateBtn").textContent = a.can_generate ? t("agents_generate_btn") : t("agents_blocked_btn");
+  $("#agentsPanel").scrollIntoView({ behavior: "smooth" });
+}
+
+async function runAgentsGenerate() {
+  if (!AGENT_SESSION) return;
+  $("#agentsGenerateBtn").disabled = true;
+  $("#genSpinner").classList.add("on");
+  try {
+    const proposal = await api("/api/agents/generate", { method: "POST", json: { session_id: AGENT_SESSION } });
+    pendingFiles = []; renderFileList();
+    $("#npTitle").value = ""; $("#npClient").value = "";
+    $("#agentsPanel").hidden = true; AGENT_SESSION = null;
+    toast(`${t("msg_proposal_created")} ${proposal.ref_no} ${t("msg_proposal_created_suffix")}`);
+    viewProposal(proposal);
+  } catch (e) { toast(e.message, true); }
+  finally { $("#agentsGenerateBtn").disabled = false; $("#genSpinner").classList.remove("on"); }
+}
+
+/* ---------- معالج تهيئة المستأجر ---------- */
+async function openOnboarding() {
+  $("#onboardModal").style.display = "flex";
+  await refreshOnboarding();
+}
+function closeOnboarding() { $("#onboardModal").style.display = "none"; }
+
+async function refreshOnboarding() {
+  try {
+    const o = await api("/api/onboarding");
+    $("#onbMeters").innerHTML = `
+      <div class="card"><div class="num">${o.tech_readiness}%</div><div class="lbl">${t("onb_meter_tech")}</div></div>
+      <div class="card"><div class="num">${o.fin_readiness}%</div><div class="lbl">${t("onb_meter_fin")}</div></div>
+      <div class="card"><div class="num">${o.style_docs}/${o.style_docs_target}</div><div class="lbl">${t("onb_meter_docs")}</div></div>
+      <div class="card"><div class="num">${o.price_items}</div><div class="lbl">${t("onb_meter_prices")}</div></div>`;
+    $("#onbLogoState").innerHTML = o.logo
+      ? `<span class="tag admin">✅ ${t("onb_logo_ok")}</span>`
+      : `<span class="tag" style="background:#f3d3d0">⛔ ${t("onb_logo_missing")}</span>`;
+    if (o.brand_color) $("#onbBrandColor").value = o.brand_color;
+  } catch (e) { toast(e.message, true); }
+}
+
+async function onbUploadLogo() {
+  const f = $("#onbLogoInput").files[0];
+  if (!f) return;
+  const form = new FormData();
+  form.append("logo", f);
+  try {
+    await api(`/api/companies/${ME.company_id}/logo`, { method: "POST", body: form });
+    toast(t("logo_uploaded"));
+    ME.logo_url = `/api/companies/${ME.company_id}/logo?v=${Date.now()}`;
+    applyBrand();
+    refreshOnboarding();
+  } catch (e) { toast(e.message, true); }
+  $("#onbLogoInput").value = "";
+}
+
+async function onbSaveColor(v) {
+  try { await api("/api/settings", { method: "PUT", json: { brand_color: v } }); toast(t("msg_saved")); } catch (e) { toast(e.message, true); }
+}
+
+async function onbUploadTech() {
+  const files = [...$("#onbTechInput").files];
+  if (!files.length) return;
+  const form = new FormData();
+  files.forEach((f) => form.append("files", f));
+  $("#onbTechResult").textContent = t("onb_uploading");
+  try {
+    const r = await api("/api/onboarding/technical-upload", { method: "POST", body: form });
+    $("#onbTechResult").innerHTML = r.results.map((x) => x.ok
+      ? `✅ ${escH(x.filename)} — ${x.sections ?? "؟"} ${t("onb_sections")} / ${x.paragraphs ?? "؟"} ${t("onb_paragraphs")}`
+      : `❌ ${escH(x.filename)} — ${escH(x.error || "")}`).join("<br>");
+    refreshOnboarding();
+  } catch (e) { $("#onbTechResult").textContent = ""; toast(e.message, true); }
+  $("#onbTechInput").value = "";
+}
+
+async function onbUploadFin() {
+  const files = [...$("#onbFinInput").files];
+  if (!files.length) return;
+  const form = new FormData();
+  form.append("source_type", "عرض عزوم سابق");
+  form.append("as_reference", "1");
+  files.forEach((f) => form.append("files", f));
+  $("#onbFinResult").textContent = t("onb_uploading");
+  try {
+    const r = await api("/api/repo/upload", { method: "POST", body: form });
+    $("#onbFinResult").innerHTML = r.map((x) => `✅ ${escH(x.filename || "")} — ${x.items_count ?? 0} ${t("onb_price_items")}`).join("<br>");
+    refreshOnboarding();
+  } catch (e) { $("#onbFinResult").textContent = ""; toast(e.message, true); }
+  $("#onbFinInput").value = "";
+}
+
+async function finishOnboarding() {
+  try {
+    await api("/api/onboarding/complete", { method: "POST", json: {} });
+    toast(t("onb_done_msg"));
+    closeOnboarding();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function maybeAutoOnboarding() {
+  if (!ME.is_admin || ME.role === "engineer") return;
+  try {
+    const o = await api("/api/onboarding");
+    if (!o.done && !sessionStorage.getItem("onb_prompted")) {
+      sessionStorage.setItem("onb_prompted", "1");
+      openOnboarding();
+    }
+  } catch {}
+}
+
 /* ---------- بدء التشغيل ---------- */
 loadMe().then(() => {
   if (ME.role === "engineer") go("execution");
   else loadDashboard();
   loadNotifs();
   setInterval(loadNotifs, 60000);
+  maybeAutoOnboarding();
 });

@@ -21,6 +21,7 @@ from .proposal_builder import build_template_proposal, compute_financials, match
 from .etimad import fetch_tenders, has_session, list_tenders, update_tender_status
 from .opportunity import analyze_opportunity
 from .repository import find_relevant_repo_texts, ingest_file
+from . import agents
 from . import execution
 from .seed import seed_if_empty
 from .similarity import find_similar, get_reference_content
@@ -39,6 +40,7 @@ def startup():
     init_style_tables()
     migrate_repo_to_tech()
     execution.init_execution_tables()
+    agents.init_agent_tables()
 
 
 # ------------------------------ المصادقة والصلاحيات ------------------------------
@@ -340,7 +342,29 @@ _BRAND_COLORS = ["#175934", "#2E7D8C", "#7A5A2E", "#5A3E86"]
 
 
 def _brand_color(company_id: int) -> str:
+    custom = (db.get_settings(company_id).get("brand_color") or "").strip()
+    if custom.startswith("#") and len(custom) == 7:
+        return custom
     return _BRAND_COLORS[company_id % len(_BRAND_COLORS)]
+
+
+def _company_logo_file(company_id: int):
+    """ملف شعار الشركة على القرص: المرفوع أولاً، ثم شعار عزوم الثابت للشركة 1."""
+    pth = _logo_path(company_id)
+    if pth:
+        return pth
+    company = db.get_company(company_id) or {}
+    if (company.get("logo_url") or "").startswith("/static/"):
+        static_file = STATIC_DIR / company["logo_url"].removeprefix("/static/")
+        if static_file.exists():
+            return static_file
+    return None
+
+
+def _require_company_logo(request: Request):
+    """لا يُبنى عرض بلا هوية الشركة — الشعار شرط قبل التوليد."""
+    if _company_logo_file(request.state.company_id) is None:
+        raise HTTPException(400, "ارفع شعار الشركة أولاً من معالج التهيئة — لا يُبنى عرض بلا هوية الشركة.")
 
 
 def _logo_path(company_id: int):
@@ -788,13 +812,25 @@ async def generate_proposal(
     files: list[UploadFile] = File(default=[]),
 ):
     _enforce_limit(request, "proposals_month")
+    _require_company_logo(request)
+    files_text = await _read_uploads_text(files)
+    data, matches = _build_proposal_data(title, client, entity_type, files_text)
+    proposal = db.create_proposal(title, client, entity_type, data)
+    return proposal
+
+
+async def _read_uploads_text(files: list[UploadFile]) -> str:
     texts = []
-    for f in files:
+    for f in files or []:
         content = await f.read()
         extracted = extract_text(f.filename or "file", content)
         texts.append(f"===== الملف: {f.filename} =====\n{extracted}")
-    files_text = "\n\n".join(texts)
+    return "\n\n".join(texts)
 
+
+def _build_proposal_data(title: str, client: str, entity_type: str, files_text: str):
+    """خط إنتاج العرض الموحد — يستدعيه التوليد المباشر وتحليل/توليد الوكيلين،
+    فما يعرضه الوكيلان في التحليل هو حرفياً ما يُبنى عند الاعتماد."""
     # إثراء السياق من المستودع المعرفي (عروض قديمة/منافسة مخزنة)
     repo_texts = find_relevant_repo_texts(f"{title}\n{files_text[:4000]}")
     if repo_texts:
@@ -828,8 +864,7 @@ async def generate_proposal(
         {"id": m["id"], "ref_no": m["ref_no"], "title": m["title"], "score": m["score"]}
         for m in matches
     ]
-    proposal = db.create_proposal(title, client, entity_type, data)
-    return proposal
+    return data, matches
 
 
 @app.get("/api/proposals/similar")
@@ -875,7 +910,7 @@ def export_docx(pid: int):
     if not proposal:
         raise HTTPException(404, "العرض غير موجود")
     path = EXPORTS_DIR / f"{proposal['ref_no']}.docx"
-    export_proposal_docx(proposal, db.get_settings(), str(path))
+    export_proposal_docx(proposal, _branded_settings(), str(path))
     return FileResponse(
         path,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -889,7 +924,7 @@ def export_xlsx(pid: int):
     if not proposal:
         raise HTTPException(404, "العرض غير موجود")
     path = EXPORTS_DIR / f"{proposal['ref_no']}-BOQ.xlsx"
-    export_boq_xlsx(proposal, str(path))
+    export_boq_xlsx(proposal, str(path), settings=_branded_settings())
     return FileResponse(
         path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1091,6 +1126,103 @@ def notifications_read(request: Request, body: dict = None):
     execution.mark_notifications_read(request.state.user_id,
                                       (body or {}).get("id"))
     return {"ok": True}
+
+
+def _branded_settings() -> dict:
+    """إعدادات الشركة + شعارها ولونها — لتخرج ملفات Word/Excel بهوية كل مستأجر."""
+    settings = db.get_settings()
+    company_id = tenancy.cid()
+    logo = _company_logo_file(company_id)
+    settings["_logo_path"] = str(logo) if logo else ""
+    settings["_brand_color"] = _brand_color(company_id).lstrip("#")
+    return settings
+
+
+# ------------------------------ معالج تهيئة المستأجر ------------------------------
+
+@app.get("/api/onboarding")
+def onboarding_get(request: Request):
+    company = db.get_company(request.state.company_id) or {}
+    return agents.onboarding_status(company,
+                                    _company_logo_file(request.state.company_id) is not None)
+
+
+@app.post("/api/onboarding/complete")
+def onboarding_complete(request: Request):
+    _require_admin(request)
+    if _company_logo_file(request.state.company_id) is None:
+        raise HTTPException(400, "الشعار إلزامي — ارفعه قبل إنهاء التهيئة.")
+    db.update_settings({"onboarding_done": "1"})
+    db.log_audit("onboarding", request.state.company_id, "complete")
+    return {"ok": True}
+
+
+@app.post("/api/onboarding/technical-upload")
+async def onboarding_technical_upload(request: Request, files: list[UploadFile] = File(...),
+                                      client: str = Form("")):
+    """رفع عروض الشركة الفنية السابقة لبنك الأسلوب — خطوة المعالج الثانية.
+
+    متاح لكل الخطط (تغذية البنك جزء من التهيئة الأساسية)؛ صفحات تحليل البصمة
+    المتقدمة تبقى خلف بوابة الخطة الاحترافية كما هي."""
+    _require_admin(request)
+    from .style_engine import extract_style_profile, ingest_technical_document
+    results = []
+    for f in files:
+        content = await f.read()
+        text = extract_text(f.filename or "file", content)
+        if len((text or "").strip()) < 200:
+            results.append({"filename": f.filename, "ok": False,
+                            "error": "لا يوجد نص كافٍ — الملفات المصورة تحتاج OCR"})
+            continue
+        r = ingest_technical_document(f.filename or "file", text,
+                                      doc_kind="azoom_submitted", client=client,
+                                      is_style_source=True)
+        results.append({"filename": f.filename, "ok": True, **{k: r[k] for k in ("sections", "paragraphs") if k in r}} if isinstance(r, dict) else {"filename": f.filename, "ok": True})
+    try:
+        extract_style_profile()
+    except Exception:
+        pass
+    return {"results": results}
+
+
+# ------------------------------ الوكيلان: تحليل ثم توليد ------------------------------
+
+@app.post("/api/agents/analyze")
+async def agents_analyze(
+    request: Request,
+    title: str = Form(...),
+    client: str = Form(...),
+    entity_type: str = Form("government"),
+    files: list[UploadFile] = File(default=[]),
+):
+    """تشغيل جاف لخط الإنتاج الحقيقي: الوكيل الفني ووكيل التسعير يعرضان
+    خطتهما وتوصياتهما قبل الاعتماد — دون حفظ عرض."""
+    files_text = await _read_uploads_text(files)
+    data, matches = _build_proposal_data(title, client, entity_type, files_text)
+    company = db.get_company(request.state.company_id) or {}
+    onboarding = agents.onboarding_status(company,
+                                          _company_logo_file(request.state.company_id) is not None)
+    analysis = agents.build_analysis(title, client, entity_type, files_text,
+                                     data, matches, onboarding)
+    sid = agents.save_session(title, client, entity_type, files_text, analysis)
+    analysis["session_id"] = sid
+    return analysis
+
+
+@app.post("/api/agents/generate")
+def agents_generate(request: Request, body: dict):
+    """اعتماد التحليل: يبني العرضين من جلسة التحليل نفسها (بلا إعادة رفع ملفات)."""
+    _enforce_limit(request, "proposals_month")
+    _require_company_logo(request)
+    session = agents.get_session(int(body.get("session_id") or 0))
+    if not session:
+        raise HTTPException(404, "جلسة التحليل غير موجودة أو انتهت — أعد التحليل")
+    data, matches = _build_proposal_data(session["title"], session["client"],
+                                         session["entity_type"], session["files_text"])
+    proposal = db.create_proposal(session["title"], session["client"],
+                                  session["entity_type"], data)
+    db.log_audit("agents", proposal["id"], "generate", session["title"])
+    return proposal
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
