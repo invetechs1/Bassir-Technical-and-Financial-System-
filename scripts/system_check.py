@@ -674,6 +674,35 @@ check("رفع عرض فني سابق يغذي بنك الأسلوب",
 r = c5.post("/api/onboarding/complete", json={})
 check("إنهاء التهيئة بعد الشعار", r.status_code == 200 and c5.get("/api/onboarding").json()["done"])
 
+# ---------- 22. التحديث التلقائي لموديل Claude ----------
+from app.model_updater import choose_latest as _cl
+_mods = [{"id": "claude-sonnet-5", "created_at": "2026-08-01"},
+         {"id": "claude-sonnet-5-1", "created_at": "2026-09-10"},
+         {"id": "claude-opus-5", "created_at": "2026-08-15"}]
+check("اختيار الأحدث من الفئة المفضلة",
+      _cl(_mods, "sonnet") == "claude-sonnet-5-1" and _cl(_mods, "opus") == "claude-opus-5")
+r = c.get("/api/platform/model")
+check("حالة محرك الذكاء لمدير المنصة",
+      r.status_code == 200 and r.json().get("active") and "auto_update" in r.json())
+_prev = r.json()
+r = c.post("/api/platform/model/refresh", json={})
+check("الفحص اليدوي يتصرف بأمان بلا مفتاح أو يفحص فعلاً",
+      r.status_code == 200 and ("ok" in r.json()), r.text[:120])
+r = c.put("/api/platform/model", json={"tier": "opus"})
+check("ضبط الفئة المفضلة", r.status_code == 200 and r.json()["tier"] == "opus")
+c.put("/api/platform/model", json={"tier": _prev.get("tier", "sonnet"),
+                                   "auto_update": _prev.get("auto_update", True),
+                                   "pinned": _prev.get("pinned", "")})
+check("الفئة المجهولة مرفوضة (400)",
+      c.put("/api/platform/model", json={"tier": "xyz"}).status_code == 400)
+check("محرك الذكاء محجوب عن غير مدير المنصة",
+      c2.get("/api/platform/model").status_code == 403)
+from app.database import update_settings as _ups
+from app.ai_engine import _active_model as _am
+_ups({"active_claude_model": "claude-test-check"}, company_id=1)
+check("محرك التوليد يستخدم الموديل المحدَّث تلقائياً", _am() == "claude-test-check")
+_ups({"active_claude_model": ""}, company_id=1)
+
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)
 failed = [(n, d) for n, ok, d in RESULTS if not ok]

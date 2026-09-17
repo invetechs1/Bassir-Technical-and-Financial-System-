@@ -125,7 +125,7 @@ function go(page) {
   if (page === "analytics") loadAnalytics();
   if (page === "settings") loadSettings();
   if (page === "tenants") loadTenants();
-  if (page === "billing") loadBillingPage();
+  if (page === "billing") { loadBillingPage(); loadAiModelPanel(); }
   if (page === "execution") loadExecution();
   const navBtn = document.querySelector(`.nav-btn[data-page="${page}"]`);
   const titleEl = document.getElementById("pageTitle");
@@ -1788,6 +1788,46 @@ async function openNotif(id, ref) {
 async function markAllNotifs() {
   await api("/api/notifications/read", { method: "POST", json: {} });
   loadNotifs();
+}
+
+/* ---------- محرك الذكاء: تحديث الموديل تلقائياً من منصة Claude ---------- */
+async function loadAiModelPanel() {
+  if (!ME.is_platform_admin) return;
+  try {
+    const m = await api("/api/platform/model");
+    $("#aimCards").innerHTML = `
+      <div class="card"><div class="num" style="font-size:15px;direction:ltr">${escH(m.active)}</div><div class="lbl">${t("aim_active")}</div></div>
+      <div class="card"><div class="num">${m.api_key_present ? "✅" : "⛔"}</div><div class="lbl">${t("aim_key")}</div></div>
+      <div class="card"><div class="num">${m.auto_update ? "🟢" : "⏸"}</div><div class="lbl">${t("aim_auto_state")}</div></div>
+      <div class="card"><div class="num" style="font-size:13px">${(m.checked_at || "—").slice(0, 16).replace("T", " ")}</div><div class="lbl">${t("aim_checked")}</div></div>`;
+    $("#aimAuto").value = m.auto_update ? "1" : "0";
+    $("#aimTier").value = m.tier || "sonnet";
+    $("#aimPin").value = m.pinned || "";
+    $("#aimLog").innerHTML = m.log.length
+      ? `<b>${t("aim_log_title")}:</b><br>` + m.log.map((l) =>
+          `↗ <span dir="ltr">${escH(l.from)} ← ${escH(l.to)}</span> — ${escH((l.at || "").slice(0, 16).replace("T", " "))}`).join("<br>")
+      : t("aim_log_empty");
+  } catch {}
+}
+
+async function saveAiModelCfg() {
+  try {
+    await api("/api/platform/model", { method: "PUT", json: {
+      auto_update: $("#aimAuto").value === "1",
+      tier: $("#aimTier").value,
+      pinned: $("#aimPin").value.trim(),
+    } });
+    toast(t("msg_saved"));
+    loadAiModelPanel();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function refreshAiModel() {
+  try {
+    const r = await api("/api/platform/model/refresh", { method: "POST", json: {} });
+    toast(r.switched ? `${t("aim_switched")}: ${r.model}` : (r.detail || t("aim_no_change")), !r.ok);
+    loadAiModelPanel();
+  } catch (e) { toast(e.message, true); }
 }
 
 /* ---------- الوكيلان: تحليل ثم اعتماد ---------- */

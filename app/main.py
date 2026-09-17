@@ -41,6 +41,10 @@ def startup():
     migrate_repo_to_tech()
     execution.init_execution_tables()
     agents.init_agent_tables()
+    from .model_updater import refresh_active_model, start_background_checker
+    import threading as _th
+    _th.Thread(target=refresh_active_model, daemon=True).start()  # فحص فوري عند الإقلاع
+    start_background_checker()
 
 
 # ------------------------------ المصادقة والصلاحيات ------------------------------
@@ -692,6 +696,42 @@ def invoices_mine(request: Request):
 def invoices_issue(request: Request):
     _require_platform_admin(request)
     return db.issue_monthly_invoices()
+
+
+@app.get("/api/platform/model")
+def platform_model_get(request: Request):
+    """حالة محرك الذكاء: الموديل الفعال ومصدره وسجل التحديثات التلقائية."""
+    _require_platform_admin(request)
+    from .model_updater import model_status
+    return model_status()
+
+
+@app.post("/api/platform/model/refresh")
+def platform_model_refresh(request: Request):
+    """فحص فوري لمنصة Claude واعتماد الأحدث إن اجتاز التجربة."""
+    _require_platform_admin(request)
+    from .model_updater import refresh_active_model
+    return refresh_active_model(force=True)
+
+
+@app.put("/api/platform/model")
+def platform_model_put(request: Request, body: dict):
+    """ضبط محرك الذكاء: تشغيل/إيقاف التحديث التلقائي، الفئة، أو تثبيت موديل يدوياً."""
+    _require_platform_admin(request)
+    from .model_updater import TIERS, model_status
+    values = {}
+    if "auto_update" in body:
+        values["auto_model_update"] = "1" if body["auto_update"] else "0"
+    if "tier" in body:
+        if body["tier"] not in TIERS:
+            raise HTTPException(400, f"الفئة غير معروفة — المتاح: {', '.join(TIERS)}")
+        values["model_tier"] = body["tier"]
+    if "pinned" in body:
+        values["model_pinned"] = (body.get("pinned") or "").strip()
+    if values:
+        db.update_settings(values, company_id=1)
+        db.log_audit("claude_model", "", "config", str(values))
+    return model_status()
 
 
 @app.get("/api/platform/metrics")

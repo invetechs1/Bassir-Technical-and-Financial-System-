@@ -5,6 +5,15 @@
 import json
 
 from .config import ANTHROPIC_API_KEY, CLAUDE_MODEL
+
+
+def _active_model() -> str:
+    """الموديل الفعال: المحدَّث تلقائياً من منصة Claude إن وُجد، وإلا الافتراضي."""
+    try:
+        from .model_updater import get_active_model
+        return get_active_model()
+    except Exception:
+        return CLAUDE_MODEL
 from .database import get_settings, list_price_items, list_library
 from .proposal_builder import compute_financials, match_price_catalog
 
@@ -172,7 +181,7 @@ def generate_proposal_ai(title: str, client_name: str, entity_type: str, files_t
 المشابهة كلما طابقت نطاق المشروع الجديد."""
 
     with client.messages.stream(
-        model=CLAUDE_MODEL,
+        model=_active_model(),
         max_tokens=64000,
         thinking={"type": "adaptive"},
         system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
