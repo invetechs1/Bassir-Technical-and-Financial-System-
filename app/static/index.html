@@ -716,6 +716,25 @@
         <button class="btn sm ghost" onclick="issueInvoices()" data-i18n="invoices_issue_btn">🧾 إصدار فواتير الشهر</button>
       </div>
       <div class="panel">
+        <h3 data-i18n="aim_title">🤖 محرك الذكاء الاصطناعي — تحديث تلقائي من منصة Claude</h3>
+        <p class="muted" data-i18n="aim_hint">كل ٦ ساعات يفحص النظام منصة Claude: إن نزل موديل أحدث يجرّبه بطلب حقيقي أولاً، فإن نجح اعتمده تلقائياً وأشعرك — وإن فشل بقي على الحالي. لا تدخل بشري ولا توقف للتوليد.</p>
+        <div class="cards mb" id="aimCards"></div>
+        <div class="grid-3">
+          <div><label data-i18n="aim_auto_label">التحديث التلقائي</label>
+            <select id="aimAuto" onchange="saveAiModelCfg()"><option value="1" data-i18n="opt_on">مفعّل</option><option value="0" data-i18n="opt_off">معطّل</option></select></div>
+          <div><label data-i18n="aim_tier_label">الفئة المفضلة</label>
+            <select id="aimTier" onchange="saveAiModelCfg()">
+              <option value="sonnet">Sonnet — التوازن الأمثل</option>
+              <option value="opus">Opus — أعلى جودة</option>
+              <option value="haiku">Haiku — الأسرع والأرخص</option>
+            </select></div>
+          <div><label data-i18n="aim_pin_label">تثبيت يدوي (يوقف التلقائي — اتركه فارغاً)</label>
+            <input type="text" id="aimPin" placeholder="claude-..." onchange="saveAiModelCfg()"></div>
+        </div>
+        <div class="mt"><button class="btn sm" onclick="refreshAiModel()" data-i18n="aim_refresh_btn">🔄 افحص المنصة الآن</button></div>
+        <div id="aimLog" class="muted" style="margin-top:8px;font-size:12px"></div>
+      </div>
+      <div class="panel">
         <div class="cards mb" id="platformMetrics"></div>
         <h3 data-i18n="plan_usage_title">استهلاك الخطط</h3>
         <div class="t-wrap"><table id="planUsageTable">
