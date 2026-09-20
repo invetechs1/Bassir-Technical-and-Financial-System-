@@ -11,3 +11,5 @@ data/*.db.bak
 data/*.json
 dist/
 *.tar
+data/branding/
+data/secret.key
