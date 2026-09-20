@@ -24,6 +24,11 @@ from app.auth import init_auth
 from app.seed import seed_if_empty
 
 init_db(); init_auth(); seed_if_empty()
+# تهيئة جداول الوحدات كلها — فاحص النظام يعمل على قاعدة جديدة تماماً أيضاً
+from app.style_engine import init_style_tables, migrate_repo_to_tech
+from app.execution import init_execution_tables
+from app.agents import init_agent_tables
+init_style_tables(); migrate_repo_to_tech(); init_execution_tables(); init_agent_tables()
 c = TestClient(app)
 
 # ---------- 2. المصادقة ----------
