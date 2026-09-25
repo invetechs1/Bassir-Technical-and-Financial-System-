@@ -3,7 +3,9 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
+# AZOOM_DATA_DIR يسمح بتشغيل النظام أو فاحص النظام على مجلد بيانات معزول
+# (قاعدة مؤقتة) دون لمس بيانات الإنتاج.
+DATA_DIR = Path(os.environ.get("AZOOM_DATA_DIR") or (BASE_DIR / "data"))
 UPLOADS_DIR = DATA_DIR / "uploads"
 EXPORTS_DIR = DATA_DIR / "exports"
 DB_PATH = DATA_DIR / "azoom.db"
@@ -28,6 +30,10 @@ BRAND = {
 
 # القيم الافتراضية المالية (قابلة للتعديل من شاشة الإعدادات)
 DEFAULT_SETTINGS = {
+    # بادئة رقم العرض: AZM لعزوم، وPR لأي مستأجر جديد (تُضبط من الإعدادات)
+    "ref_prefix": "AZM",
+    # خدمات الشركة كما تظهر في «معلومات الشركة» — خاصة بعزوم، وتبدأ فارغة للمستأجرين
+    "company_services": "المقاولات الإنشائية، الأعمال المدنية، أعمال العزل، الترميمات وصيانة المباني، خدمات النظافة والصيانة العامة، وأعمال التشطيبات والتوريدات.",
     "company_founded": "2017م",
     "company_legal_form": "شركة ذات مسؤولية محدودة",
     # بيانات عزوم الرسمية — مستخرجة من وثائق الشركة في Google Drive

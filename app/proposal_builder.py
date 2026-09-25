@@ -170,6 +170,44 @@ _KEYWORD_MAP = [
 _DEFAULT_CODES = ["GN-001", "HR-001", "HR-002", "HR-007", "GN-003", "GN-004", "GN-005"]
 
 
+def apply_style_layer(sections: list[dict], text: str, project_kind: str) -> tuple[list[dict], dict]:
+    """طبقة الأسلوب المشتركة بين محرك القوالب ومحرك Claude.
+
+    الأقسام المعيارية (نبذة الشركة، السلامة، الجودة…) تُستبدل بفقرات بنك الشركة
+    المعتمدة متى وُجدت (source=bank) فيخرج العرض بصوت الشركة نفسها، والباقي
+    يُنقّى من العبارات القالبية المحظورة (source=new). نص «نطاق العمل» يبقى
+    ديناميكياً لأنه خاص بكل مشروع. أي عطل في الطبقة لا يُسقط التوليد."""
+    try:
+        import json as _json
+        from .style_engine import (_canonical_for, build_from_bank, get_style_profile,
+                                   scrub_banned, style_report)
+        bank = build_from_bank(text, project_kind)
+        profile = get_style_profile()
+        banned = _json.loads(profile.get("banned_json") or "[]") or None
+        keep_dynamic = {"scope"}
+        for sec in sections:
+            canonical = _canonical_for(sec["title"])
+            if canonical and canonical in bank and canonical not in keep_dynamic:
+                sec["body"] = bank[canonical]["body"]
+                sec["source"] = "bank"
+                sec["source_ref"] = bank[canonical]["ref"]
+            else:
+                sec["body"], _ = scrub_banned(sec["body"], banned)
+                sec["source"] = "new"
+        return sections, style_report(sections, profile)
+    except Exception:
+        return sections, {}
+
+
+def detect_kind(text: str) -> str:
+    """فئة المشروع من نصه — تُستخدم مع طبقة الأسلوب في المحركين."""
+    try:
+        from .style_engine import detect_project_kind
+        return detect_project_kind(text)[0]
+    except Exception:
+        return "إنشاءات وتشطيبات"
+
+
 def build_template_proposal(title: str, client: str, entity_type: str, files_text: str,
                             similar_refs: list[dict] | None = None) -> dict:
     """توليد عرض متكامل بمحرك القوالب (بديل عند غياب مفتاح Claude API).
@@ -183,12 +221,7 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
 
     # فئة المشروع تُقرأ من ملفاته أولاً: إنشاءات / صيانة وتشغيل / نظافة / توريد /
     # تصميم وإشراف — فتُبنى الأقسام من فقرات الفئة نفسها والخطة الزمنية بنمطها
-    project_kind = "إنشاءات وتشطيبات"
-    try:
-        from .style_engine import detect_project_kind
-        project_kind, _kind_scores = detect_project_kind(text)
-    except Exception:
-        pass
+    project_kind = detect_kind(text)
 
     # أولاً: البناء من أقرب عرض سابق مشابه إن وُجد تطابق قوي
     if similar_refs:
@@ -224,7 +257,7 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
 
     library = {e["title"]: e["body"] for e in list_library()}
     settings_letter = get_settings()
-    _company = settings_letter.get("company_name", "شركة عزوم المتحدة للمقاولات")
+    _company = settings_letter.get("company_name") or "شركتنا"
     _validity = settings_letter.get("validity_days", "90")
     _cr = settings_letter.get("company_cr", "")
     cover_letter = (
@@ -241,7 +274,7 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
     company_info = "\n".join(x for x in (
         f"اسم الشركة: {_company}",
         f"عنوان الشركة: {settings_letter.get('company_address', '')}",
-        f"الخدمات: {settings_letter.get('company_services', 'المقاولات الإنشائية، الأعمال المدنية، أعمال العزل، الترميمات وصيانة المباني، خدمات النظافة والصيانة العامة، وأعمال التشطيبات والتوريدات.')}",
+        f"الخدمات: {settings_letter.get('company_services', '')}" if settings_letter.get('company_services') else "",
         f"تاريخ التأسيس: {settings_letter.get('company_founded', '')}" if settings_letter.get('company_founded') else "",
         f"الوضع القانوني: {settings_letter.get('company_legal_form', '')}" if settings_letter.get('company_legal_form') else "",
         f"رقم السجل التجاري: {_cr}" if _cr else "",
@@ -324,27 +357,7 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
 
     # طبقة الأسلوب: أقسام العرض تُبنى من فقرات الشركة المعتمدة متى وُجدت،
     # والباقي يُنقّى من عبارات القوالب المكشوفة — انظر style_engine.py
-    style_meta: dict = {}
-    try:
-        import json as _json
-        from .style_engine import (_canonical_for, build_from_bank, get_style_profile,
-                                   scrub_banned, style_report)
-        bank = build_from_bank(text, project_kind)
-        profile = get_style_profile()
-        banned = _json.loads(profile.get("banned_json") or "[]") or None
-        _keep_dynamic = {"scope"}  # نص نطاق العمل خاص بكل مشروع — لا يُستبدل ببنك الفقرات
-        for sec in sections:
-            canonical = _canonical_for(sec["title"])
-            if canonical and canonical in bank and canonical not in _keep_dynamic:
-                sec["body"] = bank[canonical]["body"]
-                sec["source"] = "bank"
-                sec["source_ref"] = bank[canonical]["ref"]
-            else:
-                sec["body"], _ = scrub_banned(sec["body"], banned)
-                sec["source"] = "new"
-        style_meta = style_report(sections, profile)
-    except Exception:
-        style_meta = {}
+    sections, style_meta = apply_style_layer(sections, text, project_kind)
 
     settings = get_settings()
     return {

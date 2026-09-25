@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS repo_files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     company_id INTEGER NOT NULL DEFAULT 1,
     filename TEXT NOT NULL,
-    source_type TEXT NOT NULL DEFAULT 'عرض عزوم سابق',
+    source_type TEXT NOT NULL DEFAULT 'عرض الشركة السابق',
     company TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     sector TEXT DEFAULT '',
@@ -301,11 +301,20 @@ def init_db():
         _ensure_column(db, "repo_files", "sector", "TEXT DEFAULT ''")
         _ensure_column(db, "market_prices", "sector", "TEXT DEFAULT ''")
         _ensure_column(db, "companies", "contact_phone", "TEXT DEFAULT ''")
+        # سعر شهري متفاوض عليه لكل شركة (المؤسسي مثلاً) — NULL = سعر الخطة القياسي
+        _ensure_column(db, "companies", "custom_price", "REAL")
         for key, value in DEFAULT_SETTINGS.items():
             db.execute(
                 "INSERT OR IGNORE INTO settings (company_id, key, value) VALUES (1, ?, ?)",
                 (key, value),
             )
+        _migrate_tenant_defaults(db)
+        # فاتورة واحدة لكل شركة في الفترة — قيد قاعدة بيانات لا مجرد فحص تطبيقي
+        try:
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_period "
+                       "ON invoices(company_id, period_start)")
+        except sqlite3.IntegrityError:
+            pass  # بيانات قديمة مكررة — يبقى الفحص التطبيقي حارساً
 
 
 # ------------------------- تدقيق العمليات -------------------------
@@ -333,7 +342,7 @@ def _fernet():
     try:
         from cryptography.fernet import Fernet
     except ImportError:
-        return None
+        return None   # يُعالَج عند الكتابة: لا تخزين سر بنص صريح صامتاً (انظر _enc_value)
     from .config import DATA_DIR
     key_file = DATA_DIR / "secret.key"
     if not key_file.exists():
@@ -348,8 +357,10 @@ def _fernet():
 def _enc_value(key: str, value: str) -> str:
     if key in _SECRET_KEYS and value and not value.startswith(_ENC_PREFIX):
         f = _fernet()
-        if f:
-            return _ENC_PREFIX + f.encrypt(value.encode()).decode()
+        if not f:
+            # فشل مغلق: كان يُخزَّن السر نصاً صريحاً بصمت حين تغيب مكتبة التشفير
+            raise RuntimeError("تعذر تشفير الأسرار: مكتبة cryptography غير مثبتة على الخادم")
+        return _ENC_PREFIX + f.encrypt(value.encode()).decode()
     return value
 
 
@@ -382,14 +393,39 @@ def update_settings(values: dict, company_id: int | None = None):
             )
 
 
+# كل ما هو خاص بعزوم في الإعدادات الافتراضية — لا يرثه أي مستأجر جديد
+AZOOM_SPECIFIC_SETTINGS = {
+    "company_cr", "company_vat_no", "company_address", "company_bank",
+    "company_iban", "company_chamber_no", "company_phone", "company_email",
+    "etimad_national_id", "forsah_email", "forsah_password",
+    "company_founded", "company_legal_form", "company_services", "payment_terms",
+}
+
+
 def seed_company_defaults(company_id: int, name: str):
     """إعدادات افتراضية لشركة جديدة: النسب المالية القياسية وبيانات شركة فارغة."""
-    azoom_specific = {"company_cr", "company_vat_no", "company_address", "company_bank",
-                      "company_iban", "company_chamber_no", "company_phone", "company_email",
-                      "etimad_national_id", "forsah_email", "forsah_password"}
-    values = {k: ("" if k in azoom_specific else v) for k, v in DEFAULT_SETTINGS.items()}
+    values = {k: ("" if k in AZOOM_SPECIFIC_SETTINGS else v) for k, v in DEFAULT_SETTINGS.items()}
     values["company_name"] = name
+    values["ref_prefix"] = "PR"          # لا يحمل مستأجر جديد بادئة عزوم AZM
     update_settings(values, company_id=company_id)
+
+
+def _migrate_tenant_defaults(db):
+    """مستأجرون أُنشئوا قبل الإصلاح ورثوا بيانات عزوم (سنة التأسيس والشكل القانوني
+    وشروط الدفع). نُفرغها فقط حين تتطابق الثلاثة معاً مع افتراضيات عزوم حرفياً —
+    بصمة الوراثة غير المعدَّلة — فلا نمس قيماً كتبها المستأجر بنفسه."""
+    sig = {k: DEFAULT_SETTINGS[k] for k in ("company_founded", "company_legal_form", "payment_terms")}
+    tenants = [r["id"] for r in db.execute("SELECT id FROM companies WHERE id != 1").fetchall()]
+    for cid_ in tenants:
+        cur = {r["key"]: r["value"] for r in db.execute(
+            "SELECT key, value FROM settings WHERE company_id = ?", (cid_,)).fetchall()}
+        if all(cur.get(k) == v for k, v in sig.items()):
+            for k in sig:
+                db.execute("UPDATE settings SET value = '' WHERE company_id = ? AND key = ?", (cid_, k))
+        # بادئة الرقم: المستأجر الذي لم تُضبط له بادئة بعد يأخذ PR لا AZM (مرة واحدة)
+        if "ref_prefix" not in cur:
+            db.execute("INSERT OR IGNORE INTO settings (company_id, key, value) VALUES (?, 'ref_prefix', 'PR')",
+                       (cid_,))
 
 
 # ------------------------- الشركات والعضويات -------------------------
@@ -462,32 +498,50 @@ def effective_subscription_status(company: dict) -> str:
 
 # ------------------------- الفواتير -------------------------
 
-def next_invoice_ref() -> str:
-    year = datetime.now().year
-    prefix = f"INV-{year}-"
-    with get_db() as db:
-        row = db.execute("SELECT ref FROM invoices WHERE ref LIKE ? ORDER BY id DESC LIMIT 1",
-                         (f"{prefix}%",)).fetchone()
-    seq = int(row["ref"].rsplit("-", 1)[1]) + 1 if row else 1
-    return f"{prefix}{seq:03d}"
+def company_monthly_price(company: dict) -> float | None:
+    """السعر الشهري الفعلي: المتفاوض عليه للشركة إن وُجد، وإلا سعر الخطة القياسي.
+    None = خطة بلا سعر ولا اتفاق (تجريبي/مؤسسي غير مسعَّر) فلا فاتورة ولا إيراد."""
+    from .tenancy import PLAN_PRICE
+    if company.get("plan") == "trial":
+        return None
+    custom = company.get("custom_price")
+    if custom is not None and float(custom) > 0:
+        return float(custom)
+    return PLAN_PRICE.get(company.get("plan")) or None
+
+
+def _next_invoice_seq(db, year: int) -> int:
+    """آخر رقم تسلسلي يُقرأ من نفس الاتصال (يرى الفواتير غير المثبَّتة بعد في الدفعة
+    الجارية) — فلا يتكرر الرقم حين تُصدَر عدة فواتير في تشغيل واحد."""
+    row = db.execute("SELECT ref FROM invoices WHERE ref LIKE ? ORDER BY id DESC LIMIT 1",
+                     (f"INV-{year}-%",)).fetchone()
+    try:
+        return int(row["ref"].rsplit("-", 1)[1]) + 1 if row else 1
+    except ValueError:
+        return 1
 
 
 def issue_monthly_invoices() -> dict:
-    """فاتورة شهرية لكل شركة مدفوعة نشطة — بلا تكرار لنفس الفترة وبلا فواتير للتجارب."""
-    from .tenancy import PLAN_PRICE
-    period_start = datetime.now(timezone.utc).strftime("%Y-%m-01")
-    month = datetime.now(timezone.utc)
-    next_month = (month.replace(day=28) + __import__("datetime").timedelta(days=4)).replace(day=1)
-    period_end = (next_month - __import__("datetime").timedelta(days=1)).strftime("%Y-%m-%d")
-    issued, skipped = 0, 0
+    """فاتورة شهرية لكل شركة مدفوعة نشطة — بلا تكرار لنفس الفترة وبلا فواتير للتجارب.
+
+    تشمل الخطة المؤسسية إن اتُّفق على سعر شهري لها (companies.custom_price)."""
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    period_start = now.strftime("%Y-%m-01")
+    next_month = (now.replace(day=28) + timedelta(days=4)).replace(day=1)
+    period_end = (next_month - timedelta(days=1)).strftime("%Y-%m-%d")
+    issued, skipped, no_price = 0, 0, []
     with get_db() as db:
+        seq = _next_invoice_seq(db, now.year)
         companies = db.execute(
             "SELECT * FROM companies WHERE plan != 'trial' AND subscription_status = 'active'"
         ).fetchall()
         for comp in companies:
-            price = PLAN_PRICE.get(comp["plan"])
+            comp = dict(comp)
+            price = company_monthly_price(comp)
             if not price:
-                skipped += 1  # مؤسسي تفاوضي أو خطة بلا سعر — فاتورة يدوية
+                skipped += 1
+                no_price.append(comp["name"])   # مؤسسي بلا سعر متفق عليه — يُحدَّد ثم يُصدَر
                 continue
             dup = db.execute(
                 "SELECT 1 FROM invoices WHERE company_id = ? AND period_start = ?",
@@ -498,12 +552,63 @@ def issue_monthly_invoices() -> dict:
             db.execute(
                 "INSERT INTO invoices (ref, company_id, plan, amount, vat, period_start, "
                 " period_end, due_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'due')",
-                (next_invoice_ref(), comp["id"], comp["plan"], price,
+                (f"INV-{now.year}-{seq:03d}", comp["id"], comp["plan"], price,
                  round(price * 0.15, 2), period_start, period_end,
                  next_month.strftime("%Y-%m-%d")),
             )
+            seq += 1
             issued += 1
-    return {"issued": issued, "skipped": skipped, "period": period_start}
+    return {"issued": issued, "skipped": skipped, "period": period_start, "unpriced": no_price}
+
+
+_PLAN_ORDER = ("trial", "basic", "pro", "enterprise")
+_STATUSES = ("active", "read_only", "suspended")
+
+
+def update_company_plan(company_id: int, plan: str | None = None, custom_price=None,
+                        set_custom_price: bool = False, status: str | None = None) -> dict:
+    """ترقية/تعديل اشتراك شركة: الخطة، السعر المتفاوض عليه، وحالة الاشتراك.
+
+    ينتقل الحساب من التجريبي إلى مدفوع بإلغاء تاريخ انتهاء التجربة؛ والعودة إلى
+    «تجريبي» ممنوعة (لا تجربة مجانية جديدة بعد الاشتراك)."""
+    company = get_company(company_id)
+    if not company:
+        raise ValueError("الشركة غير موجودة")
+    sets, params = [], []
+    if plan is not None and plan != company["plan"]:
+        if plan not in _PLAN_ORDER:
+            raise ValueError("خطة غير معروفة")
+        if plan == "trial":
+            raise ValueError("لا يمكن إعادة شركة مشتركة إلى الخطة التجريبية")
+        sets += ["plan = ?", "trial_ends_at = ''"]
+        params.append(plan)
+        # الترقية من تجريبي منتهٍ تعيد الحساب إلى الحالة الفعّالة
+        if company["plan"] == "trial" and company.get("subscription_status") in ("read_only", "suspended"):
+            sets.append("subscription_status = 'active'")
+    if set_custom_price:
+        if custom_price in (None, ""):
+            sets.append("custom_price = NULL")
+        else:
+            price = float(custom_price)
+            if price < 0:
+                raise ValueError("السعر لا يكون سالباً")
+            sets.append("custom_price = ?")
+            params.append(price)
+    if status is not None:
+        if status not in _STATUSES:
+            raise ValueError("حالة اشتراك غير معروفة")
+        sets.append("subscription_status = ?")
+        params.append(status)
+    if sets:
+        with get_db() as db:
+            db.execute(f"UPDATE companies SET {', '.join(sets)} WHERE id = ?", params + [company_id])
+    return get_company(company_id)
+
+
+def platform_admin_users() -> list[dict]:
+    with get_db() as db:
+        rows = db.execute("SELECT id, username FROM users WHERE is_platform_admin = 1").fetchall()
+    return [dict(r) for r in rows]
 
 
 def list_invoices(company_id: int | None = None) -> list[dict]:
@@ -538,14 +643,21 @@ def find_company_by_name(name: str) -> dict | None:
     return dict(row) if row else None
 
 
-def user_companies(uid: int) -> list[dict]:
+def user_companies(uid: int, include_all: bool = False) -> list[dict]:
+    """شركات المستخدم (عضوياته). لمدير المنصة (include_all) كل شركات المنصة:
+    عضويته الفعلية أولاً بدورها، وغيرها بدور admin للدعم والإشراف."""
     with get_db() as db:
-        rows = db.execute(
+        rows = [dict(r) for r in db.execute(
             "SELECT c.id, c.name, c.short_name, c.plan, m.role FROM memberships m "
             "JOIN companies c ON c.id = m.company_id WHERE m.user_id = ? ORDER BY m.joined_at",
             (uid,),
-        ).fetchall()
-    return [dict(r) for r in rows]
+        ).fetchall()]
+        if include_all:
+            have = {r["id"] for r in rows}
+            rows += [dict(r, role="admin") for r in db.execute(
+                "SELECT id, name, short_name, plan FROM companies ORDER BY id").fetchall()
+                if r["id"] not in have]
+    return rows
 
 
 def get_membership(uid: int, company_id: int) -> dict | None:
@@ -708,30 +820,49 @@ def get_price_history(item_id: int) -> list[dict]:
 
 # ------------------------- العروض -------------------------
 
-def next_ref_no() -> str:
+def _ref_prefix() -> str:
+    """بادئة رقم العرض لكل شركة (AZM لعزوم، PR للمستأجرين افتراضياً) — أحرف وأرقام فقط."""
+    import re
+    raw = (get_settings().get("ref_prefix") or "").strip()
+    raw = re.sub(r"[^A-Za-z0-9]", "", raw)[:6].upper()
+    return raw or ("AZM" if cid() == 1 else "PR")
+
+
+def next_ref_no(skip: int = 0) -> str:
     year = datetime.now().year
-    prefix = f"AZM-{year}-"
+    prefix = f"{_ref_prefix()}-{year}-"
     with get_db() as db:
         row = db.execute(
             "SELECT ref_no FROM proposals WHERE company_id = ? AND ref_no LIKE ? "
             "ORDER BY id DESC LIMIT 1",
             (cid(), f"{prefix}%"),
         ).fetchone()
-    seq = int(row["ref_no"].rsplit("-", 1)[1]) + 1 if row else 1
-    return f"{prefix}{seq:03d}"
+    try:
+        seq = int(row["ref_no"].rsplit("-", 1)[1]) + 1 if row else 1
+    except ValueError:
+        seq = 1
+    return f"{prefix}{seq + skip:03d}"
 
 
 def create_proposal(title: str, client: str, entity_type: str, data: dict) -> dict:
     ts = now_iso()
-    ref_no = next_ref_no()
-    with get_db() as db:
-        cur = db.execute(
-            "INSERT INTO proposals (company_id, ref_no, title, client, entity_type, status, data, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?)",
-            (cid(), ref_no, title, client, entity_type, json.dumps(data, ensure_ascii=False), ts, ts),
-        )
-        row = db.execute("SELECT * FROM proposals WHERE id = ?", (cur.lastrowid,)).fetchone()
-    return _proposal_dict(row)
+    payload = json.dumps(data, ensure_ascii=False)
+    # إنشاءان متزامنان قد يحسبان الرقم نفسه؛ قيد UNIQUE (company_id, ref_no) يرفض الثاني
+    # فنعيد المحاولة برقم أعلى بدل أن ينهار الطلب بخطأ 500
+    for attempt in range(8):
+        ref_no = next_ref_no(skip=attempt)
+        try:
+            with get_db() as db:
+                cur = db.execute(
+                    "INSERT INTO proposals (company_id, ref_no, title, client, entity_type, status, "
+                    " data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?)",
+                    (cid(), ref_no, title, client, entity_type, payload, ts, ts),
+                )
+                row = db.execute("SELECT * FROM proposals WHERE id = ?", (cur.lastrowid,)).fetchone()
+            return _proposal_dict(row)
+        except sqlite3.IntegrityError:
+            if attempt == 7:
+                raise
 
 
 def update_proposal(pid: int, fields: dict) -> dict | None:
@@ -894,7 +1025,7 @@ def create_repo_file(meta: dict, extracted_text: str, items: list[dict]) -> dict
         cur = db.execute(
             "INSERT INTO repo_files (company_id, filename, source_type, company, notes, sector, extracted_text, items_count, uploaded_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (cid(), meta["filename"], meta.get("source_type", "عرض عزوم سابق"), meta.get("company", ""),
+            (cid(), meta["filename"], meta.get("source_type", "عرض الشركة السابق"), meta.get("company", ""),
              meta.get("notes", ""), meta.get("sector", ""), extracted_text[:200_000], len(items), ts),
         )
         fid = cur.lastrowid

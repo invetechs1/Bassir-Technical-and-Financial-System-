@@ -10,6 +10,7 @@
 كل تبديل يُسجَّل في سجل التحديثات ويصل إشعاراً داخلياً (وبريد/واتساب إن فُعّلا).
 """
 import json
+import re
 import threading
 import urllib.request
 
@@ -47,12 +48,36 @@ def fetch_available_models() -> list[dict]:
 
 
 def choose_latest(models: list[dict], tier: str = DEFAULT_TIER) -> str:
-    """أحدث موديل من الفئة المطلوبة (بتاريخ الإصدار) — وإن خلت الفئة فالأحدث مطلقاً."""
+    """أحدث موديل من الفئة المطلوبة (بتاريخ الإصدار).
+
+    لا تراجع صامت إلى فئة أخرى: عند خلوّ الفئة يعيد "" فيبقى الموديل الحالي —
+    كان السقوط إلى «الأحدث مطلقاً» يبدّل sonnet إلى opus (أغلى وأبطأ) دون علم أحد."""
     usable = [m for m in models if m["id"].startswith("claude")]
-    pool = [m for m in usable if tier and tier in m["id"]] or usable
+    pool = [m for m in usable if tier and tier in m["id"]] if tier else usable
     if not pool:
         return ""
     return max(pool, key=lambda m: (m.get("created_at") or "", m["id"]))["id"]
+
+
+_MODEL_ID_RE = re.compile(r"^claude-[a-z0-9][a-z0-9.\-]{2,80}$")
+
+
+def check_pin(model_id: str) -> str | None:
+    """يتحقق من موديل يثبّته مدير المنصة: صيغة سليمة، وموجود في قائمة المنصة إن أمكن
+    جلبها. يعيد رسالة الخطأ أو None — تثبيت اسم خاطئ كان يعطّل كل توليد لاحقاً."""
+    model_id = (model_id or "").strip()
+    if not model_id:
+        return None   # فك التثبيت
+    if not _MODEL_ID_RE.match(model_id):
+        return "صيغة اسم الموديل غير صحيحة (مثل claude-sonnet-5)"
+    if ANTHROPIC_API_KEY:
+        try:
+            ids = {m["id"] for m in fetch_available_models()}
+        except Exception:
+            return None   # تعذر الجلب — نكتفي بفحص الصيغة
+        if ids and model_id not in ids:
+            return f"الموديل {model_id} غير موجود في قائمة موديلات Anthropic المتاحة لمفتاحك"
+    return None
 
 
 def validate_model(model_id: str) -> bool:
@@ -81,19 +106,18 @@ def get_active_model() -> str:
 
 
 def _notify_platform_admin(title: str, body: str):
-    """إشعار داخلي لمدير المنصة (حساب azoom) — لا يُسقط التحديث إن فشل."""
+    """إشعار داخلي لكل مديري المنصة (is_platform_admin) — لا يُسقط التحديث إن فشل.
+    كان مربوطاً بالاسم azoom فلا يصل لمدير آخر ولا لو أُعيدت تسمية الحساب."""
     try:
-        from .auth import get_user
+        from .database import platform_admin_users
         from .execution import notify
         from .tenancy import set_context, reset_context
-        user = get_user("azoom")
-        if not user:
-            return
-        tokens = set_context(1, "owner", user["id"], True)
-        try:
-            notify(user["id"], title, body, kind="model_update")
-        finally:
-            reset_context(tokens)
+        for user in platform_admin_users():
+            tokens = set_context(1, "owner", user["id"], True)
+            try:
+                notify(user["id"], title, body, kind="model_update")
+            finally:
+                reset_context(tokens)
     except Exception:
         pass
 
@@ -115,13 +139,24 @@ def refresh_active_model(force: bool = False) -> dict:
     if not models:
         return {"ok": False, "reason": "empty", "detail": "المنصة لم تُرجع أي موديلات."}
     tier = cfg.get("model_tier", DEFAULT_TIER)
-    latest = choose_latest(models, tier)
-    current = get_active_model()
+    pinned = (cfg.get("model_pinned") or "").strip()
     update_settings({"model_checked_at": now_iso()}, company_id=1)
+    if pinned:
+        # التثبيت اليدوي يعلو على أي اختيار تلقائي: لا تجربة ولا تبديل ولا إشعارات
+        # (كان يُبدَّل الاختيار الخفي ويُشعَر المدير كل دورة دون أثر فعلي).
+        return {"ok": True, "switched": False, "model": pinned, "reason": "pinned",
+                "detail": f"الموديل مثبّت يدوياً على {pinned} — ألغِ التثبيت لتفعيل التحديث التلقائي."}
+    latest = choose_latest(models, tier)
+    # المقارنة مع الموديل المختار تلقائياً/الافتراضي (لا المثبّت)
+    current = (cfg.get("active_claude_model") or "").strip() or CLAUDE_MODEL
     if not latest or latest == current:
         return {"ok": True, "switched": False, "model": current,
                 "detail": "أنت على أحدث موديل متاح من الفئة المختارة."}
+    if cfg.get("model_rejected") == latest and not force:
+        return {"ok": False, "reason": "validation_failed", "model": current,
+                "detail": f"{latest} رُفض في تجربة سابقة — لن يُعاد اختباره حتى ينزل إصدار أحدث."}
     if not validate_model(latest):
+        update_settings({"model_rejected": latest}, company_id=1)
         return {"ok": False, "reason": "validation_failed", "model": current,
                 "detail": f"الموديل الأحدث {latest} لم يجتز تجربة التحقق — بقينا على {current}."}
     # الاعتماد + السجل + الإشعار
@@ -131,7 +166,7 @@ def refresh_active_model(force: bool = False) -> dict:
     except json.JSONDecodeError:
         pass
     log.insert(0, {"from": current, "to": latest, "at": now_iso()})
-    update_settings({"active_claude_model": latest,
+    update_settings({"active_claude_model": latest, "model_rejected": "",
                      "model_update_log": json.dumps(log[:20], ensure_ascii=False)},
                     company_id=1)
     log_audit("claude_model", latest, "auto_update", f"{current} → {latest}")

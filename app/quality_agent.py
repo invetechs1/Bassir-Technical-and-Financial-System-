@@ -27,7 +27,8 @@ TEMPLATE_CLICHES = DEFAULT_BANNED + [
     "استناداً إلى ما سبق", "وبناءً على ما تقدم", "جدير بالذكر",
 ]
 
-_PLACEHOLDER_RE = re.compile(r"\[[^\]]{0,40}\]|X{3,}|_{3,}|\{\{|\}\}|%s|TBD|TODO|lorem|لوريم", re.I)
+# [1] مرجع مشروع (ليس placeholder) — يُرصد فقط القوس الذي يحوي نصاً مثل [اسم العميل]
+_PLACEHOLDER_RE = re.compile(r"\[(?!\s*\d+\s*\])[^\]]{1,40}\]|X{3,}|_{3,}|\{\{|\}\}|(?<![\d%])%s(?!\w)|TBD|TODO|lorem|لوريم", re.I)
 _LATIN_RE = re.compile(r"[A-Za-z]")
 
 
@@ -93,14 +94,30 @@ def review_proposal(data: dict) -> dict:
     fin = data.get("financial", {}) or {}
     if boq and fin:
         import copy
-        recomputed = compute_financials(copy.deepcopy(boq))
+        # إعادة الحساب بنسب العرض نفسه (المخزنة فيه) لا بالإعدادات الحالية — تغيير نسبة
+        # الربح لاحقاً لا يجعل عروضاً قديمة سليمة تبدو «غير متسقة».
+        own_rates = {k: fin[k] for k in ("overhead_pct", "risk_pct", "profit_pct",
+                                         "vat_rate", "bid_bond_pct") if k in fin}
+        recomputed = compute_financials(copy.deepcopy(boq), settings=own_rates or None)
+        bad = None
         for key in ("direct_cost", "subtotal", "vat", "grand_total"):
             a, b = float(fin.get(key) or 0), float(recomputed.get(key) or 0)
             if abs(a - b) > 1:
-                issues.append({"level": "error", "kind": "finance", "section": key,
-                               "text": f"عدم اتساق مالي في {key}: المخزن {a:,.2f} والمحسوب {b:,.2f}.",
-                               "fixable": False})
+                bad = (key, a, b)
                 break
+        if bad:
+            issues.append({"level": "error", "kind": "finance", "section": bad[0],
+                           "text": f"عدم اتساق مالي في {bad[0]}: المخزن {bad[1]:,.2f} والمحسوب {bad[2]:,.2f}.",
+                           "fixable": False})
+        # فحص حسابي مستقل عن compute_financials: الإجمالي = الفرعي + الضريبة،
+        # والضريبة = الفرعي × النسبة، ومجموع أسطر الجدول = التكلفة المباشرة
+        else:
+            sub, vat, grand = (float(fin.get(k) or 0) for k in ("subtotal", "vat", "grand_total"))
+            line_sum = sum(float(l.get("total") or 0) for l in boq)
+            if abs(sub + vat - grand) > 0.05 or abs(line_sum - float(fin.get("direct_cost") or 0)) > 0.05:
+                issues.append({"level": "error", "kind": "finance", "section": "arithmetic",
+                               "text": "الإجماليات المخزنة لا تتطابق حسابياً مع أسطر الجدول.",
+                               "fixable": False})
         loaded = client_facing_pricing(copy.deepcopy(boq), fin)
         loaded_sum = round(sum(l.get("total", 0) for l in loaded), 2)
         if abs(loaded_sum - float(fin.get("subtotal") or 0)) > 0.05:

@@ -2,8 +2,14 @@
 # Deployment Guide (for DevOps)
 
 ## Requirements
-- Python 3.10+ (tested on 3.11)
-- Outbound HTTPS access to `tenders.etimad.sa` (for the Etimad tenders page)
+- Python 3.10+ (tested on 3.11/3.12) — or simply Docker (see "Live deployment")
+- `pip install -r requirements.txt` (includes `cryptography` — mandatory: secrets are
+  encrypted at rest and the server **refuses** to store them in plaintext without it —
+  and `Pillow` for logo validation/WebP→PNG conversion)
+- Outbound HTTPS to `api.anthropic.com` (AI + model auto-update), `graph.facebook.com`
+  (WhatsApp notifications, optional) and your SMTP host (email notifications, optional)
+- Optional pages: `tenders.etimad.sa` (Etimad, Pro plan+) and `forsah.sa`
+  (Forsah, needs the headless browser below)
 - ~1 GB disk (SQLite DB + uploads + exports grow over time)
 
 ## Quick start (any Linux server)
@@ -73,17 +79,33 @@ server {
 
 ### 4. Authentication (built in)
 
-The system requires login. First-run default credentials:
+The system requires login. There is **no fixed default password** any more:
 
-```
-username: azoom
-password: Azoom@2026
-```
+- Set `AZOOM_ADMIN_PASSWORD` (8+ chars) in `.env` before the first start, **or**
+- leave it unset — a random password is generated once and written to
+  `data/INITIAL_ADMIN_PASSWORD.txt` (mode 600) and printed in the startup log.
 
-**Change the password immediately** after first login (الإعدادات → تغيير كلمة
-المرور). Sessions are HMAC-signed HttpOnly cookies valid for 12 hours;
-passwords are stored as PBKDF2-SHA256 hashes. Still serve the app over HTTPS
-(nginx config above) so credentials never travel in plaintext.
+The first admin username is `azoom`. Change the password after the first login
+(الإعدادات → تغيير كلمة المرور) and delete the note file. Sessions are HMAC-signed
+HttpOnly cookies valid for 12 hours (marked `Secure` automatically over HTTPS);
+passwords are PBKDF2-SHA256 hashes.
+
+Older installs that still use the historical default (`Azoom@2026`) print a
+security warning at startup — rotate it immediately.
+
+Brute-force protection (in-process, per user and per IP): 8 failed logins per user /
+40 per IP per 10 minutes → HTTP 429 with `Retry-After`. Public self-signup: 3 per IP
+and 30 total per hour. Tunable through env vars: `LOGIN_MAX_FAILS_USER`,
+`LOGIN_MAX_FAILS_IP`, `SIGNUP_MAX_PER_IP_HOUR`, `SIGNUP_MAX_PER_HOUR`,
+`GENERATE_MAX_PER_HOUR` (per-company AI generations), `MAX_UPLOAD_MB` (default 50).
+
+**Behind nginx/Docker: proxies on a private/loopback address are trusted automatically; set `TRUSTED_PROXY=1`** (or `0` to disable trust) in `.env` so the real client IP
+(`X-Forwarded-For`, last entry) is used by the limiters — never set it when the app is exposed
+directly, or clients could spoof their address. Add
+`proxy_set_header X-Forwarded-Proto $scheme;` to the nginx `location` (and
+`X-Forwarded-For $remote_addr`) so cookies get the `Secure` flag. The limiters
+are in-memory: with `--workers N` each worker counts separately (use a single
+worker, or front with nginx `limit_req`, for strict global limits).
 
 ## OCR for scanned PDFs (recommended)
 
@@ -91,7 +113,7 @@ Scanned (image-only) proposal PDFs can't be parsed as text. Install the OCR
 tools and the system reads them automatically on upload:
 
 ```bash
-sudo apt install -y tesseract-ocr tesseract-ocr-ara poppler-utils
+sudo apt install -y tesseract-ocr tesseract-ocr-ara poppler-utils   # both are required for scanned PDFs
 sudo systemctl restart azoom
 ```
 
@@ -136,9 +158,39 @@ all current AZOOM data becomes company #1, nothing is lost.
 - Plan gates return **402** (not 403): Etimad/Forsah and the style engine need
   Pro or Enterprise; expired trials become read-only for 30 days, then suspended
   (data kept). All computed live — no cron needed.
-- Monthly invoices: platform admin presses «إصدار فواتير الشهر» (or POST
-  `/api/platform/invoices/issue` from cron). Trials and negotiated enterprise
-  plans are skipped; a period is never invoiced twice.
+- Subscriptions: the platform admin upgrades/downgrades a company, sets a
+  negotiated monthly price (`custom_price`) and status (active / read-only /
+  suspended) from «الشركات والمستخدمون» (`PUT /api/companies/{id}`). Moving a trial
+  to a paid plan clears the trial end; going back to trial is refused.
+- Monthly invoices are issued **automatically** by a background scheduler (checked
+  every 6 hours; a unique index guarantees one invoice per company per period), or
+  on demand via «إصدار فواتير الشهر» / `POST /api/platform/invoices/issue`.
+  Trials are skipped; an enterprise company without an agreed price is skipped and
+  reported under `unpriced` until you set its `custom_price`.
+
+## Notification channels (email / WhatsApp)
+
+Configured per company in الإعدادات (admins only; secrets are encrypted and never
+sent back to the browser — the UI shows "saved" and only overwrites when you type a new one).
+
+- **Email**: SMTP host/port and encryption — `starttls` (587), `ssl` (465) or none.
+- **WhatsApp Cloud API**: Meta only allows a business-initiated message outside the
+  24-hour customer window when it uses an **approved template**. Create a template
+  with one text variable `{{1}}` in Meta Business Manager and enter its name (and
+  language) in the settings; without a template the message is sent as free text and
+  Meta will reject it outside the 24h window. The last channel error is shown to the
+  admin in the settings page.
+- Member phones are normalized to E.164 (`+9665XXXXXXXX`); invalid numbers/emails are rejected.
+
+## AI engine
+
+- Both generation engines (Claude and the template engine) pass through the same
+  company style layer (style bank + banned-phrase scrub) and use the company's own
+  name — no AZOOM branding for other tenants.
+- The Claude model auto-updates every 6 hours from the Anthropic Models API (trial
+  request first); a manual pin by the platform admin always wins and disables the
+  auto-switch/notifications. Analysis → approval in the agents flow builds the
+  proposal **once** (the analyzed proposal is what gets saved).
 
 ## Data & backups
 
@@ -189,14 +241,20 @@ the login was done on another machine. Fetching the public tenders list
 
 ```bash
 .venv/bin/python scripts/system_check.py
+# or inside the running container:
+docker exec azoom-proposals python scripts/system_check.py
 ```
 
-Runs 113 checks covering every endpoint and function: auth, seeds, settings,
-prices CRUD + CSV import/export, library, company docs, proposal generation
-(similarity + financial math), Word/Excel export (incl. the official footer),
-knowledge repository (upload, reference creation, market benchmark), the
-opportunity analyzer, analytics, and Etimad error handling. Exit code 0 =
-all green. Safe to run repeatedly on a live database.
+Runs 267 checks: auth and brute-force limits, settings/secret handling, roles and
+tenant isolation, plan gates and lifecycle, proposal generation (template and Claude
+paths), Word/Excel exports (incl. 24 concurrent exports for two tenants), the agents
+flow, invoicing, notification channels, model updater, and the first-run password.
+
+By default it runs against a **temporary isolated database** (`AZOOM_DATA_DIR`) that is
+deleted afterwards — it never touches production data, never leaves test users or
+companies behind, and needs no knowledge of the live admin password. Exit code 0 =
+all green. To deliberately run against the current database (needs the `azoom`
+password to be `Azoom@2026`): `python scripts/system_check.py --current-db`.
 
 ## Live deployment
 
@@ -210,9 +268,11 @@ all green. Safe to run repeatedly on a live database.
   unless-stopped` and `data/` bind-mounted for persistence), `data/` (SQLite
   DB, uploads, exports), `backups/` (nightly tar snapshots, kept 14 days,
   via a 2am cron running `backup.sh`).
-- **Login**: default `azoom` / `Azoom@2026` has been rotated — get the
-  current password from whoever ran the last deploy; it is intentionally
-  not stored in this repo.
+- **Login**: the live admin password has been rotated — get it from whoever ran
+  the last deploy; it is intentionally not stored in this repo. New installs use
+  `AZOOM_ADMIN_PASSWORD` or a generated `data/INITIAL_ADMIN_PASSWORD.txt`.
+- **Container env** (`.env` on the server): `ANTHROPIC_API_KEY`, `TRUSTED_PROXY=1`
+  (the container sits behind the nginx reverse proxy).
 - `ANTHROPIC_API_KEY` is configured in the server's `.env` — AI generation
   (`engine=claude`) is live. Not yet configured: the Etimad/Nafath desktop
   login (`data/etimad_cookies.json`).
@@ -233,7 +293,8 @@ docker build -t azoom-proposals:latest .
 docker run --rm azoom-proposals:latest sh -c "python scripts/system_check.py"
 ```
 
-Should print `===== النتيجة: 92/92 =====` at the end. Don't ship if it doesn't.
+Should print `===== النتيجة: 267/267 =====` at the end (it uses a throwaway database
+inside the container). Don't ship if it doesn't.
 
 ### 3. Save it to a tar file
 
@@ -266,59 +327,5 @@ curl -s https://pricing-system.bassir.net/api/status
 ssh root@13.140.138.252 "docker exec azoom-proposals python scripts/system_check.py" 2>&1 | tail -5
 ```
 
-The `system_check.py` run against the live container will show one expected,
-non-regression failure on the hardcoded default-password check (the live
-password has been rotated) — everything else should be green.
-
-## Redeploying to production (build → ship → run)
-
-Run from the repo root on your machine.
-
-### 1. Build the image
-
-```bash
-docker build -t azoom-proposals:latest .
-```
-
-### 2. (Recommended) Sanity-check the image before shipping it
-
-```bash
-docker run --rm azoom-proposals:latest sh -c "python scripts/system_check.py"
-```
-
-Should print `===== النتيجة: 92/92 =====` at the end. Don't ship if it doesn't.
-
-### 3. Save it to a tar file
-
-```bash
-docker save azoom-proposals:latest -o dist/azoom-proposals.tar
-```
-
-### 4. Upload the tar to the server
-
-```bash
-scp dist/azoom-proposals.tar root@13.140.138.252:/opt/azoom-proposals/
-```
-
-### 5. Run the server-side deploy script
-
-```bash
-ssh root@13.140.138.252 "cd /opt/azoom-proposals && bash deploy.sh"
-```
-
-`deploy.sh` (already on the server) stops and removes the old
-`azoom-proposals` container/image only, loads the new tar, and starts the
-container on port 8003 with `--restart unless-stopped` and `data/` bind-mounted
-— existing DB/uploads/exports are untouched. It reuses `.env` on the server
-automatically if present (`ANTHROPIC_API_KEY`), so nothing needs to be re-entered.
-
-### 6. Verify
-
-```bash
-curl -s https://pricing-system.bassir.net/api/status
-ssh root@13.140.138.252 "docker exec azoom-proposals python scripts/system_check.py" 2>&1 | tail -5
-```
-
-The `system_check.py` run against the live container will show one expected,
-non-regression failure on the hardcoded default-password check (the live
-password has been rotated) — everything else should be green.
+The check runs on a scratch database, so it is safe on the live container and needs
+no password — it should end with `267/267`.

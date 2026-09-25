@@ -2,19 +2,45 @@
 
 - كلمات المرور تُخزن بتجزئة PBKDF2-SHA256 (200 ألف دورة + ملح عشوائي)
 - الجلسات: رمز موقع HMAC في كوكي HttpOnly صلاحيته 12 ساعة
-- المستخدم الافتراضي عند أول تشغيل: azoom / Azoom@2026 — غيّرها فوراً من الإعدادات
+- مدير المنصة الأول (azoom) يُنشأ عند أول تشغيل بكلمة مرور من المتغير
+  AZOOM_ADMIN_PASSWORD إن وُجد، وإلا تُولَّد كلمة عشوائية وتُكتب مرة واحدة في
+  data/INITIAL_ADMIN_PASSWORD.txt (وتُطبع في سجل الإقلاع) — لا كلمة افتراضية معروفة.
 """
 import base64
 import hashlib
 import hmac
+import os
 import secrets
 import time
 
+from .config import DATA_DIR
 from .database import get_db, get_settings, now_iso, update_settings
 
 SESSION_COOKIE = "azoom_session"
 SESSION_HOURS = 12
-DEFAULT_ADMIN = ("azoom", "Azoom@2026")
+DEFAULT_ADMIN_USER = "azoom"
+
+
+def _initial_admin_password() -> str:
+    """كلمة المرور الأولى: من البيئة، أو عشوائية تُكتب مرة واحدة في ملف مقيَّد."""
+    env = os.environ.get("AZOOM_ADMIN_PASSWORD", "")
+    if len(env) >= 8:
+        return env
+    password = secrets.token_urlsafe(12)
+    note = DATA_DIR / "INITIAL_ADMIN_PASSWORD.txt"
+    try:
+        note.write_text(
+            f"username: {DEFAULT_ADMIN_USER}\npassword: {password}\n"
+            "غيّر كلمة المرور بعد أول دخول ثم احذف هذا الملف.\n", encoding="utf-8")
+        try:
+            note.chmod(0o600)
+        except OSError:
+            pass
+    except OSError:
+        pass
+    print(f"[azoom] أُنشئ حساب المدير الأول — المستخدم: {DEFAULT_ADMIN_USER} "
+          f"وكلمة المرور الأولى في {note}", flush=True)
+    return password
 
 USERS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -59,7 +85,7 @@ def init_auth():
         db.executescript(USERS_SCHEMA)
         has_users = db.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
         if not has_users:
-            username, password = DEFAULT_ADMIN
+            username, password = DEFAULT_ADMIN_USER, _initial_admin_password()
             db.execute(
                 "INSERT INTO users (username, password_hash, display_name, role, created_at) "
                 "VALUES (?, ?, ?, 'admin', ?)",
@@ -67,6 +93,21 @@ def init_auth():
             )
     ensure_memberships()
     _auth_secret()
+    _warn_legacy_default_password()
+
+
+def _warn_legacy_default_password():
+    """تنبيه للنُّسخ القديمة: حساب azoom الأول كان يُنشأ بكلمة مرور افتراضية معروفة
+    (منشورة في الوثائق). إن ظلّت كما هي على خادم فعلي فهي ثغرة — تُغيَّر فوراً."""
+    try:
+        with get_db() as db:
+            row = db.execute("SELECT password_hash FROM users WHERE username = ?",
+                             (DEFAULT_ADMIN_USER,)).fetchone()
+        if row and _verify_password("Azoom@2026", row["password_hash"]):
+            print("[azoom] ⚠ تحذير أمني: كلمة مرور المدير ما زالت الافتراضية المعروفة "
+                  "(Azoom@2026) — غيّرها الآن من الإعدادات → تغيير كلمة المرور.", flush=True)
+    except Exception:
+        pass
 
 
 def get_user(username: str) -> dict | None:

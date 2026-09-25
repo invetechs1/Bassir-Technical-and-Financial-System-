@@ -350,7 +350,7 @@
         <div class="grid-3">
           <div><label data-i18n="source_type_label">نوع المصدر</label>
             <select id="repoSource">
-              <option value="عرض عزوم سابق" data-i18n="src_prev_azoom">عرض عزوم سابق</option>
+              <option value="عرض الشركة السابق" data-i18n="src_prev_azoom">عرض الشركة السابق</option>
               <option value="عرض فني سابق" data-i18n="src_prev_tech">عرض فني سابق</option>
               <option value="عرض شركة منافسة" data-i18n="src_competitor">عرض شركة منافسة</option>
               <option value="عرض شركة أخرى" data-i18n="src_other_company">عرض شركة أخرى</option>
@@ -513,8 +513,13 @@
           <div><label data-i18n="bank_label">البنك</label><input type="text" data-key="company_bank"></div>
           <div><label data-i18n="iban_label">الآيبان</label><input type="text" data-key="company_iban"></div>
           <div><label data-i18n="chamber_label">عضوية الغرفة التجارية</label><input type="text" data-key="company_chamber_no"></div>
+          <div><label data-i18n="ref_prefix_label">بادئة رقم العرض (مثل PR)</label><input type="text" data-key="ref_prefix" maxlength="8" placeholder="PR"></div>
+          <div><label data-i18n="founded_label">تاريخ التأسيس</label><input type="text" data-key="company_founded"></div>
+          <div><label data-i18n="legal_form_label">الشكل القانوني</label><input type="text" data-key="company_legal_form"></div>
           <div><label data-i18n="etimad_id_label">رقم الهوية لدخول اعتماد (نفاذ) — يُحفظ محلياً فقط</label><input type="text" data-key="etimad_national_id" placeholder="10XXXXXXXX"></div>
         </div>
+        <label class="mt" data-i18n="services_label">خدمات الشركة (تظهر في «معلومات الشركة» بالعرض)</label>
+        <textarea data-key="company_services"></textarea>
       </div>
       <div class="panel">
         <h3 data-i18n="pricing_model_title">نموذج التسعير</h3>
@@ -538,6 +543,8 @@
             <select data-key="notify_email_enabled"><option value="0" data-i18n="opt_off">معطّل</option><option value="1" data-i18n="opt_on">مفعّل</option></select></div>
           <div><label data-i18n="smtp_host_label">خادم SMTP</label><input type="text" data-key="smtp_host" placeholder="smtp.office365.com"></div>
           <div><label data-i18n="smtp_port_label">المنفذ</label><input type="number" data-key="smtp_port" placeholder="587"></div>
+          <div><label data-i18n="smtp_security_label">التشفير</label>
+            <select data-key="smtp_security"><option value="" data-i18n="opt_auto">تلقائي</option><option value="starttls">STARTTLS (587)</option><option value="ssl">SSL/TLS (465)</option><option value="none" data-i18n="opt_none">بلا تشفير</option></select></div>
           <div><label data-i18n="smtp_user_label">مستخدم البريد</label><input type="text" data-key="smtp_user"></div>
           <div><label data-i18n="smtp_pass_label">كلمة مرور البريد (تُخزَّن مشفرة)</label><input type="password" data-key="smtp_pass" autocomplete="new-password"></div>
           <div><label data-i18n="smtp_from_label">عنوان المرسل</label><input type="text" data-key="smtp_from" data-i18n-ph="optional_ph" placeholder="اختياري"></div>
@@ -545,7 +552,10 @@
             <select data-key="notify_whatsapp_enabled"><option value="0" data-i18n="opt_off">معطّل</option><option value="1" data-i18n="opt_on">مفعّل</option></select></div>
           <div><label data-i18n="wa_token_label">رمز وصول WhatsApp Cloud API (يُخزَّن مشفراً)</label><input type="password" data-key="whatsapp_token" autocomplete="new-password"></div>
           <div><label data-i18n="wa_phone_id_label">معرّف رقم الإرسال (Phone Number ID)</label><input type="text" data-key="whatsapp_phone_id"></div>
+          <div><label data-i18n="wa_template_label">اسم قالب واتساب المعتمد (مطلوب خارج نافذة 24 ساعة)</label><input type="text" data-key="whatsapp_template" placeholder="notification_alert"></div>
+          <div><label data-i18n="wa_template_lang_label">لغة القالب</label><input type="text" data-key="whatsapp_template_lang" placeholder="ar"></div>
         </div>
+        <p class="muted mt" id="notifLastError" hidden></p>
         <div class="mt" style="display:flex;gap:8px">
           <button class="btn" onclick="saveSettings()" data-i18n="save_settings_btn">حفظ الإعدادات</button>
           <button class="btn ghost" onclick="testNotifyChannels()" data-i18n="notify_test_btn">📨 إرسال رسالة اختبار لي</button>
@@ -571,7 +581,7 @@
         <div class="cards mb" id="platformOverviewStats"></div>
         <h3 data-i18n="companies_title">شركات المنصة <span class="tag admin">مدير المنصة</span></h3>
         <div class="t-wrap"><table id="companiesTableOverview">
-          <thead><tr><th data-i18n="th_company">الشركة</th><th data-i18n="th_plan">الخطة</th><th data-i18n="th_sector">القطاع</th><th data-i18n="th_members">الأعضاء</th><th data-i18n="th_proposals_m">عروض</th><th data-i18n="th_prices_n">بنود الأسعار</th><th data-i18n="th_status">الحالة</th><th></th></tr></thead>
+          <thead><tr><th data-i18n="th_company">الشركة</th><th data-i18n="th_plan">الخطة</th><th data-i18n="th_sector">القطاع</th><th data-i18n="th_members">الأعضاء</th><th data-i18n="th_proposals_m">عروض</th><th data-i18n="th_prices_n">بنود الأسعار</th><th data-i18n="th_status">الحالة</th><th data-i18n="th_subscription">الاشتراك</th><th></th></tr></thead>
           <tbody></tbody>
         </table></div>
       </div>

@@ -7,11 +7,13 @@
 
 التحليل «تشغيل جاف» لنفس خط الإنتاج الحقيقي: ما يعرضه الوكيلان في التحليل هو
 حرفياً ما سيُبنى عند التوليد — لا وعود ثم مخرجات مختلفة. جلسة التحليل تُخزَّن
-(agent_sessions) فيولَّد العرض منها دون إعادة رفع الملفات.
+(agent_sessions) مع العرض المبني نفسه (data): الاعتماد يحفظ ما رآه المستخدم في
+التحليل دون استدعاء ذكاء اصطناعي ثانٍ (نصف التكلفة) ودون إعادة رفع الملفات.
 """
 import json
+from datetime import datetime, timedelta, timezone
 
-from .database import get_db, get_settings, now_iso
+from .database import _ensure_column, get_db, get_settings, now_iso
 from .tenancy import cid
 
 SESSION_TTL_HOURS = 24
@@ -29,12 +31,26 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
 );
 """
 
+# عمود العرض المبني وعمود العرض الناتج (يمنع تكرار العرض عند ضغط «اعتماد» مرتين)
+_SESSION_COLUMNS = (("data", "TEXT NOT NULL DEFAULT ''"), ("proposal_id", "INTEGER"))
+
 
 def init_agent_tables():
     with get_db() as db:
         db.executescript(AGENT_SCHEMA)
-        # تنظيف الجلسات الأقدم من يوم
-        db.execute("DELETE FROM agent_sessions WHERE created_at < datetime('now', '-1 day')")
+        for col, decl in _SESSION_COLUMNS:
+            _ensure_column(db, "agent_sessions", col, decl)
+    purge_expired_sessions()
+
+
+def _cutoff() -> str:
+    # created_at يُكتب بـ now_iso() (ISO مع منطقة زمنية) فالمقارنة تكون بالصيغة نفسها
+    return (datetime.now(timezone.utc) - timedelta(hours=SESSION_TTL_HOURS)).isoformat(timespec="seconds")
+
+
+def purge_expired_sessions():
+    with get_db() as db:
+        db.execute("DELETE FROM agent_sessions WHERE created_at < ?", (_cutoff(),))
 
 
 # ------------------------- جاهزية التهيئة (Onboarding) -------------------------
@@ -166,23 +182,32 @@ def build_analysis(title: str, client: str, entity_type: str, files_text: str,
 
 
 def save_session(title: str, client: str, entity_type: str, files_text: str,
-                 analysis: dict) -> int:
+                 analysis: dict, data: dict | None = None) -> int:
+    purge_expired_sessions()
     with get_db() as db:
         cur = db.execute(
             "INSERT INTO agent_sessions (company_id, title, client, entity_type, files_text, "
-            " analysis, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            " analysis, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (cid(), title, client, entity_type, files_text,
-             json.dumps(analysis, ensure_ascii=False), now_iso()),
+             json.dumps(analysis, ensure_ascii=False),
+             json.dumps(data, ensure_ascii=False) if data else "", now_iso()),
         )
         return cur.lastrowid
 
 
+def mark_session_used(sid: int, proposal_id: int):
+    with get_db() as db:
+        db.execute("UPDATE agent_sessions SET proposal_id = ? WHERE id = ? AND company_id = ?",
+                   (proposal_id, sid, cid()))
+
+
 def get_session(sid: int) -> dict | None:
     with get_db() as db:
-        row = db.execute("SELECT * FROM agent_sessions WHERE id=? AND company_id=?",
-                         (sid, cid())).fetchone()
+        row = db.execute("SELECT * FROM agent_sessions WHERE id=? AND company_id=? AND created_at >= ?",
+                         (sid, cid(), _cutoff())).fetchone()
     if not row:
         return None
     d = dict(row)
     d["analysis"] = json.loads(d["analysis"] or "{}")
+    d["data"] = json.loads(d["data"]) if d.get("data") else None
     return d

@@ -624,7 +624,11 @@ $("#csvImport").addEventListener("change", async (e) => {
   const form = new FormData();
   form.append("file", file);
   const res = await api("/api/prices/import/csv", { method: "POST", body: form });
-  toast(`${t("msg_csv_imported")} ${res.imported} ${t("msg_csv_imported_suffix")}`);
+  let msg = `${t("msg_csv_imported")} ${res.imported} ${t("msg_csv_imported_suffix")}`;
+  if (res.errors && res.errors.length) msg += ` — ${res.errors.length} ${t("csv_errors_suffix")}`;
+  if (res.skipped_over_plan_limit) msg += ` — ${res.skipped_over_plan_limit} ${t("csv_over_limit_suffix")}`;
+  toast(msg, !!(res.errors && res.errors.length) || !!res.skipped_over_plan_limit);
+  e.target.value = "";
   loadPrices();
 });
 
@@ -830,10 +834,35 @@ async function loadTenants() {
       <td class="num-cell">${c.usage.proposals_total}</td>
       <td class="num-cell">${c.usage.price_items}</td>
       <td>${companyStatusTag(c.effective_status)}</td>
+      <td><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;min-width:200px">
+        <select style="width:auto;padding:4px 8px;font-size:12px" onchange="setCompanyPlan(${c.id}, {plan: this.value})" title="${t("sub_plan")}">
+          ${["trial", "basic", "pro", "enterprise"].map((p) =>
+            `<option value="${p}" ${p === c.plan ? "selected" : ""} ${p === "trial" && c.plan !== "trial" ? "disabled" : ""}>${t("plan_" + p) || p}</option>`).join("")}
+        </select>
+        <button class="btn sm ghost" onclick="setCompanyPrice(${c.id}, ${c.custom_price ?? "null"})">${t("sub_price_btn")}${c.monthly_price ? ` (${fmt(c.monthly_price).replace(/[.٫]00$/, "")})` : ""}</button>
+        <select style="width:auto;padding:4px 8px;font-size:12px" onchange="setCompanyPlan(${c.id}, {status: this.value})">
+          ${["active", "read_only", "suspended"].map((st) =>
+            `<option value="${st}" ${st === (c.subscription_status || "active") ? "selected" : ""}>${t("sub_status_" + st)}</option>`).join("")}
+        </select>
+      </div></td>
       <td><button class="btn sm ghost" onclick="switchCompany(${c.id})">${t("company_open")}</button></td>
     </tr>`).join("");
 
   loadPlanCards();
+}
+
+async function setCompanyPlan(id, body) {
+  try {
+    await api(`/api/companies/${id}`, { method: "PUT", json: body });
+    toast(t("sub_updated"));
+  } catch (err) { toast(err.message, true); }
+  loadTenants();
+}
+
+async function setCompanyPrice(id, current) {
+  const raw = prompt(t("sub_price_prompt"), current ?? "");
+  if (raw === null) return;
+  await setCompanyPlan(id, { custom_price: raw.trim() === "" ? null : Number(raw) });
 }
 
 async function loadPlanCards() {
@@ -1017,7 +1046,7 @@ async function loadForsahCreds() {
   if (forsahCredsLoaded) return;
   const s = await api("/api/settings");
   $("#forsahEmail").value = s.forsah_email || "";
-  if (s.forsah_password) $("#forsahPassword").placeholder = "•••••• (محفوظة — اكتب لتغييرها)";
+  if (s.forsah_password_set === "1") $("#forsahPassword").placeholder = "•••••• (محفوظة — اكتب لتغييرها)";
   forsahCredsLoaded = true;
 }
 
@@ -1330,16 +1359,44 @@ async function loadAnalytics() {
 }
 
 /* ---------- الإعدادات ---------- */
+// الأسرار لا تصل الواجهة أبداً: يعود علم `<key>_set` فقط، والحقل يبقى فارغاً بلا قيمة
+const SECRET_KEYS = ["forsah_password", "smtp_pass", "whatsapp_token"];
+
 async function loadSettings() {
   const s = await api("/api/settings");
-  $$("[data-key]").forEach((el) => { el.value = s[el.dataset.key] ?? ""; });
+  $$("[data-key]").forEach((el) => {
+    const key = el.dataset.key;
+    if (SECRET_KEYS.includes(key)) {
+      el.value = "";
+      el.placeholder = s[key + "_set"] === "1" ? "•••••• (محفوظ — اكتب لتغييره)" : "";
+    } else {
+      el.value = s[key] ?? "";
+    }
+  });
+  // إعدادات الشركة للأدمن فقط — لا يرى غيره النموذج (الخادم يرفض كتابته أصلاً)
+  $$("[data-key]").forEach((el) => {
+    const panel = el.closest(".panel");
+    if (panel) panel.hidden = !ME.is_admin;
+  });
+  const err = $("#notifLastError");
+  if (err) {
+    err.hidden = !(ME.is_admin && s.notify_last_error);
+    err.textContent = s.notify_last_error ? `⚠ ${t("notify_last_error")}: ${s.notify_last_error}` : "";
+  }
 }
 
 async function saveSettings() {
   const values = {};
-  $$("[data-key]").forEach((el) => { values[el.dataset.key] = el.value; });
-  await api("/api/settings", { method: "PUT", json: values });
-  toast(t("msg_settings_saved"));
+  $$("[data-key]").forEach((el) => {
+    // سر لم يُكتب = إبقاء المحفوظ (لا نرسل فراغاً فوق السر الفعلي)
+    if (SECRET_KEYS.includes(el.dataset.key) && !el.value) return;
+    values[el.dataset.key] = el.value;
+  });
+  try {
+    await api("/api/settings", { method: "PUT", json: values });
+    toast(t("msg_settings_saved"));
+    loadSettings();
+  } catch (err) { toast(err.message, true); }
 }
 
 /* ---------- تنفيذ المشاريع: الإنتاجية اليومية ومقاولو الباطن ---------- */
@@ -1999,7 +2056,7 @@ async function onbUploadFin() {
   const files = [...$("#onbFinInput").files];
   if (!files.length) return;
   const form = new FormData();
-  form.append("source_type", "عرض عزوم سابق");
+  form.append("source_type", "عرض الشركة السابق");
   form.append("as_reference", "1");
   files.forEach((f) => form.append("files", f));
   $("#onbFinResult").textContent = t("onb_uploading");

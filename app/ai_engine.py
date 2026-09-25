@@ -15,7 +15,8 @@ def _active_model() -> str:
     except Exception:
         return CLAUDE_MODEL
 from .database import get_settings, list_price_items, list_library
-from .proposal_builder import compute_financials, match_price_catalog
+from .proposal_builder import (apply_style_layer, compute_financials, detect_kind,
+                               match_price_catalog)
 
 PROPOSAL_SCHEMA = {
     "type": "object",
@@ -96,23 +97,28 @@ PROPOSAL_SCHEMA = {
     "additionalProperties": False,
 }
 
-SYSTEM_PROMPT = """أنت خبير إعداد العروض الفنية والمالية في شركة عزوم السعودية، متمكن من نظام المنافسات
+# اسم الشركة يُحقن لكل مستأجر — لا هوية ثابتة في التعليمات (كانت «عزوم» لكل الشركات)
+SYSTEM_PROMPT_TEMPLATE = """أنت خبير إعداد العروض الفنية والمالية في السوق السعودي لدى {company}، متمكن من نظام المنافسات
 والمشتريات الحكومية السعودي ومتطلبات منصة اعتماد، وتكتب بعربية فصيحة مهنية تليق بالجهات الحكومية.
 
-مهمتك: تحليل وثائق المشروع المرفقة وإنتاج عرض فني ومالي وخطة تنفيذية متكاملة باسم شركة عزوم.
+مهمتك: تحليل وثائق المشروع المرفقة وإنتاج عرض فني ومالي وخطة تنفيذية متكاملة باسم {company}.
 
 قواعد إلزامية:
 1. الأقسام الفنية تتبع الهيكل المعتمد في المنافسات الحكومية: الملخص التنفيذي، التعريف بالشركة،
    فهم نطاق العمل (مفصّل ومستخلص فعلياً من الوثائق وبمصطلحات صاحب العمل)، منهجية التنفيذ،
    الهيكل التنظيمي وفريق العمل، الخبرات المماثلة، خطة الجودة، خطة السلامة، إدارة المخاطر،
    خطة المحتوى المحلي والسعودة، الضمانات والالتزامات.
-2. جدول الكميات: استخدم بنود قاعدة أسعار عزوم المرفقة (بالكود والسعر) كلما وُجد بند مطابق،
+2. جدول الكميات: استخدم بنود قاعدة أسعار الشركة المرفقة (بالكود والسعر) كلما وُجد بند مطابق،
    وقدّر الكميات من الوثائق. للبنود غير الموجودة في القاعدة اترك الكود فارغاً وقدّر سعراً سوقياً
    واقعياً بالريال السعودي.
 3. مصفوفة الالتزام: استخلص المتطلبات الجوهرية من كراسة الشروط وحدد موضع تغطيتها في العرض.
 4. الخطة التنفيذية: مراحل واقعية بمدد أسبوعية ومخرجات محددة قابلة للقياس.
 5. استخدم نصوص المكتبة الفنية المرفقة كأساس للأقسام العامة مع تكييفها لسياق المشروع.
 6. لا تختلق أرقام تراخيص أو أسماء مشاريع سابقة أو بيانات غير موجودة في المدخلات."""
+
+
+def build_system_prompt(company_name: str) -> str:
+    return SYSTEM_PROMPT_TEMPLATE.format(company=(company_name or "").strip() or "الشركة")
 
 
 def ai_available() -> bool:
@@ -165,13 +171,13 @@ def generate_proposal_ai(title: str, client_name: str, entity_type: str, files_t
 - نوع الجهة: {entity_label}
 - بيانات الشركة: {settings.get('company_name')} — {settings.get('company_address')}
 
-## قاعدة أسعار عزوم المعتمدة (كود | تصنيف | البند | الوحدة | سعر الوحدة)
+## قاعدة أسعار الشركة المعتمدة (كود | تصنيف | البند | الوحدة | سعر الوحدة)
 {catalog_txt}
 
-## المكتبة الفنية (نصوص عزوم المعتمدة)
+## المكتبة الفنية (نصوص الشركة المعتمدة)
 {library_txt}
 
-## عروض عزوم السابقة المشابهة لنطاق هذا المشروع (خبرة الشركة الفعلية — ابنِ عليها)
+## عروض الشركة السابقة المشابهة لنطاق هذا المشروع (خبرة الشركة الفعلية — ابنِ عليها)
 {_format_similar_refs(similar_refs)}
 
 ## وثائق المشروع المرفوعة
@@ -184,7 +190,8 @@ def generate_proposal_ai(title: str, client_name: str, entity_type: str, files_t
         model=_active_model(),
         max_tokens=64000,
         thinking={"type": "adaptive"},
-        system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+        system=[{"type": "text", "text": build_system_prompt(settings.get("company_name")),
+                 "cache_control": {"type": "ephemeral"}}],
         output_config={"format": {"type": "json_schema", "schema": PROPOSAL_SCHEMA}},
         messages=[{"role": "user", "content": user_content}],
     ) as stream:
@@ -199,5 +206,12 @@ def generate_proposal_ai(title: str, client_name: str, entity_type: str, files_t
     # مطابقة البنود مع قاعدة الأسعار ثم الحسابات المالية بمحرك التسعير المحلي (لا نثق بحسابات النموذج)
     data["boq"] = match_price_catalog(data.get("boq", []))
     data["financial"] = compute_financials(data["boq"], settings)
+    # نفس طبقة الأسلوب التي يمر بها محرك القوالب: الأقسام المعيارية من بنك فقرات
+    # الشركة، والباقي منقّى من العبارات القالبية — فيتساوى صوت المحركين
+    style_text = title + chr(10) + files_text
+    kind = detect_kind(style_text)
+    data["technical_sections"], data["style"] = apply_style_layer(
+        data.get("technical_sections", []), style_text, kind)
+    data["project_kind"] = kind
     data["engine"] = "claude"
     return data

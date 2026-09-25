@@ -1,12 +1,35 @@
-"""فحص شامل لنظام عزوم — يختبر كل نقطة نهاية وكل وظيفة (113 فحصاً).
+"""فحص شامل لنظام بصير/عزوم — يختبر كل نقطة نهاية وكل وظيفة وكل إصلاح أمني.
 
-التشغيل على الخادم بعد أي نشر أو تحديث:
-    .venv/bin/python scripts/system_check.py
-يعمل على قاعدة البيانات الحالية دون إتلافها، ويصلح أن يُشغَّل مرات متكررة.
+التشغيل (محلياً أو على الخادم بعد أي نشر):
+    python scripts/system_check.py
+يعمل افتراضياً على **قاعدة بيانات مؤقتة معزولة** (AZOOM_DATA_DIR) تُحذف عند
+الانتهاء — لا يلمس بيانات الإنتاج ولا يترك مستخدمين أو شركات اختبار فيها، ولا
+يستبدل أسرار الإشعارات الحقيقية. للتشغيل على القاعدة الحالية عمداً:
+    python scripts/system_check.py --current-db
+(يتطلب عندها أن تكون كلمة مرور azoom هي Azoom@2026.)
 """
+import atexit
 import io
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
+
+if "--current-db" not in sys.argv:
+    _SCRATCH = tempfile.mkdtemp(prefix="azoom-check-")
+    os.environ["AZOOM_DATA_DIR"] = _SCRATCH
+    atexit.register(lambda: shutil.rmtree(_SCRATCH, ignore_errors=True))
+# كلمة مرور المدير في القاعدة المؤقتة (لا كلمة افتراضية ثابتة في الكود)
+os.environ.setdefault("AZOOM_ADMIN_PASSWORD", "Azoom@2026")
+# لا خيوط خلفية (تحديث الموديل/الفوترة) أثناء الفحص، وسقوف التحديد مرتفعة
+# (الفحص يسجّل ويسجّل شركات عشرات المرات) — تُختبر المحدِّدات مباشرة لاحقاً
+os.environ["AZOOM_DISABLE_BACKGROUND"] = "1"
+os.environ.setdefault("SIGNUP_MAX_PER_IP_HOUR", "1000")
+os.environ.setdefault("SIGNUP_MAX_PER_HOUR", "1000")
+os.environ.setdefault("GENERATE_MAX_PER_HOUR", "1000")
+os.environ.setdefault("LOGIN_MAX_FAILS_USER", "1000")
+os.environ.setdefault("LOGIN_MAX_FAILS_IP", "1000")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -597,14 +620,14 @@ r = c.post("/api/members/{}/contact".format(
     next(m["id"] for m in c.get("/api/members").json() if m["username"] == "engcheck")),
     json={"email": "eng@example.com", "phone": "966500000000"})
 check("حفظ بريد وجوال العضو للإشعارات", r.status_code == 200)
-c.put("/api/settings", json={"smtp_pass": "Secret123", "whatsapp_token": "TOK-abc"})
+_rs = c.put("/api/settings", json={"smtp_pass": "Secret123", "whatsapp_token": "TOK-abc"})
 with _gdb() as _db:
     _raw = {x["key"]: x["value"] for x in _db.execute(
         "SELECT key, value FROM settings WHERE company_id=1 "
         "AND key IN ('smtp_pass','whatsapp_token')")}
 check("أسرار قنوات الإشعارات مشفرة في القاعدة",
       _raw.get("smtp_pass", "").startswith("enc:v1:")
-      and _raw.get("whatsapp_token", "").startswith("enc:v1:"))
+      and _raw.get("whatsapp_token", "").startswith("enc:v1:"), f"{_rs.status_code} {_rs.text[:200]} {_raw}")
 c.put("/api/settings", json={"notify_email_enabled": "0", "notify_whatsapp_enabled": "0"})
 r = c.post("/api/notify/test", json={})
 check("اختبار القنوات يتخطى بأمان وهي معطلة",
@@ -746,6 +769,462 @@ _qbad["financial"]["grand_total"] += 5000
 check("كشف عدم الاتساق المالي",
       any(i["kind"] == "finance" and i["level"] == "error" for i in _rq(_qbad)["issues"]))
 c.delete(f"/api/proposals/{_qp}")
+
+# ---------- 24. تحصين ما بعد المراجعة الهندسية: اختبار انحدار لكل إصلاح ----------
+import inspect as _insp
+import json as _json
+import subprocess as _sp
+import types as _ty
+import zipfile as _zf
+from concurrent.futures import ThreadPoolExecutor as _TPE
+
+import app.main as _main
+from app import agents as _ag
+from app import database as _dbm
+from app import model_updater as _mu
+from app import notify_channels as _nc
+from app import security as _sec
+from app import tenancy as _tn
+from app.config import DATA_DIR as _DATA
+from app.database import get_settings as _gs
+from app.database import update_settings as _ups
+from app.quality_agent import review_proposal as _rq2
+
+_ROOT = Path(__file__).resolve().parent.parent
+_cid5, _cid2, _cid4 = _me5["company_id"], me2["company_id"], me4["company_id"]
+
+# --- 24.1 الدخول والتسجيل: تحديد المعدل + كوكي آمن + ترويسات ---
+check("ترويسات الأمان تظهر حتى على 401 المبكرة من auth_guard (لا فقط على المسارات المفتوحة)",
+      "x-content-type-options" in TestClient(app).get("/api/status").headers)
+
+_sec.LOGIN_USER_LIMITER.clear(); _sec.LOGIN_USER_LIMITER.limit = 3
+_cx = TestClient(app)
+_codes = [_cx.post("/api/login", json={"username": "nobody-rl", "password": "bad"}).status_code
+          for _ in range(5)]
+check("تحديد محاولات الدخول الفاشلة: 429 بعد الحد", _codes[:3] == [401] * 3 and _codes[3] == 429, str(_codes))
+_r = _cx.post("/api/login", json={"username": "nobody-rl", "password": "bad"})
+check("429 الدخول يحمل Retry-After", "retry-after" in {k.lower() for k in _r.headers})
+_sec.LOGIN_USER_LIMITER.limit = 1000; _sec.LOGIN_USER_LIMITER.clear()
+_r = _cx.post("/api/login", json={"username": "azoom", "password": "Azoom@2026"})
+check("بعد فك الحظر يعمل الدخول (وكوكي http بلا Secure)",
+      _r.status_code == 200 and "secure" not in _r.headers.get("set-cookie", "").lower())
+_cs = TestClient(app, base_url="https://testserver")
+_r = _cs.post("/api/login", json={"username": "azoom", "password": "Azoom@2026"})
+check("كوكي الجلسة Secure تحت HTTPS", "secure" in _r.headers.get("set-cookie", "").lower())
+check("ترويسات الأمان (nosniff + HSTS تحت HTTPS)",
+      _r.headers.get("x-content-type-options") == "nosniff" and "strict-transport-security" in _r.headers)
+_r = _cx.post("/api/login", json={"username": ["x"], "password": 5})
+check("تسجيل دخول بحمولة مشوّهة → 401 لا 500", _r.status_code == 401, str(_r.status_code))
+_sec.SIGNUP_IP_LIMITER.clear(); _sec.SIGNUP_IP_LIMITER.limit = 1
+_s1 = _cx.post("/api/signup", json={"name": "", "cr_no": "", "owner_username": ""}).status_code
+_s2 = _cx.post("/api/signup", json={"name": "", "cr_no": "", "owner_username": ""}).status_code
+check("التسجيل الذاتي المفتوح مقيَّد لكل عنوان (429)", _s1 == 400 and _s2 == 429, f"{_s1},{_s2}")
+_sec.SIGNUP_IP_LIMITER.limit = 1000; _sec.SIGNUP_IP_LIMITER.clear()
+_sec.SIGNUP_GLOBAL_LIMITER.clear(); _sec.SIGNUP_GLOBAL_LIMITER.limit = 1
+_g1 = _cx.post("/api/signup", json={"name": "", "cr_no": "", "owner_username": ""}).status_code
+_g2 = _cx.post("/api/signup", json={"name": "", "cr_no": "", "owner_username": ""}).status_code
+check("والتسجيل الذاتي مقيَّد عالمياً أيضاً (429)", _g1 == 400 and _g2 == 429, f"{_g1},{_g2}")
+_sec.SIGNUP_GLOBAL_LIMITER.limit = 1000; _sec.SIGNUP_GLOBAL_LIMITER.clear()
+
+_rq = lambda host, fwd: _ty.SimpleNamespace(client=_ty.SimpleNamespace(host=host),
+                                            headers={"x-forwarded-for": fwd} if fwd else {})
+check("عنوان العميل: وكيل خاص (Docker/nginx) يُصدَّق وآخر عنوان مُضاف منه، وعميل عام لا يُصدَّق",
+      _sec.client_ip(_rq("172.17.0.1", "9.9.9.9, 5.6.7.8")) == "5.6.7.8"
+      and _sec.client_ip(_rq("8.8.8.8", "1.2.3.4")) == "8.8.8.8"
+      and _sec.client_ip(_rq("testclient", "1.2.3.4")) == "testclient")
+
+# --- 24.2 الإعدادات: لا أسرار ولا مفاتيح داخلية، وكتابة للأدمن فقط بقيم صالحة ---
+_sa = c.get("/api/settings").json()
+check("الإعدادات: الأسرار لا تخرج أبداً (علم set فقط)",
+      not any(k in _sa for k in ("smtp_pass", "whatsapp_token", "forsah_password"))
+      and _sa.get("smtp_pass_set") == "1", str([k for k in _sa if "pass" in k or "token" in k]))
+check("الإعدادات: لا مفاتيح داخلية (auth_secret / محرك الذكاء)",
+      not any(k in _sa for k in ("auth_secret", "active_claude_model", "model_pinned", "model_update_log")))
+_sv = c3.get("/api/settings").json()
+check("المُشاهد يقرأ التسعير لا القنوات ولا الحسابات الخارجية",
+      "vat_rate" in _sv and not any(k.startswith(("smtp_", "whatsapp_", "notify_")) for k in _sv)
+      and "forsah_email" not in _sv and "etimad_national_id" not in _sv)
+c.post("/api/members", json={"username": "edcheck", "password": "Edit@12345", "role": "editor"})
+c_ed = TestClient(app)
+c_ed.post("/api/login", json={"username": "edcheck", "password": "Edit@12345"})
+check("المحرر لا يعدّل إعدادات الشركة (403)",
+      c_ed.put("/api/settings", json={"profit_pct": "99"}).status_code == 403)
+check("المحرر لا يرى أسرار ولا قنوات الإشعارات",
+      not any(k.startswith(("smtp_", "whatsapp_")) for k in c_ed.get("/api/settings").json()))
+check("إعداد مجهول/داخلي مرفوض (400)",
+      c.put("/api/settings", json={"auth_secret": "x"}).status_code == 400
+      and c.put("/api/settings", json={"active_claude_model": "x"}).status_code == 400)
+check("نسبة مالية خارج النطاق أو غير رقمية مرفوضة (400)",
+      c.put("/api/settings", json={"profit_pct": "250"}).status_code == 400
+      and c.put("/api/settings", json={"vat_rate": "abc"}).status_code == 400)
+check("منفذ/تشفير SMTP/لون العلامة/بادئة الرقم تُتحقق",
+      c.put("/api/settings", json={"smtp_port": "99999"}).status_code == 400
+      and c.put("/api/settings", json={"smtp_security": "weird"}).status_code == 400
+      and c.put("/api/settings", json={"brand_color": "red"}).status_code == 400
+      and c.put("/api/settings", json={"ref_prefix": "بادئة"}).status_code == 400)
+c.put("/api/settings", json={"smtp_pass": "Keep-Me-1"})
+c.put("/api/settings", json={"smtp_pass": ""})
+check("سر فارغ لا يمسح المحفوظ", _gs(1).get("smtp_pass") == "Keep-Me-1")
+c.put("/api/settings", json={"_clear": ["smtp_pass", "whatsapp_token"]})
+check("المسح الصريح للسر عبر _clear",
+      _gs(1).get("smtp_pass") == "" and _gs(1).get("whatsapp_token") == "")
+
+# --- 24.3 تبديل الشركة لمدير المنصة + حدود المقاطع + دورة الحياة ---
+_r = c.post(f"/api/session/company/{_cid5}")
+_m = c.get("/api/me").json()
+check("مدير المنصة يبدّل فعلاً إلى شركة ليس عضواً فيها",
+      _r.status_code == 200 and _m["company_id"] == _cid5 and _m["is_admin"], str(_m)[:150])
+check("...وتُقرأ إعدادات تلك الشركة لا شركته",
+      c.get("/api/settings").json().get("company_name") == "شركة فحص الوكيلين")
+c.post("/api/session/company/1")
+check("والعودة إلى شركته", c.get("/api/me").json()["company_id"] == 1)
+check("شركة غير موجودة → 404", c.post("/api/session/company/987654").status_code == 404)
+check("مطابقة المسارات على حدود المقطع",
+      _main._under("/api/me/companies", ("/api/me",)) and not _main._under("/api/members", ("/api/me",))
+      and not _main._under("/api/paragraphs-x", ("/api/paragraphs",)))
+check("مهندس الموقع لا يصل /api/members (403)", c_eng.get("/api/members").status_code == 403)
+c.put(f"/api/companies/{_cid4}", json={"status": "suspended"})
+_r = c4.post(f"/api/session/company/{_cid4}")
+check("شركة موقوفة: يحجب عملها (402) ولا يحبس المستخدم (تبديل/خروج/هوية مسموحة)",
+      c4.get("/api/proposals").status_code == 402 and _r.status_code == 200
+      and c4.get("/api/me").status_code == 200 and c4.post("/api/logout").status_code == 200)
+c.put(f"/api/companies/{_cid4}", json={"status": "active"})
+c4.post("/api/login", json={"username": "signupcheck", "password": "Sign@12345"})
+check("وإعادة التفعيل تعيد العمل",
+      c4.get("/api/proposals").status_code == 200)
+
+# --- 24.4 المعالجات المتزامنة وسقف الرفع ---
+_sync_names = ("generate_proposal", "agents_analyze", "opportunity", "repo_upload",
+               "import_prices_csv", "onboarding_technical_upload", "upload_company_logo")
+check("معالجات الرفع والتوليد `def` لا `async` (لا تجمّد حلقة الأحداث)",
+      not any(_insp.iscoroutinefunction(getattr(_main, n)) for n in _sync_names))
+_old_cap = _sec.MAX_UPLOAD_BYTES; _sec.MAX_UPLOAD_BYTES = 1000
+_r = c.post("/api/opportunity", data={"title": "t"}, files=[("files", ("big.txt", b"x" * 5000, "text/plain"))])
+_sec.MAX_UPLOAD_BYTES = _old_cap
+check("سقف حجم الرفع (413)", _r.status_code == 413, str(_r.status_code))
+
+# --- 24.5 الشعار: صورة حقيقية فقط، WebP→PNG، ولأعضاء الشركة فقط ---
+_r = c5.post(f"/api/companies/{_cid5}/logo", files={"logo": ("evil.png", b"<svg onload=alert(1)>", "image/png")})
+check("ملف مزيّف بامتداد صورة مرفوض (415)", _r.status_code == 415, str(_r.status_code))
+from PIL import Image as _Img
+_wb = io.BytesIO(); _Img.new("RGB", (60, 40), (10, 120, 60)).save(_wb, format="WEBP")
+_r = c5.post(f"/api/companies/{_cid5}/logo", files={"logo": ("l.webp", _wb.getvalue(), "image/webp")})
+_png_path = _DATA / "branding" / f"logo_{_cid5}.png"
+check("شعار WebP يُحوَّل إلى PNG ولا يبقى WebP",
+      _r.status_code == 200 and _png_path.exists() and not (_DATA / "branding" / f"logo_{_cid5}.webp").exists())
+_r = c5.get(f"/api/proposals/{_p5['id']}/export/docx")
+_d5b = _Doc(io.BytesIO(_r.content))
+check("Word بعد شعار WebP: الشعار مُدرج فعلاً",
+      any(rel.reltype.endswith("/image") for rel in _d5b.part.rels.values()))
+check("شعار شركة لا يقرؤه غير أعضائها (403)", c2.get(f"/api/companies/{_cid5}/logo").status_code == 403)
+check("ويقرؤه أعضاؤها ومدير المنصة",
+      c5.get(f"/api/companies/{_cid5}/logo").status_code == 200
+      and c.get(f"/api/companies/{_cid5}/logo").status_code == 200)
+
+# --- 24.6 التصدير: متزامن آمن، هوية كل شركة، وبلا بصمات عزوم للمستأجر ---
+_az_pid = c.get("/api/proposals").json()[0]["id"]
+
+
+def _export_job(args):
+    who, pid = args
+    cl = TestClient(app)
+    cl.cookies.update((c if who == "az" else c5).cookies)
+    resp = cl.get(f"/api/proposals/{pid}/export/docx")
+    if resp.status_code != 200:
+        return who, None
+    try:
+        with _zf.ZipFile(io.BytesIO(resp.content)) as z:
+            return who, z.read("word/document.xml").decode("utf-8") + z.read("word/footer1.xml").decode("utf-8") \
+                if "word/footer1.xml" in z.namelist() else z.read("word/document.xml").decode("utf-8")
+    except Exception:
+        return who, None
+
+
+with _TPE(max_workers=8) as _pool:
+    _res = list(_pool.map(_export_job, [("az", _az_pid), ("t5", _p5["id"])] * 12))
+_ok_all = all(x is not None for _, x in _res)
+_az_hex = _main._brand_color(1).lstrip("#").upper()
+_az_ok = all(_az_hex in x and "5A3E86" not in x for w, x in _res if w == "az" and x)
+_t5_ok = all("5A3E86" in x and _az_hex not in x and "2E9E5B" not in x for w, x in _res if w == "t5" and x)
+check("24 تصديراً متزامناً لشركتين: كلها سليمة (لا ملف تالف)", _ok_all)
+check("عزوم: وثائقها بأخضر هويتها الرسمي لا لون لوحة المستأجرين", _az_hex == "1E6B3C")
+check("ولكل شركة لونها فقط (لا تسرّب هوية بين الطلبات المتزامنة)", _az_ok and _t5_ok)
+import app.export_docx as _ed
+check("لا متغيرات هوية عامة قابلة للتبادل في مُصدّر Word",
+      not hasattr(_ed, "PRIMARY") and not hasattr(_ed, "_PRIMARY_HEX"))
+_s5 = c5.get("/api/settings").json()
+check("مستأجر جديد: بيانات عزوم لا تُورَّث (آيبان/شروط دفع/خدمات/تأسيس فارغة)",
+      all(_s5.get(k, "") == "" for k in ("company_iban", "payment_terms", "company_services", "company_founded",
+                                        "company_legal_form", "company_bank", "company_cr")), str(_s5)[:200])
+check("مستأجر جديد: بادئة رقم العرض PR لا AZM",
+      _p5["ref_no"].startswith("PR-") and _s5.get("ref_prefix") == "PR", _p5["ref_no"])
+_t5b = "\n".join(p.text for p in _d5b.paragraphs)
+check("Word المستأجر بلا عنوان «شروط الدفع» الفارغ", "شروط الدفع" not in _t5b)
+
+# --- 24.7 الوكيلان: بناء واحد، اعتماد بلا تكرار، وحد الخطة قبل التكلفة ---
+_calls = {"n": 0}
+_orig_build = _main._build_proposal_data
+
+
+def _counted(*a, **k):
+    _calls["n"] += 1
+    return _orig_build(*a, **k)
+
+
+_main._build_proposal_data = _counted
+_r = c.post("/api/agents/analyze", data={"title": "مشروع فحص التخزين المؤقت", "client": "جهة", "entity_type": "private"})
+_sid = _r.json()["session_id"]
+_g1 = c.post("/api/agents/generate", json={"session_id": _sid})
+_g2 = c.post("/api/agents/generate", json={"session_id": _sid})
+check("تحليل + اعتماد = بناء واحد فقط (لا استدعاء ذكاء ثانٍ)",
+      _g1.status_code == 200 and _calls["n"] == 1, str(_calls))
+check("اعتماد مكرر يعيد العرض نفسه لا نسخة ثانية",
+      _g2.status_code == 200 and _g2.json()["id"] == _g1.json()["id"])
+c.delete(f"/api/proposals/{_g1.json()['id']}")
+_lim = _tn.PLAN_LIMITS["trial"]["proposals_month"]; _tn.PLAN_LIMITS["trial"]["proposals_month"] = 0
+_calls["n"] = 0
+_r = c5.post("/api/agents/analyze", data={"title": "x", "client": "y"})
+_tn.PLAN_LIMITS["trial"]["proposals_month"] = _lim
+check("التحليل عند بلوغ حد الخطة: 402 قبل أي بناء/تكلفة", _r.status_code == 402 and _calls["n"] == 0, str(_calls))
+_main._build_proposal_data = _orig_build
+_old_ts = "2020-01-01T00:00:00+00:00"
+with _gdb() as _db:
+    _old_sid = _db.execute(
+        "INSERT INTO agent_sessions (company_id, title, client, entity_type, files_text, analysis, created_at) "
+        "VALUES (1, 'old', 'x', 'government', '', '{}', ?)", (_old_ts,)).lastrowid
+_tok = _tn.set_context(1, "owner", 1, True)
+_stale = _ag.get_session(_old_sid)
+_tn.reset_context(_tok)
+check("جلسة الوكيل تنتهي بعد TTL فعلاً", _stale is None)
+check("نوع جهة غير معروف مرفوض (400)",
+      c.post("/api/proposals/generate", data={"title": "x", "client": "y", "entity_type": "nope"}).status_code == 400)
+
+# --- 24.8 محرك Claude: هوية المستأجر في التعليمات + طبقة الأسلوب نفسها ---
+from app.style_engine import DEFAULT_BANNED as _DB
+_captured = {}
+_payload = {"summary": "s", "scope": ["a"], "compliance_matrix": [], "plan": [], "duration_weeks": 4,
+            "assumptions": [], "team": [],
+            "technical_sections": [
+                {"title": "قسم خاص بالمشروع", "body": f"جملة أولى تحوي {_DB[0]} هنا. وجملة ثانية سليمة وطويلة تصف نطاق المشروع بدقة."}],
+            "boq": [{"code": "", "name": "بند", "unit": "م2", "qty": 10, "unit_price": 100}]}
+
+
+class _FakeStream:
+    def __init__(self, kw): _captured.update(kw)
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def get_final_message(self):
+        blk = _ty.SimpleNamespace(type="text", text=_json.dumps(_payload, ensure_ascii=False))
+        return _ty.SimpleNamespace(stop_reason="end_turn", content=[blk])
+
+
+_fake = _ty.ModuleType("anthropic")
+_fake.Anthropic = lambda **k: _ty.SimpleNamespace(messages=_ty.SimpleNamespace(stream=lambda **kw: _FakeStream(kw)))
+_real_anthropic = sys.modules.get("anthropic"); sys.modules["anthropic"] = _fake
+from app.ai_engine import generate_proposal_ai as _gen_ai
+_tok = _tn.set_context(_cid5, "owner", 1, False)
+try:
+    _ai = _gen_ai("مشروع فحص محرك Claude", "جهة", "government", "نص", [])
+finally:
+    _tn.reset_context(_tok)
+    if _real_anthropic is not None: sys.modules["anthropic"] = _real_anthropic
+    else: sys.modules.pop("anthropic", None)
+_sys_txt = _captured["system"][0]["text"]
+check("تعليمات Claude باسم المستأجر لا «عزوم»", "شركة فحص الوكيلين" in _sys_txt and "عزوم" not in _sys_txt)
+check("مخرجات Claude تمر بطبقة الأسلوب (source + style + فئة المشروع)",
+      isinstance(_ai.get("style"), dict) and _ai.get("project_kind")
+      and all(s.get("source") in ("bank", "new") for s in _ai["technical_sections"]))
+check("والعبارات القالبية المحظورة تُنقّى من نص Claude",
+      not any(_DB[0] in s["body"] for s in _ai["technical_sections"]))
+
+# --- 24.9 الفوترة والاشتراكات ---
+check("قائمة الشركات تعرض السعر الشهري الفعلي",
+      all("monthly_price" in x for x in c.get("/api/companies").json()))
+check("ترقية شركة لغير مدير المنصة مرفوضة (403)",
+      c2.put(f"/api/companies/{_cid2}", json={"plan": "pro"}).status_code == 403)
+check("خطة غير معروفة مرفوضة (400)", c.put(f"/api/companies/{_cid2}", json={"plan": "gold"}).status_code == 400)
+_r = c.put(f"/api/companies/{_cid2}", json={"plan": "pro"})
+check("ترقية شركة تجريبية إلى احترافي تلغي انتهاء التجربة",
+      _r.status_code == 200 and _r.json()["plan"] == "pro" and not _r.json().get("trial_ends_at"), _r.text[:120])
+check("لا رجوع من مدفوع إلى تجريبي (400)",
+      c.put(f"/api/companies/{_cid2}", json={"plan": "trial"}).status_code == 400)
+c.put(f"/api/companies/{_cid5}", json={"plan": "basic", "custom_price": 1500})
+c.put(f"/api/companies/{_cid4}", json={"plan": "enterprise"})
+_i1 = c.post("/api/platform/invoices/issue").json()
+_inv = c.get("/api/platform/metrics").json()["invoices"]
+check("الفوترة: تصدر لكل شركة مدفوعة مسعّرة (2) وتُبلِّغ بالمؤسسي بلا سعر",
+      _i1["issued"] == 2 and len(_i1["unpriced"]) >= 1, str(_i1))
+check("أرقام الفواتير فريدة (لا تكرار مع أكثر من شركة)",
+      len({i["ref"] for i in _inv}) == len(_inv) >= 2, str([i["ref"] for i in _inv]))
+check("الفاتورة بالسعر المتفاوض عليه (1500) لا سعر الخطة",
+      any(i["company_id"] == _cid5 and i["amount"] == 1500 for i in _inv))
+check("إعادة الإصدار في الشهر نفسه لا تكرر الفواتير", c.post("/api/platform/invoices/issue").json()["issued"] == 0)
+_ent = c.post("/api/companies", json={"name": "شركة مؤسسية للفحص " + _suf, "plan": "enterprise"}).json()
+_i2 = c.post("/api/platform/invoices/issue").json()
+check("مؤسسي بلا سعر متفق عليه لا يُفوتَر بل يُبلَّغ عنه", _i2["issued"] == 0 and _ent["name"] in _i2["unpriced"], str(_i2))
+c.put(f"/api/companies/{_ent['id']}", json={"custom_price": 8000})
+check("المؤسسي يُفوتَر بعد الاتفاق على سعره", c.post("/api/platform/invoices/issue").json()["issued"] == 1)
+_mt = c.get("/api/platform/metrics").json()
+check("الإيراد الشهري المتكرر يشمل الأسعار المتفاوض عليها (3900+1500+8000)", _mt["mrr"] == 13400, str(_mt["mrr"]))
+check("الفهرس الفريد يمنع فاتورتين لنفس الشركة والفترة", _dbm.issue_monthly_invoices()["issued"] == 0)
+
+# --- 24.10 الأعضاء وجهات الاتصال ---
+c.post(f"/api/session/company/{_cid2}")
+_r = c.delete(f"/api/members/{me2['user_id']}")
+c.post("/api/session/company/1")
+check("لا إزالة لآخر مالك للحساب (400)", _r.status_code == 400, _r.text[:100])
+check("لا تخفيض لآخر مالك للحساب (400)",
+      c2.put(f"/api/members/{me2['user_id']}", json={"role": "admin"}).status_code == 400)
+_eu = next(m["id"] for m in c.get("/api/members").json() if m["username"] == "engcheck")
+check("بريد غير صالح مرفوض (400)",
+      c.post(f"/api/members/{_eu}/contact", json={"email": "not-an-email", "phone": ""}).status_code == 400)
+check("جوال غير صالح مرفوض (400)",
+      c.post(f"/api/members/{_eu}/contact", json={"email": "", "phone": "12"}).status_code == 400)
+_r = c.post(f"/api/members/{_eu}/contact", json={"email": "eng@example.com", "phone": "0501234567"})
+check("الجوال السعودي المحلي يُطبَّع إلى E.164", _r.status_code == 200 and _r.json()["phone"] == "+966501234567")
+check("الدعوة برقم جوال غير صالح لا تُنشئ حساباً يتيماً",
+      c.post("/api/members", json={"username": "orphancheck", "password": "Orph@12345", "role": "viewer",
+                                   "phone": "zzz"}).status_code == 400
+      and TestClient(app).post("/api/login", json={"username": "orphancheck", "password": "Orph@12345"}).status_code == 401)
+
+# --- 24.11 محدّث الموديل ---
+_saved_mu = (_mu.ANTHROPIC_API_KEY, _mu.fetch_available_models, _mu.validate_model)
+_mu.ANTHROPIC_API_KEY = "test-key"
+_mu.fetch_available_models = lambda: [{"id": "claude-sonnet-9", "created_at": "2030-01-01"},
+                                      {"id": "claude-opus-9", "created_at": "2031-01-01"}]
+_vc = {"n": 0}
+def _val_ok(m): _vc["n"] += 1; return True
+def _val_no(m): _vc["n"] += 1; return False
+_mu.validate_model = _val_ok
+_ups({"model_pinned": "claude-sonnet-5", "active_claude_model": "", "model_rejected": ""}, company_id=1)
+_r = _mu.refresh_active_model(force=True)
+check("موديل مثبّت يدوياً: لا تجربة ولا تبديل ولا إشعارات",
+      _r.get("reason") == "pinned" and _vc["n"] == 0 and not _r.get("switched"), str(_r))
+check("لا سقوط صامت لفئة أخرى عند خلوّ الفئة المطلوبة",
+      _mu.choose_latest([{"id": "claude-opus-9", "created_at": "2031"}], "sonnet") == "")
+check("تثبيت اسم موديل خاطئ مرفوض (صيغة/غير موجود)",
+      c.put("/api/platform/model", json={"pinned": "bad model!"}).status_code == 400
+      and c.put("/api/platform/model", json={"pinned": "claude-nonexistent-1"}).status_code == 400
+      and c.put("/api/platform/model", json={"pinned": "claude-sonnet-9"}).status_code == 200)
+c.put("/api/platform/model", json={"pinned": ""})
+_ups({"model_pinned": ""}, company_id=1)
+from app.auth import create_user as _cu
+_p2 = _cu("plat2check", "Plat@12345", "مدير منصة ثانٍ")
+with _gdb() as _db:
+    _db.execute("UPDATE users SET is_platform_admin = 1 WHERE id = ?", (_p2["id"],))
+_dbm.set_membership(_p2["id"], 1, "owner")
+_r = _mu.refresh_active_model()
+with _gdb() as _db:
+    _notified = {x["user_id"] for x in _db.execute(
+        "SELECT user_id FROM notifications WHERE kind = 'model_update'")}
+check("التبديل التلقائي يُشعر كل مديري المنصة لا حساباً بعينه",
+      _r.get("switched") and {me["user_id"], _p2["id"]} <= _notified, f"{_r} {_notified}")
+_ups({"active_claude_model": "", "model_rejected": ""}, company_id=1)
+_vc["n"] = 0; _mu.validate_model = _val_no
+_mu.refresh_active_model(); _mu.refresh_active_model()
+check("موديل رُفض في التجربة لا يُعاد اختباره كل دورة", _vc["n"] == 1, str(_vc))
+_mu.ANTHROPIC_API_KEY, _mu.fetch_available_models, _mu.validate_model = _saved_mu
+_ups({"active_claude_model": "", "model_rejected": "", "model_pinned": ""}, company_id=1)
+
+# --- 24.12 قنوات الإشعارات ---
+check("تطبيع الجوال: محلي/دولي/عربي-هندي",
+      _nc.normalize_phone("0501234567") == "+966501234567"
+      and _nc.normalize_phone("00966 50 123 4567") == "+966501234567"
+      and _nc.normalize_phone("٠٥٠١٢٣٤٥٦٧") == "+966501234567")
+_used = []
+class _FS:
+    def __init__(self, *a, **k): _used.append(type(self).__name__)
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def starttls(self, **k): _used.append("starttls")
+    def login(self, *a): pass
+    def send_message(self, m): _used.append("sent")
+class _FSSL(_FS): pass
+_real_smtp = (_nc.smtplib.SMTP, _nc.smtplib.SMTP_SSL)
+_nc.smtplib.SMTP, _nc.smtplib.SMTP_SSL = _FS, _FSSL
+_nc.send_email({"smtp_host": "h", "smtp_port": "465"}, "a@b.co", "s", "b")
+_ssl_used = list(_used); _used.clear()
+_nc.send_email({"smtp_host": "h", "smtp_port": "587"}, "a@b.co", "s", "b")
+_tls_used = list(_used); _used.clear()
+_nc.send_email({"smtp_host": "h", "smtp_port": "25", "smtp_security": "none"}, "a@b.co", "s", "b")
+_none_used = list(_used)
+_nc.smtplib.SMTP, _nc.smtplib.SMTP_SSL = _real_smtp
+check("SMTP: المنفذ 465 → SSL مباشر، 587 → STARTTLS، none → بلا تشفير",
+      _ssl_used == ["_FSSL", "sent"] and _tls_used == ["_FS", "starttls", "sent"]
+      and _none_used == ["_FS", "sent"], f"{_ssl_used} {_tls_used} {_none_used}")
+_sent = {}
+class _Resp:
+    def read(self): return b"{}"
+def _fake_urlopen(req, timeout=15):
+    _sent["url"], _sent["body"] = req.full_url, _json.loads(req.data.decode()); return _Resp()
+_real_urlopen = _nc.urllib.request.urlopen
+_nc.urllib.request.urlopen = _fake_urlopen
+_nc.send_whatsapp({"whatsapp_token": "t", "whatsapp_phone_id": "123", "whatsapp_template": "alert_tpl"},
+                  "+966500000000", "عنوان\nنص")
+_tpl = dict(_sent)
+_nc.send_whatsapp({"whatsapp_token": "t", "whatsapp_phone_id": "123"}, "+966500000000", "نص حر")
+_txt = dict(_sent)
+check("واتساب: قالب معتمد حين يُضبط (بلا أسطر جديدة) ونص حر حين لا",
+      _tpl["body"]["type"] == "template" and _tpl["body"]["template"]["name"] == "alert_tpl"
+      and "\n" not in _tpl["body"]["template"]["components"][0]["parameters"][0]["text"]
+      and _txt["body"]["type"] == "text" and "/v21.0/" in _tpl["url"])
+def _boom(req, timeout=15):
+    raise _nc.urllib.error.HTTPError(req.full_url, 400, "Bad", {}, io.BytesIO(b'{"error":{"message":"Template not approved"}}'))
+_nc.urllib.request.urlopen = _boom
+_ups({"notify_whatsapp_enabled": "1", "whatsapp_token": "t", "whatsapp_phone_id": "1"}, company_id=1)
+_dbm.set_user_contact(me["user_id"], "", "+966500000001")
+_nc._dispatch_sync(1, me["user_id"], "عنوان", "نص")
+_nc.urllib.request.urlopen = _real_urlopen
+check("فشل واتساب يُسجَّل للأدمن بسبب Meta الفعلي (لا ابتلاع صامت)",
+      "Template not approved" in _gs(1).get("notify_last_error", ""), _gs(1).get("notify_last_error", ""))
+check("...ويظهر للأدمن في الإعدادات ولا يظهر للمشاهد",
+      "Template not approved" in c.get("/api/settings").json().get("notify_last_error", "")
+      and "notify_last_error" not in c3.get("/api/settings").json())
+_ups({"notify_whatsapp_enabled": "0", "whatsapp_token": "", "notify_last_error": ""}, company_id=1)
+_dbm.set_user_contact(me["user_id"], "", "")
+
+# --- 24.13 وكيل الجودة ---
+_dq = {"technical_sections": [{"title": "t", "source": "new",
+        "body": "نستند في هذا القسم إلى المرجع رقم [1] في وثائق المنافسة، ونفصّل الأعمال المطلوبة بدقة كاملة وشمول كبير. " * 2}],
+       "boq": [], "financial": {}}
+check("المرجع الرقمي [1] ليس placeholder",
+      not any(i["kind"] == "placeholder" for i in _rq2(_dq)["issues"]))
+_dq["technical_sections"][0]["body"] += " اسم الجهة: [اسم العميل]"
+check("بينما [اسم العميل] placeholder فعلاً",
+      any(i["kind"] == "placeholder" for i in _rq2(_dq)["issues"]))
+_rp = c.post("/api/proposals/generate", data={"title": "عرض بنسب قديمة", "client": "جهة"}).json()
+_ups({"profit_pct": "18"}, company_id=1)
+_rev = _rq2(c.get(f"/api/proposals/{_rp['id']}").json()["data"])
+_ups({"profit_pct": "15"}, company_id=1)
+c.delete(f"/api/proposals/{_rp['id']}")
+check("تغيير نسبة الربح لاحقاً لا يجعل عرضاً قديماً «غير متسق»",
+      not any(i["kind"] == "finance" and i["level"] == "error" for i in _rev["issues"]), str(_rev["issues"])[:200])
+
+# --- 24.14 CSV الأسعار: سطر معطوب وحد الخطة ---
+_csv = "code,category,name,unit,unit_price\nCSV-1,x,سليم,م,10\nCSV-2,x,معطوب,م,abc\n"
+_r = c2.post("/api/prices/import/csv", files={"file": ("p.csv", _csv.encode("utf-8"), "text/csv")})
+check("استيراد CSV: السطر المعطوب يُتخطى ويُبلَّغ عنه (لا 500)",
+      _r.status_code == 200 and _r.json()["imported"] == 1 and len(_r.json()["errors"]) == 1, _r.text[:150])
+_big = "code,category,name,unit,unit_price\n" + "\n".join(f"OL-{i},x,بند {i},م,1" for i in range(150))
+_tn.PLAN_LIMITS["basic"]["price_items"] = 100     # c5 أُلحقت بالأساسي أعلاه — نضبط حده مؤقتاً
+_r = c5.post("/api/prices/import/csv", files={"file": ("b.csv", _big.encode("utf-8"), "text/csv")})
+_tn.PLAN_LIMITS["basic"]["price_items"] = 500
+_n5 = len(c5.get("/api/prices").json())
+check("استيراد CSV يحترم حد بنود الخطة",
+      _r.status_code == 200 and _n5 <= 100 and _r.json()["skipped_over_plan_limit"] > 0, f"{_n5} {_r.text[:120]}")
+
+# --- 24.15 أول تشغيل: لا كلمة مرور افتراضية معروفة ---
+_env = {k: v for k, v in os.environ.items() if k != "AZOOM_ADMIN_PASSWORD"}
+_env["AZOOM_DATA_DIR"] = tempfile.mkdtemp(prefix="azoom-firstrun-")
+_code = ("from app.database import init_db; from app.auth import init_auth, authenticate; "
+         "init_db(); init_auth(); print('WEAK' if authenticate('azoom', 'Azoom@2026') else 'STRONG')")
+_p = _sp.run([sys.executable, "-c", _code], cwd=str(_ROOT), env=_env, capture_output=True, text=True, encoding="utf-8")
+_pwfile = Path(_env["AZOOM_DATA_DIR"]) / "INITIAL_ADMIN_PASSWORD.txt"
+check("أول تشغيل: كلمة مرور عشوائية في ملف مقيَّد لا افتراضية معروفة",
+      "STRONG" in _p.stdout and _pwfile.exists() and "password:" in _pwfile.read_text(encoding="utf-8"),
+      (_p.stdout + _p.stderr)[-300:])
+shutil.rmtree(_env["AZOOM_DATA_DIR"], ignore_errors=True)
+
 
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)

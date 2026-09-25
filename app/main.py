@@ -1,10 +1,15 @@
 """نظام عزوم للعروض الفنية والمالية — خادم التطبيق."""
 import csv
 import io
+import os
+import re
+import tempfile
+import threading
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import database as db
@@ -13,7 +18,9 @@ from .auth import (LOGIN_PAGE, SESSION_COOKIE, authenticate, change_password,
                    create_session_token, init_auth, verify_session_token)
 from .ai_engine import ai_available, generate_proposal_ai
 from .analytics import compute_analytics
-from .config import EXPORTS_DIR
+from .config import BRAND, DATA_DIR, DEFAULT_SETTINGS, EXPORTS_DIR
+from . import security
+from .security import enforce_rate, is_https, read_upload
 from .export_docx import export_proposal_docx
 from .export_xlsx import export_boq_xlsx
 from .file_extract import extract_text
@@ -41,10 +48,48 @@ def startup():
     migrate_repo_to_tech()
     execution.init_execution_tables()
     agents.init_agent_tables()
-    from .model_updater import refresh_active_model, start_background_checker
-    import threading as _th
-    _th.Thread(target=refresh_active_model, daemon=True).start()  # فحص فوري عند الإقلاع
-    start_background_checker()
+    _convert_legacy_logos()
+    _cleanup_stale_exports()
+    if os.environ.get("AZOOM_DISABLE_BACKGROUND") != "1":
+        from .model_updater import refresh_active_model, start_background_checker
+        threading.Thread(target=refresh_active_model, daemon=True).start()  # فحص فوري عند الإقلاع
+        start_background_checker()
+        _start_invoice_scheduler()
+
+
+def _cleanup_stale_exports():
+    """ملفات التصدير المؤقتة العالقة (انقطاع أثناء التنزيل) — تُحذف بعد ساعة."""
+    cutoff = time.time() - 3600
+    for f in EXPORTS_DIR.glob("*"):
+        try:
+            if f.is_file() and f.stat().st_mtime < cutoff:
+                f.unlink()
+        except OSError:
+            pass
+
+
+def _start_invoice_scheduler():
+    """إصدار الفواتير الشهرية آلياً: فحص كل 6 ساعات، والإصدار نفسه لا يتكرر
+    (فهرس فريد لكل شركة/فترة) — فلا يعتمد الإيراد على أن يضغط أحد الزر."""
+    def _loop():
+        while True:
+            try:
+                db.issue_monthly_invoices()
+            except Exception:
+                pass
+            time.sleep(6 * 3600)
+    threading.Thread(target=_loop, daemon=True).start()
+
+
+def _convert_legacy_logos():
+    """شعارات WebP القديمة → PNG (Word لا يدعم WebP فكانت تخرج الوثائق بلا شعار)."""
+    try:
+        for f in (DATA_DIR / "branding").glob("logo_*.webp"):
+            png = f.with_suffix(".png")
+            png.write_bytes(_normalize_logo(f.read_bytes())[0])
+            f.unlink()
+    except Exception:
+        pass
 
 
 # ------------------------------ المصادقة والصلاحيات ------------------------------
@@ -53,15 +98,29 @@ _OPEN_PATHS = ("/login", "/api/login", "/signup", "/api/signup", "/static/", "/f
 COMPANY_COOKIE = "azoom_company"
 
 # الصفحات الخمس الإدارية — القراءة والكتابة على الأدمن (owner/admin) فقط
-_ADMIN_API_PREFIXES = ("/api/prices", "/api/library", "/api/repo", "/api/market", "/api/analytics", "/api/repository", "/api/style-profile", "/api/paragraph")
+_ADMIN_API_PREFIXES = ("/api/prices", "/api/library", "/api/repo", "/api/market", "/api/analytics",
+                       "/api/repository", "/api/style-profile", "/api/paragraph-bank", "/api/paragraphs")
 # مسارات يجوز فيها غير-GET لدور المشاهد (شؤون حسابه فقط)
 _VIEWER_WRITE_OK = ("/api/logout", "/api/password", "/api/session/company",
                     "/api/notifications")
 # مهندس الموقع: وحدة تنفيذ المشاريع وشؤون حسابه فقط — لا اطلاع على العروض والأسعار
 _ENGINEER_ALLOWED = ("/api/me", "/api/status", "/api/execution", "/api/notifications",
                      "/api/logout", "/api/password", "/api/session/company")
+# مسارات لا تُحجب حتى عن شركة موقوفة: الخروج، وتبديل الشركة، وهوية الحساب —
+# وإلا حُبس المستخدم داخل شركة موقوفة بلا مخرج
+_LIFECYCLE_EXEMPT = ("/api/logout", "/api/me", "/api/session/company")
 
 
+def _under(path: str, prefixes: tuple) -> bool:
+    """مطابقة على حدود المقطع: /api/me يطابق /api/me و/api/me/companies لا /api/members
+    (كانت startswith الخام تفتح /api/members لمهندس الموقع وتحجب مسارات غير مقصودة)."""
+    return any(path == p or path.startswith(p + "/") for p in prefixes)
+
+
+# ملاحظة ترتيب: Starlette يجعل آخر @app.middleware مُسجَّل هو الأخارجي (ينفَّذ أولاً
+# على الطلب، وأخيراً على الرد) — لذا security_headers يُسجَّل بعد auth_guard هنا،
+# ليُغلِّف حتى الردود المبكرة (401/403) التي يعيدها auth_guard دون استدعاء call_next.
+# تسجيلهما بالترتيب المعاكس كان يُخرج ردود auth_guard المبكرة بلا ترويسات أمان.
 @app.middleware("http")
 async def auth_guard(request: Request, call_next):
     path = request.url.path
@@ -73,12 +132,14 @@ async def auth_guard(request: Request, call_next):
             return JSONResponse({"detail": "غير مصرح — سجّل الدخول أولاً"}, status_code=401)
         return RedirectResponse("/login")
 
-    # حل الشركة الحالية: كوكي الشركة إن كانت عضويته قائمة، وإلا أول عضوياته
+    # حل الشركة الحالية: كوكي الشركة إن كانت متاحة له، وإلا أول عضوياته.
+    # مدير المنصة يرى كل الشركات (للدعم) — بدونه كانت كوكي شركة غير عضو فيها تُهمل صامتة.
     from .auth import get_user
     user = get_user(username)
     if not user:
         return JSONResponse({"detail": "الحساب غير موجود"}, status_code=401)
-    companies = db.user_companies(user["id"])
+    is_platform_admin = bool(user.get("is_platform_admin"))
+    companies = db.user_companies(user["id"], include_all=is_platform_admin)
     if not companies:
         return JSONResponse({"detail": "لا عضوية لك في أي شركة — راجع مدير المنصة"}, status_code=403)
     wanted = request.cookies.get(COMPANY_COOKIE, "")
@@ -89,48 +150,60 @@ async def auth_guard(request: Request, call_next):
     request.state.role = current["role"]
     request.state.company_id = current["id"]
     request.state.company_name = current["name"]
-    request.state.is_platform_admin = bool(user.get("is_platform_admin"))
+    request.state.is_platform_admin = is_platform_admin
 
     # فرض الأدوار في الخادم — إخفاء الأزرار في الواجهة ليس حماية
     role = current["role"]
     is_admin = role in tenancy.ADMIN_ROLES
-    if path.startswith(_ADMIN_API_PREFIXES) and not is_admin:
+    if _under(path, _ADMIN_API_PREFIXES) and not is_admin:
         return JSONResponse({"detail": "هذه الصفحة للأدمن فقط"}, status_code=403)
     if role == "viewer" and request.method not in ("GET", "HEAD") \
-            and not path.startswith(_VIEWER_WRITE_OK):
+            and not _under(path, _VIEWER_WRITE_OK):
         return JSONResponse({"detail": "دورك (مُشاهد) للقراءة والتصدير فقط"}, status_code=403)
-    if role == "engineer" and path.startswith("/api/") and not path.startswith(_ENGINEER_ALLOWED):
+    if role == "engineer" and path.startswith("/api/") and not _under(path, _ENGINEER_ALLOWED):
         return JSONResponse({"detail": "دورك (مهندس موقع) مقصور على وحدة تنفيذ المشاريع"},
                             status_code=403)
 
-    # دورة حياة الاشتراك: منتهي التجربة قراءة وتصدير فقط، والموقوف محجوب
+    # دورة حياة الاشتراك: منتهي التجربة قراءة وتصدير فقط، والموقوف محجوب.
+    # مدير المنصة معفى — هو من يعيد التفعيل ويدعم الشركات الموقوفة.
     company_row = db.get_company(current["id"]) or {}
     sub_status = db.effective_subscription_status(company_row)
     request.state.sub_status = sub_status
-    if sub_status == "suspended" and path != "/api/logout" and path != "/api/me":
-        return JSONResponse({"detail": "الاشتراك موقوف — تواصلوا معنا لإعادة التفعيل. بياناتكم محفوظة."},
-                            status_code=402)
-    if sub_status == "read_only" and request.method not in ("GET", "HEAD") \
-            and not path.startswith(_VIEWER_WRITE_OK):
-        return JSONResponse({"detail": "انتهت فترة التجربة — القراءة والتصدير متاحان، ورقّوا الاشتراك للمتابعة."},
-                            status_code=402)
+    if not is_platform_admin:
+        if sub_status == "suspended" and not _under(path, _LIFECYCLE_EXEMPT):
+            return JSONResponse({"detail": "الاشتراك موقوف — تواصلوا معنا لإعادة التفعيل. بياناتكم محفوظة."},
+                                status_code=402)
+        if sub_status == "read_only" and request.method not in ("GET", "HEAD") \
+                and not _under(path, _VIEWER_WRITE_OK):
+            return JSONResponse({"detail": "انتهت فترة التجربة — القراءة والتصدير متاحان، ورقّوا الاشتراك للمتابعة."},
+                                status_code=402)
 
     # بوابات الميزات: 402 لا 403 — الواجهة تعرض دعوة الترقية
     limits = tenancy.PLAN_LIMITS.get(company_row.get("plan", "trial"), tenancy.PLAN_LIMITS["trial"])
-    if path.startswith(("/api/etimad", "/api/forsah")) and not limits.get("integrations"):
+    if _under(path, ("/api/etimad", "/api/forsah")) and not limits.get("integrations"):
         return JSONResponse({"detail": "ربط اعتماد وفرصة متاح في الخطة الاحترافية فأعلى — رقّوا الاشتراك."},
                             status_code=402)
-    if path.startswith(("/api/style-profile", "/api/paragraph", "/api/repository/technical")) \
-            and not limits.get("style_engine"):
+    if _under(path, ("/api/style-profile", "/api/paragraph-bank", "/api/paragraphs",
+                     "/api/repository/technical")) and not limits.get("style_engine"):
         return JSONResponse({"detail": "بصمة الكتابة وبنك الفقرات متاحان في الخطة الاحترافية فأعلى — رقّوا الاشتراك."},
                             status_code=402)
 
-    tokens = tenancy.set_context(current["id"], role, user["id"],
-                                 bool(user.get("is_platform_admin")))
+    tokens = tenancy.set_context(current["id"], role, user["id"], is_platform_admin)
     try:
         return await call_next(request)
     finally:
         tenancy.reset_context(tokens)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    if is_https(request):
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    return response
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -138,15 +211,30 @@ def login_page():
     return LOGIN_PAGE
 
 
+def _text(value, limit: int = 300) -> str:
+    """حقل نصي من JSON: غير النص يُهمل بدل أن يرمي خطأ 500."""
+    return value.strip()[:limit] if isinstance(value, str) else ""
+
+
 @app.post("/api/login")
-def api_login(body: dict):
-    user = authenticate(body.get("username", ""), body.get("password", ""))
+def api_login(request: Request, body: dict):
+    username = _text(body.get("username"), 100)
+    password = body.get("password") if isinstance(body.get("password"), str) else ""
+    ip = security.client_ip(request)
+    # تحديد المحاولات الفاشلة: لكل مستخدم ولكل عنوان — يوقف التخمين دون قفل الجميع
+    enforce_rate(security.LOGIN_USER_LIMITER, username.lower(), "محاولات دخول كثيرة لهذا الحساب")
+    enforce_rate(security.LOGIN_IP_LIMITER, ip, "محاولات دخول كثيرة من هذا الجهاز")
+    user = authenticate(username, password)
     if not user:
+        security.LOGIN_USER_LIMITER.hit(username.lower())
+        security.LOGIN_IP_LIMITER.hit(ip)
         raise HTTPException(401, "بيانات الدخول غير صحيحة")
-    companies = db.user_companies(user["id"])
+    security.LOGIN_USER_LIMITER.reset(username.lower())
+    companies = db.user_companies(user["id"], include_all=bool(user.get("is_platform_admin")))
     response = JSONResponse({"ok": True, "user": user, "companies": companies})
     response.set_cookie(SESSION_COOKIE, create_session_token(user["username"]),
-                        httponly=True, samesite="lax", max_age=12 * 3600)
+                        httponly=True, samesite="lax", max_age=12 * 3600,
+                        secure=is_https(request))
     return response
 
 
@@ -154,6 +242,7 @@ def api_login(body: dict):
 def api_logout():
     response = JSONResponse({"ok": True})
     response.delete_cookie(SESSION_COOKIE)
+    response.delete_cookie(COMPANY_COOKIE)
     return response
 
 
@@ -214,7 +303,7 @@ def _enforce_limit(request: Request, kind: str):
 
 @app.get("/api/me/companies")
 def my_companies(request: Request):
-    return db.user_companies(request.state.user_id)
+    return db.user_companies(request.state.user_id, include_all=request.state.is_platform_admin)
 
 
 @app.post("/api/session/company/{company_id}")
@@ -222,10 +311,12 @@ def switch_company(request: Request, company_id: int):
     m = db.get_membership(request.state.user_id, company_id)
     if not m and not request.state.is_platform_admin:
         raise HTTPException(403, "لا تملك عضوية في هذه الشركة")
+    if not db.get_company(company_id):
+        raise HTTPException(404, "الشركة غير موجودة")
     role = m["role"] if m else "admin"
     response = JSONResponse({"ok": True, "role": role})
     response.set_cookie(COMPANY_COOKIE, str(company_id), httponly=True,
-                        samesite="lax", max_age=90 * 24 * 3600)
+                        samesite="lax", max_age=90 * 24 * 3600, secure=is_https(request))
     return response
 
 
@@ -236,6 +327,7 @@ def companies_list(request: Request):
     for c in db.list_companies():
         out.append({**c, "usage": db.company_usage(c["id"]),
                    "limits": tenancy.PLAN_LIMITS.get(c["plan"], {}),
+                   "monthly_price": db.company_monthly_price(c),
                    "effective_status": db.effective_subscription_status(c)})
     return out
 
@@ -254,16 +346,24 @@ def plans_list(request: Request):
 def companies_create(request: Request, body: dict):
     """إنشاء شركة جديدة مع مالك حسابها — لمدير المنصة فقط."""
     _require_platform_admin(request)
-    name = (body.get("name") or "").strip()
+    name = _text(body.get("name"), 200)
     if not name:
         raise HTTPException(400, "اسم الشركة مطلوب")
+    plan = _text(body.get("plan"), 20) or "trial"
+    if plan not in tenancy.PLAN_LIMITS:
+        raise HTTPException(400, f"خطة غير معروفة — المتاح: {', '.join(tenancy.PLAN_LIMITS)}")
     if db.find_company_by_name(name):
         raise HTTPException(409, "توجد شركة بهذا الاسم مسبقاً")
-    company = db.create_company(name, body.get("short_name", ""),
-                                body.get("plan", "trial"), body.get("sector", ""),
-                                body.get("cr_no", ""), body.get("vat_no", ""),
-                                body.get("currency", "SAR"), body.get("contact_phone", ""))
-    owner_username = (body.get("owner_username") or "").strip()
+    from .notify_channels import normalize_phone
+    try:
+        phone = normalize_phone(_text(body.get("contact_phone"), 40))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    company = db.create_company(name, _text(body.get("short_name"), 60), plan,
+                                _text(body.get("sector"), 100), _text(body.get("cr_no"), 40),
+                                _text(body.get("vat_no"), 40),
+                                _text(body.get("currency"), 8) or "SAR", phone)
+    owner_username = _text(body.get("owner_username"), 100)
     if owner_username:
         from .auth import create_user, get_user
         owner = get_user(owner_username)
@@ -276,6 +376,30 @@ def companies_create(request: Request, body: dict):
         db.set_membership(owner["id"], company["id"], "owner", request.state.user_id)
     db.log_audit("companies", company["id"], "create", name)
     return company
+
+
+@app.put("/api/companies/{company_id}")
+def companies_update(request: Request, company_id: int, body: dict):
+    """ترقية/تخفيض اشتراك شركة وتسعيرها المتفاوض عليه وحالتها — لمدير المنصة.
+
+    plan: الخطة (لا عودة إلى «تجريبي»)، custom_price: سعر شهري متفاوض عليه (null يعيد
+    سعر الخطة القياسي)، status: active | read_only | suspended."""
+    _require_platform_admin(request)
+    try:
+        company = db.update_company_plan(
+            company_id,
+            plan=body.get("plan"),
+            custom_price=body.get("custom_price"),
+            set_custom_price="custom_price" in body,
+            status=body.get("status"),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    db.log_audit("companies", company_id, "plan_update",
+                 f"plan={company['plan']} custom_price={company.get('custom_price')} "
+                 f"status={company.get('subscription_status')}")
+    return {**company, "monthly_price": db.company_monthly_price(company),
+            "effective_status": db.effective_subscription_status(company)}
 
 
 @app.get("/api/members")
@@ -294,9 +418,15 @@ def members_invite(request: Request, body: dict):
     if role == "owner" and request.state.role != "owner" and not request.state.is_platform_admin:
         raise HTTPException(403, "منح دور مالك الحساب للمالك فقط")
     _enforce_limit(request, "users")
-    username = (body.get("username") or "").strip()
+    username = _text(body.get("username"), 100)
     if not username:
         raise HTTPException(400, "اسم المستخدم مطلوب")
+    from .notify_channels import normalize_email, normalize_phone
+    try:   # يُتحقق من جهات الاتصال قبل إنشاء أي حساب — فلا يبقى مستخدم يتيم عند الرفض
+        email = normalize_email(_text(body.get("email"), 200))
+        phone = normalize_phone(_text(body.get("phone"), 40))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     from .auth import create_user, get_user
     user = get_user(username)
     if not user:
@@ -306,11 +436,14 @@ def members_invite(request: Request, body: dict):
         except ValueError as exc:
             raise HTTPException(400, str(exc))
     db.set_membership(user["id"], request.state.company_id, role, request.state.user_id)
-    if body.get("email") or body.get("phone"):
-        db.set_user_contact(user["id"], (body.get("email") or "").strip(),
-                            (body.get("phone") or "").strip())
+    if email or phone:
+        db.set_user_contact(user["id"], email, phone)
     db.log_audit("memberships", user["id"], "invite", f"{username} → {role}")
     return {"ok": True, "user_id": user["id"], "role": role}
+
+
+def _owner_count(company_id: int) -> int:
+    return sum(1 for m in db.company_members(company_id) if m["role"] == "owner")
 
 
 @app.put("/api/members/{uid}")
@@ -321,8 +454,11 @@ def members_role(request: Request, uid: int, body: dict):
     role = body.get("role", "")
     if role not in tenancy.ROLES:
         raise HTTPException(400, "الدور غير معروف")
-    if not db.get_membership(uid, request.state.company_id):
+    target = db.get_membership(uid, request.state.company_id)
+    if not target:
         raise HTTPException(404, "العضو غير موجود في هذه الشركة")
+    if target["role"] == "owner" and role != "owner" and _owner_count(request.state.company_id) <= 1:
+        raise HTTPException(400, "لا يمكن تخفيض آخر مالك للحساب — عيّن مالكاً آخر أولاً")
     db.set_membership(uid, request.state.company_id, role)
     db.log_audit("memberships", uid, "role_change", role)
     return {"ok": True}
@@ -334,21 +470,52 @@ def members_remove(request: Request, uid: int):
         raise HTTPException(403, "إزالة الأعضاء لمالك الحساب فقط")
     if uid == request.state.user_id:
         raise HTTPException(400, "لا يمكنك إزالة نفسك")
+    target = db.get_membership(uid, request.state.company_id)
+    if target and target["role"] == "owner" and _owner_count(request.state.company_id) <= 1:
+        raise HTTPException(400, "لا يمكن إزالة آخر مالك للحساب")
     db.remove_membership(uid, request.state.company_id)
     db.log_audit("memberships", uid, "remove")
     return {"ok": True}
 
 
 # شعار كل شركة — الصيغ النقطية فقط (SVG مرفوض: ثغرة XSS إن عُرض بلا تعقيم)
-_LOGO_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
 _MAX_LOGO_BYTES = 2 * 1024 * 1024
+_MAX_LOGO_PIXELS = 25_000_000
 _BRAND_COLORS = ["#175934", "#2E7D8C", "#7A5A2E", "#5A3E86"]
+
+
+def _normalize_logo(content: bytes) -> tuple[bytes, str]:
+    """يتحقق أن الملف صورة حقيقية (لا يُصدَّق content_type القادم من العميل)، ويعيد
+    ترميزه PNG نظيفاً مصغّراً — فيُزال أي محتوى مخفي، ويُحلّ WebP الذي لا يدعمه Word."""
+    try:
+        from PIL import Image
+    except ImportError:
+        raise HTTPException(500, "مكتبة معالجة الصور (Pillow) غير مثبتة على الخادم")
+    try:
+        img = Image.open(io.BytesIO(content))
+        if img.format not in ("PNG", "JPEG", "WEBP"):
+            raise ValueError(img.format)
+        if img.width * img.height > _MAX_LOGO_PIXELS:
+            raise ValueError("huge")
+        img.load()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(415, "الملف ليس صورة صالحة — الصيغ المقبولة: PNG أو JPG أو WebP (حتى 2 ميجابايت)")
+    img.thumbnail((1000, 1000))
+    if img.mode not in ("RGB", "RGBA"):
+        img = img.convert("RGBA" if "transparency" in img.info or img.mode in ("LA", "PA", "P") else "RGB")
+    out = io.BytesIO()
+    img.save(out, format="PNG", optimize=True)
+    return out.getvalue(), ".png"
 
 
 def _brand_color(company_id: int) -> str:
     custom = (db.get_settings(company_id).get("brand_color") or "").strip()
     if custom.startswith("#") and len(custom) == 7:
         return custom
+    if company_id == 1:   # عزوم: أخضر هويتها الرسمي لا لوناً من لوحة المستأجرين (كانت وثائقها تخرج تركوازية)
+        return "#" + BRAND["primary"]
     return _BRAND_COLORS[company_id % len(_BRAND_COLORS)]
 
 
@@ -372,7 +539,6 @@ def _require_company_logo(request: Request):
 
 
 def _logo_path(company_id: int):
-    from .config import DATA_DIR
     branding = DATA_DIR / "branding"
     branding.mkdir(exist_ok=True)
     for ext in (".png", ".jpg", ".webp"):
@@ -383,25 +549,19 @@ def _logo_path(company_id: int):
 
 
 @app.post("/api/companies/{company_id}/logo")
-async def upload_company_logo(request: Request, company_id: int,
-                              logo: UploadFile = File(...)):
+def upload_company_logo(request: Request, company_id: int, logo: UploadFile = File(...)):
     m = db.get_membership(request.state.user_id, company_id)
     allowed = request.state.is_platform_admin or (m and m["role"] in tenancy.ADMIN_ROLES)
     if not allowed:
         raise HTTPException(403, "رفع الشعار لأدمن الشركة أو مدير المنصة")
-    if logo.content_type not in _LOGO_TYPES:
-        raise HTTPException(415, "الصيغ المقبولة: PNG أو JPG أو WebP (حتى 2 ميجابايت)")
-    content = await logo.read()
-    if len(content) > _MAX_LOGO_BYTES:
-        raise HTTPException(413, "حجم الملف يتجاوز 2 ميجابايت")
-    from .config import DATA_DIR
+    if not db.get_company(company_id):
+        raise HTTPException(404, "الشركة غير موجودة")
+    content, ext = _normalize_logo(read_upload(logo, _MAX_LOGO_BYTES))
     branding = DATA_DIR / "branding"
     branding.mkdir(exist_ok=True)
-    old = _logo_path(company_id)
-    if old:
-        old.unlink()
-    path = branding / f"logo_{company_id}{_LOGO_TYPES[logo.content_type]}"
-    path.write_bytes(content)
+    for old_ext in (".png", ".jpg", ".webp"):
+        (branding / f"logo_{company_id}{old_ext}").unlink(missing_ok=True)
+    (branding / f"logo_{company_id}{ext}").write_bytes(content)
     with db.get_db() as conn:
         conn.execute("UPDATE companies SET logo_url = ? WHERE id = ?",
                      (f"/api/companies/{company_id}/logo", company_id))
@@ -411,11 +571,13 @@ async def upload_company_logo(request: Request, company_id: int,
 
 @app.get("/api/companies/{company_id}/logo")
 def get_company_logo(request: Request, company_id: int):
-    # أي عضو مسجل دخوله يرى شعارات الشركات (تظهر في مبدل الشركات)
+    # شعار الشركة لأعضائها ولمدير المنصة فقط — لا يُكشف هوية عملاء لشركات أخرى
+    if not request.state.is_platform_admin and not db.get_membership(request.state.user_id, company_id):
+        raise HTTPException(403, "لا تملك عضوية في هذه الشركة")
     path = _logo_path(company_id)
     if not path:
         raise HTTPException(404, "لا شعار مرفوعاً لهذه الشركة")
-    return FileResponse(path)
+    return FileResponse(path, headers={"Cache-Control": "private, max-age=300"})
 
 
 @app.get("/api/usage")
@@ -453,24 +615,136 @@ def status():
 
 # ------------------------------ الإعدادات ------------------------------
 
-# مفاتيح داخلية لا يجب أن تُعرض أو تُعدَّل عبر API الإعدادات العام
-_INTERNAL_SETTINGS_KEYS = {"auth_secret"}
+# الإعدادات المسموح قراءتها/كتابتها عبر الواجهة (قائمة بيضاء). كل ما عداها — مثل
+# auth_secret ومفاتيح محرك الذكاء المخزنة في الشركة 1 — داخلي لا يُعرض ولا يُعدَّل.
+_NOTIFY_SETTINGS = {
+    "notify_email_enabled", "notify_whatsapp_enabled",
+    "smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from", "smtp_security",
+    "whatsapp_token", "whatsapp_phone_id", "whatsapp_template", "whatsapp_template_lang",
+    "whatsapp_api_version",
+}
+_EDITABLE_SETTINGS = set(DEFAULT_SETTINGS) | _NOTIFY_SETTINGS | {"brand_color"}
+_SECRET_SETTINGS = db._SECRET_KEYS
+# لا يراها إلا الأدمن: أسرار وإعدادات قنوات وحسابات منصات خارجية
+_ADMIN_ONLY_SETTINGS = (_NOTIFY_SETTINGS | _SECRET_SETTINGS
+                        | {"etimad_national_id", "forsah_email", "notify_last_error"})
+_READONLY_SETTINGS = {"notify_last_error", "onboarding_done"}   # تظهر للأدمن ولا تُعدَّل من هنا
+_PCT_SETTINGS = ("vat_rate", "overhead_pct", "risk_pct", "profit_pct", "bid_bond_pct")
 
 
-def _public_settings() -> dict:
-    return {k: v for k, v in db.get_settings().items() if k not in _INTERNAL_SETTINGS_KEYS}
+def _public_settings(is_admin: bool) -> dict:
+    """الإعدادات كما تُعرض: الأسرار لا تخرج أبداً (تُستبدل بعلم `<key>_set`)."""
+    raw = db.get_settings()
+    visible = _EDITABLE_SETTINGS | _READONLY_SETTINGS
+    out = {}
+    for key, value in raw.items():
+        if key not in visible:
+            continue
+        if key in _SECRET_SETTINGS:
+            if is_admin:
+                out[f"{key}_set"] = "1" if value else "0"
+            continue
+        if key in _ADMIN_ONLY_SETTINGS and not is_admin:
+            continue
+        out[key] = value
+    return out
+
+
+def _validate_setting(key: str, value) -> str:
+    """تحقق وتطبيع قيمة إعداد — يرفع HTTPException 400 لقيمة غير صالحة."""
+    if isinstance(value, bool):
+        value = "1" if value else "0"
+    if value is None:
+        value = ""
+    if not isinstance(value, (str, int, float)):
+        raise HTTPException(400, f"قيمة غير صالحة للإعداد {key}")
+    value = str(value).strip()
+    if len(value) > 4000:
+        raise HTTPException(400, f"القيمة أطول من المسموح للإعداد {key}")
+
+    def bad(msg):
+        raise HTTPException(400, f"{key}: {msg}")
+
+    if key in _PCT_SETTINGS:
+        try:
+            n = float(value)
+        except ValueError:
+            bad("يجب أن يكون رقماً")
+        if not 0 <= n <= 100:
+            bad("النسبة بين 0 و100")
+    elif key == "validity_days":
+        if not value.isdigit() or not 1 <= int(value) <= 3650:
+            bad("عدد أيام صحيح بين 1 و3650")
+    elif key == "smtp_port":
+        if value and (not value.isdigit() or not 1 <= int(value) <= 65535):
+            bad("منفذ بين 1 و65535")
+    elif key in ("notify_email_enabled", "notify_whatsapp_enabled"):
+        if value not in ("0", "1", ""):
+            bad("القيمة 0 أو 1")
+        value = value or "0"
+    elif key == "smtp_security":
+        if value not in ("", "starttls", "ssl", "none"):
+            bad("القيم المتاحة: starttls أو ssl أو none")
+    elif key == "brand_color":
+        if value and not re.fullmatch(r"#[0-9A-Fa-f]{6}", value):
+            bad("لون بصيغة #RRGGBB")
+    elif key == "ref_prefix":
+        if not re.fullmatch(r"[A-Za-z0-9]{1,8}", value):
+            bad("بادئة رقم العرض: حتى 8 أحرف/أرقام إنجليزية")
+        value = value.upper()
+    elif key == "whatsapp_phone_id":
+        if value and not value.isdigit():
+            bad("معرّف رقم واتساب أرقام فقط")
+    elif key == "whatsapp_api_version":
+        if value and not re.fullmatch(r"v\d{1,2}\.\d", value):
+            bad("صيغة الإصدار مثل v21.0")
+    elif key == "company_email":
+        from .notify_channels import normalize_email
+        try:
+            value = normalize_email(value)
+        except ValueError as exc:
+            bad(str(exc))
+    return value
 
 
 @app.get("/api/settings")
-def get_settings():
-    return _public_settings()
+def get_settings(request: Request):
+    return _public_settings(request.state.role in tenancy.ADMIN_ROLES or request.state.is_platform_admin)
 
 
 @app.put("/api/settings")
-def put_settings(values: dict):
-    values = {k: v for k, v in values.items() if k not in _INTERNAL_SETTINGS_KEYS}
-    db.update_settings(values)
-    return _public_settings()
+def put_settings(request: Request, values: dict):
+    """تعديل إعدادات الشركة — أدمن فما فوق فقط، بقائمة بيضاء وتحقق من القيم.
+
+    الأسرار: قيمة فارغة أو مفقودة = إبقاء المحفوظ (الواجهة لا تملك القيمة أصلاً)؛
+    ولمسحها صراحةً: `_clear: ["smtp_pass"]`."""
+    _require_admin(request)
+    clear = values.get("_clear") or []
+    clean = {}
+    for key, value in values.items():
+        if key == "_clear" or key.endswith("_set"):
+            continue
+        if key not in _EDITABLE_SETTINGS:
+            raise HTTPException(400, f"إعداد غير معروف أو غير قابل للتعديل: {key}")
+        if key in _SECRET_SETTINGS:
+            if value in (None, ""):
+                continue
+            if not isinstance(value, str) or len(value) > 4000:
+                raise HTTPException(400, f"قيمة غير صالحة للإعداد {key}")
+            clean[key] = value.strip()
+            continue
+        clean[key] = _validate_setting(key, value)
+    for key in clear:
+        if key in _SECRET_SETTINGS:
+            clean[key] = ""
+    try:
+        db.update_settings(clean)
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc))
+    db.log_audit("settings", request.state.company_id, "update",
+                 "، ".join(sorted(k for k in clean if k not in _SECRET_SETTINGS)
+                           + [f"{k}(سر)" for k in clean if k in _SECRET_SETTINGS])[:400])
+    return _public_settings(True)
 
 
 # ---------------------------- قاعدة الأسعار ----------------------------
@@ -518,23 +792,41 @@ def export_prices_csv():
 
 
 @app.post("/api/prices/import/csv")
-async def import_prices_csv(file: UploadFile = File(...)):
-    content = (await file.read()).decode("utf-8-sig", errors="replace")
+def import_prices_csv(request: Request, file: UploadFile = File(...)):
+    """استيراد أسعار من CSV: سقف حجم، وحد خطة الاشتراك يُحترم (كان يتجاوزه)،
+    وسطر معطوب يُتخطى ويُبلَّغ عنه بدل أن يُسقط الاستيراد كله بخطأ 500."""
+    content = read_upload(file).decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
-    count = 0
-    for row in reader:
-        if not row.get("code") or not row.get("name"):
+    company = db.get_company(request.state.company_id) or {}
+    limit = tenancy.PLAN_LIMITS.get(company.get("plan", "trial"),
+                                    tenancy.PLAN_LIMITS["trial"]).get("price_items")
+    existing = {i["code"] for i in db.list_price_items()}
+    count, errors, over_limit = 0, [], 0
+    for line_no, row in enumerate(reader, start=2):
+        code, name = (row.get("code") or "").strip(), (row.get("name") or "").strip()
+        if not code or not name:
+            continue
+        try:
+            price = float(str(row.get("unit_price") or 0).replace(",", "").strip() or 0)
+            if price < 0:
+                raise ValueError
+        except ValueError:
+            errors.append({"line": line_no, "code": code, "error": "سعر غير صالح"})
+            continue
+        if limit is not None and code not in existing and len(existing) >= limit:
+            over_limit += 1
             continue
         db.upsert_price_item({
-            "code": row["code"].strip(),
+            "code": code,
             "category": (row.get("category") or "غير مصنف").strip(),
-            "name": row["name"].strip(),
+            "name": name,
             "unit": (row.get("unit") or "وحدة").strip(),
-            "unit_price": float(row.get("unit_price") or 0),
+            "unit_price": price,
             "notes": (row.get("notes") or "").strip(),
         })
+        existing.add(code)
         count += 1
-    return {"imported": count}
+    return {"imported": count, "errors": errors[:20], "skipped_over_plan_limit": over_limit}
 
 
 # --------------------------- المكتبة الفنية ---------------------------
@@ -588,8 +880,8 @@ def get_analytics():
 # ------------------------ المستودع المعرفي ------------------------
 
 @app.post("/api/repo/upload")
-async def repo_upload(
-    source_type: str = Form("عرض عزوم سابق"),
+def repo_upload(
+    source_type: str = Form("عرض الشركة السابق"),
     company: str = Form(""),
     notes: str = Form(""),
     as_reference: str = Form(""),
@@ -599,7 +891,7 @@ async def repo_upload(
     make_ref = as_reference in ("1", "true", "on", "yes")
     results = []
     for f in files:
-        content = await f.read()
+        content = read_upload(f)
         results.append(ingest_file(f.filename or "file", content, source_type, company,
                                    notes, as_reference=make_ref, sector=sector))
     return results
@@ -652,12 +944,20 @@ def market_search(q: str, sector: str = ""):
 # ------------------------ التسجيل الذاتي والفوترة ------------------------
 
 @app.post("/api/signup")
-def signup(body: dict):
-    """تسجيل شركة جديدة ذاتياً: خطة تجريبية 14 يوماً مع مالك حسابها."""
-    name = (body.get("name") or "").strip()
-    cr_no = (body.get("cr_no") or "").strip()
-    owner_username = (body.get("owner_username") or "").strip()
-    password = body.get("owner_password") or ""
+def signup(request: Request, body: dict):
+    """تسجيل شركة جديدة ذاتياً: خطة تجريبية 14 يوماً مع مالك حسابها.
+
+    نقطة عامة بلا مصادقة تنشئ بيانات — فتُقيَّد لكل عنوان وعالمياً (سقف بالساعة)
+    لمنع إغراق قاعدة البيانات بشركات وهمية وتضخيم أعداد التجارب."""
+    ip = security.client_ip(request)
+    enforce_rate(security.SIGNUP_IP_LIMITER, ip, "تسجيلات كثيرة من هذا الجهاز")
+    enforce_rate(security.SIGNUP_GLOBAL_LIMITER, "*", "التسجيل مزدحم حالياً")
+    security.SIGNUP_IP_LIMITER.hit(ip)
+    security.SIGNUP_GLOBAL_LIMITER.hit("*")
+    name = _text(body.get("name"), 200)
+    cr_no = _text(body.get("cr_no"), 40)
+    owner_username = _text(body.get("owner_username"), 100)
+    password = body.get("owner_password") if isinstance(body.get("owner_password"), str) else ""
     if not name or not cr_no or not owner_username:
         raise HTTPException(400, "اسم الشركة والسجل التجاري واسم مستخدم المالك مطلوبة")
     if db.find_company_by_cr(cr_no):
@@ -668,11 +968,11 @@ def signup(body: dict):
     if get_user(owner_username):
         raise HTTPException(409, "اسم المستخدم محجوز — اختر اسماً آخر")
     try:
-        owner = create_user(owner_username, password, body.get("owner_display_name", ""))
+        owner = create_user(owner_username, password, _text(body.get("owner_display_name"), 100))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    company = db.create_company(name, body.get("short_name", ""), "trial",
-                                body.get("sector", ""), cr_no, body.get("vat_no", ""))
+    company = db.create_company(name, _text(body.get("short_name"), 60), "trial",
+                                _text(body.get("sector"), 100), cr_no, _text(body.get("vat_no"), 40))
     db.set_membership(owner["id"], company["id"], "owner")
     db.log_audit("companies", company["id"], "signup", name)
     return {"ok": True, "company_id": company["id"],
@@ -727,7 +1027,12 @@ def platform_model_put(request: Request, body: dict):
             raise HTTPException(400, f"الفئة غير معروفة — المتاح: {', '.join(TIERS)}")
         values["model_tier"] = body["tier"]
     if "pinned" in body:
-        values["model_pinned"] = (body.get("pinned") or "").strip()
+        from .model_updater import check_pin
+        pinned = _text(body.get("pinned"), 100)
+        problem = check_pin(pinned)
+        if problem:
+            raise HTTPException(400, problem)
+        values["model_pinned"] = pinned
     if values:
         db.update_settings(values, company_id=1)
         db.log_audit("claude_model", "", "config", str(values))
@@ -740,7 +1045,7 @@ def platform_metrics(request: Request):
     companies = db.list_companies()
     paid = [c for c in companies
             if c["plan"] != "trial" and c["subscription_status"] == "active"]
-    mrr = sum(tenancy.PLAN_PRICE.get(c["plan"]) or 0 for c in paid)
+    mrr = sum(db.company_monthly_price(c) or 0 for c in paid)   # يشمل الأسعار المتفاوض عليها
     trials = [c for c in companies if c["plan"] == "trial"]
     return {
         "mrr": mrr,
@@ -829,40 +1134,61 @@ def forsah_status(pid: int, body: dict):
 # ------------------------ تحليل فرصة الفوز ------------------------
 
 @app.post("/api/opportunity")
-async def opportunity(
+def opportunity(
     title: str = Form(...),
     client: str = Form(""),
     files: list[UploadFile] = File(default=[]),
 ):
     texts = []
     for f in files:
-        content = await f.read()
+        content = read_upload(f)
         texts.append(extract_text(f.filename or "file", content))
     return analyze_opportunity(title, client, "\n\n".join(texts))
 
 
 # ------------------------- توليد العروض وإدارتها -------------------------
 
+_ENTITY_TYPES = ("government", "private", "pif", "airports")
+
+
+def _check_entity(entity_type: str) -> str:
+    if entity_type not in _ENTITY_TYPES:
+        raise HTTPException(400, f"نوع الجهة غير معروف — المتاح: {', '.join(_ENTITY_TYPES)}")
+    return entity_type
+
+
+def _throttle_generation(request: Request):
+    """سقف بناء العروض لكل شركة بالساعة — كل بناء قد يكلّف استدعاء ذكاء اصطناعي."""
+    key = str(request.state.company_id)
+    enforce_rate(security.GENERATE_LIMITER, key, "طلبات بناء عروض كثيرة")
+    security.GENERATE_LIMITER.hit(key)
+
+
+# معالجات `def` (لا `async def`): بناء العرض يحجب دقائق (ذكاء اصطناعي + قراءة ملفات).
+# كانت async فتُجمّد حلقة الأحداث كلها — تتوقف كل الطلبات الأخرى (7 ثوانٍ في القياس).
+# `def` تُنفَّذ في مجمّع الخيوط فيبقى الخادم متجاوباً.
 @app.post("/api/proposals/generate")
-async def generate_proposal(
+def generate_proposal(
     request: Request,
     title: str = Form(...),
     client: str = Form(...),
     entity_type: str = Form("government"),
     files: list[UploadFile] = File(default=[]),
 ):
+    _check_entity(entity_type)
     _enforce_limit(request, "proposals_month")
     _require_company_logo(request)
-    files_text = await _read_uploads_text(files)
+    _throttle_generation(request)
+    files_text = _read_uploads_text(files)
     data, matches = _build_proposal_data(title, client, entity_type, files_text)
     proposal = db.create_proposal(title, client, entity_type, data)
     return proposal
 
 
-async def _read_uploads_text(files: list[UploadFile]) -> str:
+def _read_uploads_text(files: list[UploadFile]) -> str:
     texts = []
     for f in files or []:
-        content = await f.read()
+        content = read_upload(f)
         extracted = extract_text(f.filename or "file", content)
         texts.append(f"===== الملف: {f.filename} =====\n{extracted}")
     return "\n\n".join(texts)
@@ -968,18 +1294,37 @@ def proposal_quality_fix(pid: int):
     return {"fixes": fixes, "report": review_proposal(data)}
 
 
+def _render_export(build, suffix: str) -> bytes:
+    """يبني ملف التصدير في ملف مؤقت فريد ويعيد بايتاته ثم يحذفه.
+
+    كان الملف يُكتب باسم رقم العرض فقط فيتصادم مع طلب آخر متزامن (ملف تالف)،
+    أو مع شركة أخرى لها رقم عرض مطابق (تسرّب عرض شركة إلى أخرى)."""
+    fd, tmp = tempfile.mkstemp(suffix=suffix, dir=EXPORTS_DIR)
+    os.close(fd)
+    try:
+        build(tmp)
+        return Path(tmp).read_bytes()
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+
+
+def _download(content: bytes, media_type: str, filename: str) -> Response:
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", filename)
+    return Response(content, media_type=media_type,
+                    headers={"Content-Disposition": f'attachment; filename="{safe}"',
+                             "Cache-Control": "no-store"})
+
+
 @app.get("/api/proposals/{pid}/export/docx")
 def export_docx(pid: int):
     proposal = db.get_proposal(pid)
     if not proposal:
         raise HTTPException(404, "العرض غير موجود")
-    path = EXPORTS_DIR / f"{proposal['ref_no']}.docx"
-    export_proposal_docx(proposal, _branded_settings(), str(path))
-    return FileResponse(
-        path,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=f"{proposal['ref_no']}.docx",
-    )
+    settings = _branded_settings()
+    content = _render_export(lambda path: export_proposal_docx(proposal, settings, path), ".docx")
+    return _download(content,
+                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                     f"{proposal['ref_no']}.docx")
 
 
 @app.get("/api/proposals/{pid}/export/xlsx")
@@ -987,13 +1332,11 @@ def export_xlsx(pid: int):
     proposal = db.get_proposal(pid)
     if not proposal:
         raise HTTPException(404, "العرض غير موجود")
-    path = EXPORTS_DIR / f"{proposal['ref_no']}-BOQ.xlsx"
-    export_boq_xlsx(proposal, str(path), settings=_branded_settings())
-    return FileResponse(
-        path,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"{proposal['ref_no']}-BOQ.xlsx",
-    )
+    settings = _branded_settings()
+    content = _render_export(lambda path: export_boq_xlsx(proposal, path, settings=settings), ".xlsx")
+    return _download(content,
+                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                     f"{proposal['ref_no']}-BOQ.xlsx")
 
 
 # ------------------------------ وحدة تنفيذ المشاريع ------------------------------
@@ -1162,8 +1505,14 @@ def members_contact(request: Request, uid: int, body: dict):
     _require_admin(request)
     if not db.get_membership(uid, request.state.company_id):
         raise HTTPException(404, "العضو غير موجود في هذه الشركة")
-    db.set_user_contact(uid, (body.get("email") or "").strip(), (body.get("phone") or "").strip())
-    return {"ok": True}
+    from .notify_channels import normalize_email, normalize_phone
+    try:
+        email = normalize_email(_text(body.get("email"), 200))
+        phone = normalize_phone(_text(body.get("phone"), 40))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    db.set_user_contact(uid, email, phone)
+    return {"ok": True, "email": email, "phone": phone}
 
 
 @app.post("/api/notify/test")
@@ -1197,6 +1546,7 @@ def _branded_settings() -> dict:
     settings = db.get_settings()
     company_id = tenancy.cid()
     logo = _company_logo_file(company_id)
+    settings["_company_id"] = company_id
     settings["_logo_path"] = str(logo) if logo else ""
     settings["_brand_color"] = _brand_color(company_id).lstrip("#")
     return settings
@@ -1222,7 +1572,7 @@ def onboarding_complete(request: Request):
 
 
 @app.post("/api/onboarding/technical-upload")
-async def onboarding_technical_upload(request: Request, files: list[UploadFile] = File(...),
+def onboarding_technical_upload(request: Request, files: list[UploadFile] = File(...),
                                       client: str = Form("")):
     """رفع عروض الشركة الفنية السابقة لبنك الأسلوب — خطوة المعالج الثانية.
 
@@ -1232,7 +1582,7 @@ async def onboarding_technical_upload(request: Request, files: list[UploadFile] 
     from .style_engine import extract_style_profile, ingest_technical_document
     results = []
     for f in files:
-        content = await f.read()
+        content = read_upload(f)
         text = extract_text(f.filename or "file", content)
         if len((text or "").strip()) < 200:
             results.append({"filename": f.filename, "ok": False,
@@ -1252,7 +1602,7 @@ async def onboarding_technical_upload(request: Request, files: list[UploadFile] 
 # ------------------------------ الوكيلان: تحليل ثم توليد ------------------------------
 
 @app.post("/api/agents/analyze")
-async def agents_analyze(
+def agents_analyze(
     request: Request,
     title: str = Form(...),
     client: str = Form(...),
@@ -1260,15 +1610,21 @@ async def agents_analyze(
     files: list[UploadFile] = File(default=[]),
 ):
     """تشغيل جاف لخط الإنتاج الحقيقي: الوكيل الفني ووكيل التسعير يعرضان
-    خطتهما وتوصياتهما قبل الاعتماد — دون حفظ عرض."""
-    files_text = await _read_uploads_text(files)
+    خطتهما وتوصياتهما قبل الاعتماد — دون حفظ عرض.
+
+    يُفحص حد الخطة قبل أي استدعاء ذكاء اصطناعي (لا تُنفَق تكلفة على تحليل سيُرفض
+    اعتماده)، ويُحفظ العرض المبني نفسه في الجلسة فلا يُبنى مرة ثانية عند الاعتماد."""
+    _check_entity(entity_type)
+    _enforce_limit(request, "proposals_month")
+    _throttle_generation(request)
+    files_text = _read_uploads_text(files)
     data, matches = _build_proposal_data(title, client, entity_type, files_text)
     company = db.get_company(request.state.company_id) or {}
     onboarding = agents.onboarding_status(company,
                                           _company_logo_file(request.state.company_id) is not None)
     analysis = agents.build_analysis(title, client, entity_type, files_text,
                                      data, matches, onboarding)
-    sid = agents.save_session(title, client, entity_type, files_text, analysis)
+    sid = agents.save_session(title, client, entity_type, files_text, analysis, data=data)
     analysis["session_id"] = sid
     return analysis
 
@@ -1276,15 +1632,27 @@ async def agents_analyze(
 @app.post("/api/agents/generate")
 def agents_generate(request: Request, body: dict):
     """اعتماد التحليل: يبني العرضين من جلسة التحليل نفسها (بلا إعادة رفع ملفات)."""
-    _enforce_limit(request, "proposals_month")
-    _require_company_logo(request)
-    session = agents.get_session(int(body.get("session_id") or 0))
+    try:
+        sid = int(body.get("session_id") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "معرّف الجلسة غير صالح")
+    session = agents.get_session(sid)
     if not session:
         raise HTTPException(404, "جلسة التحليل غير موجودة أو انتهت — أعد التحليل")
-    data, matches = _build_proposal_data(session["title"], session["client"],
-                                         session["entity_type"], session["files_text"])
+    if session.get("proposal_id"):          # اعتماد مكرر (نقرة مزدوجة) → العرض نفسه لا نسخة ثانية
+        existing = db.get_proposal(session["proposal_id"])
+        if existing:
+            return existing
+    _enforce_limit(request, "proposals_month")
+    _require_company_logo(request)
+    data = session.get("data")
+    if not data:                            # جلسة قديمة بلا عرض محفوظ
+        _throttle_generation(request)
+        data, _ = _build_proposal_data(session["title"], session["client"],
+                                       session["entity_type"], session["files_text"])
     proposal = db.create_proposal(session["title"], session["client"],
                                   session["entity_type"], data)
+    agents.mark_session_used(sid, proposal["id"])
     db.log_audit("agents", proposal["id"], "generate", session["title"])
     return proposal
 

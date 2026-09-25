@@ -5,17 +5,18 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from .config import BRAND
 from .proposal_builder import client_facing_pricing, flatten_boq_rows
 
-HEADER_FILL = PatternFill("solid", fgColor=BRAND["primary"])
-ACCENT_FILL = PatternFill("solid", fgColor=BRAND["accent"])
 THIN = Side(style="thin", color="B0B0B0")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
 
-def export_boq_xlsx(proposal: dict, path: str, settings: dict | None = None):
+def export_boq_xlsx(proposal: dict, path, settings: dict | None = None):
     settings = settings or {}
+    is_azoom = settings.get("_company_id") == 1
     brand_hex = (settings.get("_brand_color") or BRAND["primary"]).lstrip("#").upper()
     header_fill = PatternFill("solid", fgColor=brand_hex)
-    company_name = settings.get("company_name") or BRAND["name_ar"]
+    # لون خانة «الإجمالي النهائي»: أخضر الشعار لعزوم فقط، ولون المستأجر لغيرها
+    accent_fill = PatternFill("solid", fgColor=BRAND["accent"] if is_azoom else brand_hex)
+    company_name = settings.get("company_name") or (BRAND["name_ar"] if is_azoom else "")
     data = proposal["data"]
     wb = Workbook()
     from .quality_agent import clean_file_properties
@@ -77,7 +78,7 @@ def export_boq_xlsx(proposal: dict, path: str, settings: dict | None = None):
         value_cell.border = BORDER
         if "النهائي" in label:
             for col in range(1, 8):
-                ws.cell(row=row, column=col).fill = ACCENT_FILL
+                ws.cell(row=row, column=col).fill = accent_fill
         row += 1
 
     widths = [6, 10, 55, 10, 10, 18, 18]

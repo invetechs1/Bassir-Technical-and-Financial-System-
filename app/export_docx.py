@@ -1,4 +1,6 @@
 """تصدير العرض إلى ملف Word احترافي بهوية عزوم — عربي RTL كامل."""
+from contextvars import ContextVar
+
 from docx import Document
 from docx.enum.section import WD_SECTION
 from docx.enum.table import WD_TABLE_ALIGNMENT
@@ -10,25 +12,47 @@ from docx.shared import Pt, RGBColor, Cm
 from .config import BRAND
 from .proposal_builder import client_facing_pricing, flatten_boq_rows
 
-PRIMARY = RGBColor.from_string(BRAND["primary"])
-ACCENT = RGBColor.from_string(BRAND["accent"])
-_PRIMARY_HEX = BRAND["primary"]
+# هوية المستند الحالي في ContextVar — كل طلب/خيط يرى هويته وحدها. كانت متغيرات
+# وحدة عامة تتبادلها الطلبات المتزامنة فيخرج ملف بلون شركة أخرى.
+_BRAND_CTX: ContextVar[tuple] = ContextVar("docx_brand", default=None)
 
 
-def _apply_brand(settings: dict):
-    """هوية المستأجر في المستند: لونه الأساسي بدل الأخضر الافتراضي إن حُدد."""
-    global PRIMARY, _PRIMARY_HEX
+def _resolve_brand(settings: dict) -> tuple:
+    """(لون أساسي، لون مساند) كنص HEX. عزوم: أخضر الشعار المساند؛
+    المستأجر: لونه هو للاثنين — لا يتسرب أخضر عزوم إلى وثائق غيرها."""
     hexv = (settings.get("_brand_color") or BRAND["primary"]).lstrip("#").upper()
     try:
-        PRIMARY = RGBColor.from_string(hexv)
-        _PRIMARY_HEX = hexv
+        RGBColor.from_string(hexv)
     except Exception:
-        PRIMARY = RGBColor.from_string(BRAND["primary"])
-        _PRIMARY_HEX = BRAND["primary"]
+        hexv = BRAND["primary"]
+    accent = BRAND["accent"] if _is_azoom(settings) else hexv
+    return hexv, accent
+
+
+def _primary_hex() -> str:
+    b = _BRAND_CTX.get()
+    return b[0] if b else BRAND["primary"]
+
+
+def _accent_hex() -> str:
+    b = _BRAND_CTX.get()
+    return b[1] if b else BRAND["accent"]
+
+
+def _primary() -> RGBColor:
+    return RGBColor.from_string(_primary_hex())
+
+
+def _accent() -> RGBColor:
+    return RGBColor.from_string(_accent_hex())
 
 
 def _is_azoom(settings: dict) -> bool:
-    return settings.get("company_cr", "") == BRAND["footer_cr"]
+    """هوية عزوم الثابتة (تذييل/اسم إنجليزي) لمستأجر عزوم نفسه (الشركة 1) فقط —
+    لا بمطابقة السجل التجاري: أي مستأجر يكتب سجل عزوم لا يرث تذييلها."""
+    return settings.get("_company_id") == 1
+
+
 FONT = "Sakkal Majalla"
 FONT_FALLBACK = "Arial"
 
@@ -75,10 +99,10 @@ def _para(doc, text="", size=13, bold=False, color=None, align=WD_ALIGN_PARAGRAP
 
 def _heading(doc, text, level=1):
     if level == 1:
-        p = _para(doc, text, size=17, bold=True, color=PRIMARY, space_after=10)
+        p = _para(doc, text, size=17, bold=True, color=_primary(), space_after=10)
         _add_bottom_border(p)
     else:
-        _para(doc, text, size=14, bold=True, color=ACCENT, space_after=8)
+        _para(doc, text, size=14, bold=True, color=_accent(), space_after=8)
 
 
 def _add_bottom_border(paragraph):
@@ -87,7 +111,7 @@ def _add_bottom_border(paragraph):
     bottom = OxmlElement("w:bottom")
     bottom.set(qn("w:val"), "single")
     bottom.set(qn("w:sz"), "12")
-    bottom.set(qn("w:color"), BRAND["accent"])
+    bottom.set(qn("w:color"), _accent_hex())
     borders.append(bottom)
     pPr.append(borders)
 
@@ -116,7 +140,7 @@ def _table(doc, headers, rows, widths=None, money_cols=()):
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         _set_rtl(p)
         _run(p, h, size=11, bold=True, color=RGBColor(0xFF, 0xFF, 0xFF))
-        _shade_cell(cell, _PRIMARY_HEX)
+        _shade_cell(cell, _primary_hex())
 
     for row_data in rows:
         cells = table.add_row().cells
@@ -156,11 +180,11 @@ def _page_footer(doc, settings=None):
         top = OxmlElement("w:top")
         top.set(qn("w:val"), "single")
         top.set(qn("w:sz"), "8")
-        top.set(qn("w:color"), BRAND["accent"])
+        top.set(qn("w:color"), _accent_hex())
         borders.append(top)
         pPr.append(borders)
-        _run(p, footer_name, size=9, bold=True, color=PRIMARY)
-        _run(p, "   —   ", size=9, color=ACCENT)
+        _run(p, footer_name, size=9, bold=True, color=_primary())
+        _run(p, "   —   ", size=9, color=_accent())
         _run(p, footer_text, size=9, color=RGBColor(0x66, 0x66, 0x66))
 
 
@@ -177,13 +201,13 @@ def _cover_page(doc, proposal, settings):
         except Exception:
             pass
     doc.add_paragraph()
-    company_name = settings.get("company_name") or BRAND["name_ar"]
-    _para(doc, company_name, size=32, bold=True, color=PRIMARY, align=WD_ALIGN_PARAGRAPH.CENTER)
+    company_name = settings.get("company_name") or (BRAND["name_ar"] if _is_azoom(settings) else "")
+    _para(doc, company_name, size=32, bold=True, color=_primary(), align=WD_ALIGN_PARAGRAPH.CENTER)
     if _is_azoom(settings):
-        _para(doc, BRAND["name_en"], size=16, bold=True, color=ACCENT, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=30)
+        _para(doc, BRAND["name_en"], size=16, bold=True, color=_accent(), align=WD_ALIGN_PARAGRAPH.CENTER, space_after=30)
     else:
         _para(doc, "", size=10, space_after=24)
-    _para(doc, "العرض الفني والمالي", size=26, bold=True, color=PRIMARY, align=WD_ALIGN_PARAGRAPH.CENTER)
+    _para(doc, "العرض الفني والمالي", size=26, bold=True, color=_primary(), align=WD_ALIGN_PARAGRAPH.CENTER)
     _para(doc, proposal["title"], size=18, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=20)
     _para(doc, f"مقدم إلى: {proposal['client']}", size=14, align=WD_ALIGN_PARAGRAPH.CENTER)
     _para(doc, f"رقم العرض: {proposal['ref_no']}", size=12, align=WD_ALIGN_PARAGRAPH.CENTER)
@@ -197,7 +221,16 @@ def _cover_page(doc, proposal, settings):
     doc.add_page_break()
 
 
-def export_proposal_docx(proposal: dict, settings: dict, path: str):
+def export_proposal_docx(proposal: dict, settings: dict, path):
+    """يبني ملف Word ويحفظه في `path` (مسار أو كائن ملف). آمن للتزامن."""
+    token = _BRAND_CTX.set(_resolve_brand(settings))
+    try:
+        return _build_docx(proposal, settings, path)
+    finally:
+        _BRAND_CTX.reset(token)
+
+
+def _build_docx(proposal: dict, settings: dict, path):
     data = proposal["data"]
     doc = Document()
 
@@ -208,7 +241,6 @@ def export_proposal_docx(proposal: dict, settings: dict, path: str):
         section.right_margin = Cm(2.2)
         section.left_margin = Cm(2.2)
 
-    _apply_brand(settings)
     # خصائص الملف باسم الشركة — لا يظهر اسم أي مكتبة برمجية في Author/Company
     from .quality_agent import clean_file_properties
     props = clean_file_properties(settings)
@@ -287,8 +319,9 @@ def export_proposal_docx(proposal: dict, settings: dict, path: str):
         money_cols=(1,),
     )
 
-    _heading(doc, "شروط الدفع", level=2)
-    _para(doc, settings.get("payment_terms", ""), size=12)
+    if (settings.get("payment_terms") or "").strip():   # لا عنوان فارغ لمستأجر لم يحدد شروطه
+        _heading(doc, "شروط الدفع", level=2)
+        _para(doc, settings["payment_terms"], size=12)
 
     assumptions = data.get("assumptions") or []
     if assumptions:
@@ -298,7 +331,7 @@ def export_proposal_docx(proposal: dict, settings: dict, path: str):
 
     _para(doc)
     _para(doc, "وتفضلوا بقبول فائق الاحترام والتقدير،", size=12)
-    _para(doc, settings.get("company_name", "شركة عزوم"), size=13, bold=True, color=PRIMARY)
+    _para(doc, settings.get("company_name", ""), size=13, bold=True, color=_primary())
 
     doc.save(path)
     return path
