@@ -341,7 +341,8 @@ function viewProposal(p) {
   if (p.data.similar_refs?.length) {
     meta += ` • ${t("built_on_label")} ${p.data.similar_refs.map((r) => `${r.title.slice(0, 30)}… (${r.score}%)`).join("، ")}`;
   }
-  $("#vMeta").textContent = meta + (p.data.project_kind ? " • " + t("kind_label") + " " + p.data.project_kind : "");
+  $("#vMeta").textContent = meta + (p.data.project_kind ? " • " + t("kind_label") + " " + p.data.project_kind : "")
+    + (p.data.master_ref ? " • 📋 " + t("master_clone_label") + ": " + p.data.master_ref : "");
   $("#vStatus").value = p.status;
   renderTech(p.data);
   renderFin(p.data);
@@ -1962,6 +1963,8 @@ function renderAgents(a) {
   $("#agentTechBody").innerHTML = `
     <p>📁 ${t("agent_kind")}: <b>${escH(a.project_kind)}</b></p>
     <p>🔎 ${t("agent_similar")}:</p><ul style="margin:4px 18px">${sim}</ul>
+    ${a.tech.build_mode === "master_clone"
+      ? `<p style="color:var(--accent)">📋 <b>${t("agent_master_mode")}</b>: ${escH(a.tech.master_ref)}</p>` : ""}
     <p>🏦 ${t("agent_bank_cover")}: <b>${a.tech.from_bank_count}/${a.tech.sections_total}</b>
       ${a.tech.style_score != null ? ` — ${t("agent_style_score")}: <b>${a.tech.style_score}</b>` : ""}</p>
     <div>${bankList}</div>`;

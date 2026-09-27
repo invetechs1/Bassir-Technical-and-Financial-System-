@@ -544,6 +544,8 @@ const I18N = {
   th_contact: { ar: "البريد والجوال (للإشعارات)", en: "Email & phone (notifications)" },
   sar: { ar: "ر.س", en: "SAR" },
   qa_btn: { ar: "🛡️ وكيل الجودة والمراجعة", en: "🛡️ Quality & review agent" },
+  master_clone_label: { ar: "طبق الأصل من", en: "Cloned from" },
+  agent_master_mode: { ar: "سيُبنى طبق الأصل من عرضكم", en: "Will be cloned from your past proposal" },
   qa_score: { ar: "درجة الجاهزية", en: "Readiness score" },
   qa_ready: { ar: "جاهز للتقديم", en: "Ready to submit" },
   qa_voice: { ar: "أقسام بصوت شركتك", en: "Sections in your company voice" },

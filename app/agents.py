@@ -124,7 +124,7 @@ def _boq_coverage(boq: list[dict]) -> dict:
 def _tech_coverage(data: dict) -> dict:
     """تغطية بنك الشركة لأقسام العرض — تقرير الوكيل الفني."""
     sections = data.get("technical_sections", [])
-    from_bank = [s["title"] for s in sections if s.get("source") == "bank"]
+    from_bank = [s["title"] for s in sections if s.get("source") in ("bank", "master")]
     style = data.get("style", {}) or {}
     return {
         "sections_total": len(sections),
@@ -132,6 +132,8 @@ def _tech_coverage(data: dict) -> dict:
         "from_bank_count": len(from_bank),
         "bank_ratio": style.get("bank_ratio"),
         "style_score": style.get("score"),
+        "build_mode": data.get("build_mode", "bank"),
+        "master_ref": data.get("master_ref", ""),
     }
 
 
@@ -148,9 +150,14 @@ def build_analysis(title: str, client: str, entity_type: str, files_text: str,
         recommendations.append({"agent": "tech", "level": "warn",
                                 "text": f"بنك الأسلوب فيه {onboarding['style_docs']} من {onboarding['style_docs_target']} "
                                         "عروض فنية سابقة — كلما رفعت المزيد صار العرض بصوت شركتك لا بصياغة عامة."})
-    if tech["from_bank_count"] == 0 and tech["sections_total"]:
+    if tech.get("build_mode") == "master_clone":
+        recommendations.append({"agent": "tech", "level": "ok",
+                                "text": f"سيُبنى العرض الفني طبق الأصل من عرضكم السابق «{tech.get('master_ref', '')}» "
+                                        "بنفس بنيته وروحه — مع أقلمة اسم العميل والتواريخ والأقسام الديناميكية فقط."})
+    elif tech["from_bank_count"] == 0 and tech["sections_total"]:
         recommendations.append({"agent": "tech", "level": "warn",
-                                "text": "لم يُبنَ أي قسم من بنك فقرات شركتك — سيُستخدم أسلوب الانطلاق العام حتى ترفع عروضك السابقة."})
+                                "text": "لا عرض كامل سابق صالح قالباً ولا أقسام من بنك الفقرات — سيُستخدم أسلوب الانطلاق العام. "
+                                        "ارفع عروضك الفنية الكاملة من معالج التهيئة ليستنسخها الوكيل طبق الأصل."})
     if not matches:
         recommendations.append({"agent": "both", "level": "info",
                                 "text": "لا عروض سابقة مشابهة في الأرشيف — سيُبنى العرض من ملفات المشروع وقاعدة الأسعار مباشرة."})

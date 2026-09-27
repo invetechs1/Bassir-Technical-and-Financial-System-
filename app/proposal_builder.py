@@ -355,9 +355,28 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
          "deliverables": ["وثائق As-Built", "محضر استلام نهائي", "تقرير إغلاق المشروع"]},
     ]
 
-    # طبقة الأسلوب: أقسام العرض تُبنى من فقرات الشركة المعتمدة متى وُجدت،
-    # والباقي يُنقّى من عبارات القوالب المكشوفة — انظر style_engine.py
-    sections, style_meta = apply_style_layer(sections, text, project_kind)
+    # وكيل بناء العروض طبق الأصل: إن وُجد عرض كامل سابق مناسب استُنسخت أقسامه
+    # كاملةً بترتيبها وروحها وأُقلمت للمشروع (العميل والسنة والأقسام الديناميكية
+    # فقط) — فتخرج العروض موحدةً لأنها حرفياً من عروض الشركة الحقيقية.
+    # بنك الفقرات (apply_style_layer) يبقى احتياطاً عند غياب قالب كامل.
+    master_ref = ""
+    try:
+        from .master_builder import build_from_master
+        cloned = build_from_master(text, project_kind, client,
+                                   {"cover": cover_letter, "company": company_info})
+    except Exception:
+        cloned = None
+    if cloned:
+        sections, master_ref = cloned
+        try:
+            from .style_engine import get_style_profile, style_report
+            style_meta = style_report(sections, get_style_profile())
+        except Exception:
+            style_meta = {}
+    else:
+        # طبقة الأسلوب: أقسام العرض تُبنى من فقرات الشركة المعتمدة متى وُجدت،
+        # والباقي يُنقّى من عبارات القوالب المكشوفة — انظر style_engine.py
+        sections, style_meta = apply_style_layer(sections, text, project_kind)
 
     settings = get_settings()
     return {
@@ -378,5 +397,7 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
                  {"role": "مهندس جودة وسلامة", "count": 1}],
         "style": style_meta,
         "project_kind": project_kind,
+        "build_mode": "master_clone" if master_ref else "bank",
+        "master_ref": master_ref,
         "engine": "template",
     }
