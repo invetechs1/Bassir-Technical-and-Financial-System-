@@ -181,9 +181,15 @@ check("تحديث حالة العرض (فائز)", r.status_code == 200)
 
 # ---------- 9. التصدير Word + Excel ----------
 _titles = [sec["title"] for sec in data.get("technical_sections", [])]
-check("بنية العرض الحقيقية (خطاب التقديم أولاً + معلومات الشركة + من نحن)",
-      _titles[:1] == ["خطاب التقديم"] and "معلومات الشركة" in _titles and "من نحن" in _titles,
-      str(_titles[:5]))
+if data.get("build_mode") == "master_clone":
+    # الاستنساخ طبق الأصل: البنية بنية عرض الشركة الحقيقي نفسه
+    check("بنية العرض الحقيقية (استنساخ: خطاب التقديم أولاً + بنية القالب كاملة)",
+          _titles[:1] == ["خطاب التقديم"] and len(_titles) >= 12 and data.get("master_ref"),
+          str(_titles[:5]))
+else:
+    check("بنية العرض الحقيقية (خطاب التقديم أولاً + معلومات الشركة + من نحن)",
+          _titles[:1] == ["خطاب التقديم"] and "معلومات الشركة" in _titles and "من نحن" in _titles,
+          str(_titles[:5]))
 _bodies_all = " ".join(sec["body"] for sec in data.get("technical_sections", []))
 check("لا ملاحظات تحريرية في نصوص العميل", "حرّر هذا القسم" not in _bodies_all)
 r = c.get(f"/api/proposals/{pid}/export/docx")
@@ -361,8 +367,9 @@ sty = r.json()["data"].get("style", {})
 spid = r.json()["id"]
 check("العرض مبني من بنك الفقرات (bank_ratio > 0)",
       sty.get("bank_ratio", 0) > 0 and sty.get("score", 0) > 0, str(sty))
-_bodies = " ".join(sec["body"] for sec in r.json()["data"]["technical_sections"])
-check("لا عبارات من القائمة السوداء في المخرَج",
+_bodies = " ".join(sec["body"] for sec in r.json()["data"]["technical_sections"]
+                   if sec.get("source") != "master")  # المستنسخ طبق الأصل لا يُنقّى — نص الشركة الحقيقي
+check("لا عبارات من القائمة السوداء في الأقسام المولدة (غير المستنسخة)",
       not any(b in _bodies for b in ("حلول مبتكرة", "شريك النجاح", "في الختام", "نسعى جاهدين")))
 c.delete(f"/api/proposals/{spid}")
 if bank_items:
@@ -395,8 +402,9 @@ _dk = r.json()["data"]
 check("توليد صيانة: الفئة مكتشفة والخطة تشغيلية سنوية",
       _dk.get("project_kind") == "صيانة وتشغيل" and "التشغيل والصيانة الدورية" in _dk["plan"][1]["phase"],
       str((_dk.get("project_kind"), _dk["plan"][1]["phase"])))
-_bank_refs = {s3.get("source_ref", "") for s3 in _dk["technical_sections"] if s3.get("source") == "bank"}
-check("بنك الفقرات اختار عروض الصيانة لا الإنشاءات",
+_bank_refs = {s3.get("source_ref", "") for s3 in _dk["technical_sections"]
+              if s3.get("source") in ("bank", "master")}
+check("مصادر الصياغة من عروض الصيانة لا الإنشاءات (بنك أو استنساخ)",
       any("صيانة" in (ref or "") for ref in _bank_refs), str(_bank_refs))
 c.delete(f"/api/proposals/{r.json()['id']}")
 
@@ -1225,6 +1233,35 @@ check("أول تشغيل: كلمة مرور عشوائية في ملف مقيَ�
       (_p.stdout + _p.stderr)[-300:])
 shutil.rmtree(_env["AZOOM_DATA_DIR"], ignore_errors=True)
 
+
+# ---------- وكيل بناء العروض طبق الأصل (الاستنساخ الكامل) ----------
+from app.master_builder import list_masters as _lm, pick_master as _pm, load_master_sections as _lms
+_masters = _lm()
+check("قوالب العروض الكاملة متاحة (عرضا عزوم الحقيقيان)", len(_masters) >= 2,
+      str([m["filename"][:30] for m in _masters]))
+_mm = _pm("صيانة وتشغيل أنظمة تكييف وتبريد", "صيانة وتشغيل")
+check("اختيار القالب بفئة المشروع", _mm and _mm["project_kind"] == "صيانة وتشغيل")
+r = c.post("/api/proposals/generate", data={"title": "فحص الاستنساخ طبق الأصل لصيانة وتشغيل المكيفات",
+                                            "client": "جهة فحص الاستنساخ", "entity_type": "government"})
+_mc = r.json()
+check("التوليد بوضع الاستنساخ طبق الأصل",
+      r.status_code == 200 and _mc["data"].get("build_mode") == "master_clone"
+      and _mc["data"].get("master_ref") == _mm["filename"], str(_mc["data"].get("build_mode")))
+_msecs = [x for x in _mc["data"]["technical_sections"] if x.get("source") == "master"]
+check("الأقسام مستنسخة كاملة بترتيب القالب", len(_msecs) >= 15, str(len(_msecs)))
+_orig_bodies = {x["body"][:120] for x in _lms(_mm["id"])}
+_sample_hits = sum(1 for x in _msecs if x["body"][:120] in _orig_bodies)
+check("النص طبق الأصل حرفياً (عينات المطلع)", _sample_hits >= 12, str(_sample_hits))
+check("لا قسم مالي مستنسخ (يُبنى من محرك التسعير)",
+      not any("جدول الكميات" in x["title"] for x in _msecs))
+_qm = c.get(f"/api/proposals/{_mc['id']}/quality").json()
+check("جودة العرض المستنسخ (صوت الشركة)", _qm["score"] >= 80 and _qm["bank_sections"] >= 15,
+      str(_qm["score"]))
+r = c.post("/api/agents/analyze", data={"title": "صيانة وتشغيل تكييف", "client": "جهة", "entity_type": "private"})
+check("الوكيل الفني يعلن الاستنساخ في التحليل",
+      r.json()["tech"].get("build_mode") == "master_clone"
+      and any("طبق الأصل" in x["text"] for x in r.json()["recommendations"]))
+c.delete(f"/api/proposals/{_mc['id']}")
 
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)

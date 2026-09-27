@@ -433,7 +433,7 @@ def build_from_bank(brief_text: str, project_kind: str = "") -> dict:
 def style_report(sections: list[dict], profile: dict) -> dict:
     """درجة مطابقة الأسلوب للعرض المبني — bank_ratio أعلى وزن."""
     total = len(sections) or 1
-    bank = sum(1 for s in sections if s.get("source") == "bank")
+    bank = sum(1 for s in sections if s.get("source") in ("bank", "master"))
     text = " ".join(s.get("body", "") for s in sections)
     banned = json.loads(profile.get("banned_json") or "[]") or DEFAULT_BANNED
     banned_hits = [b for b in banned if b in text]

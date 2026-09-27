@@ -48,7 +48,7 @@ def review_proposal(data: dict) -> dict:
     issues = []
     sections = _sections(data)
     total = len(sections)
-    bank = sum(1 for s in sections if s.get("source") == "bank")
+    bank = sum(1 for s in sections if s.get("source") in ("bank", "master"))
 
     # 1) أصالة الصوت
     cliche_hits = 0
@@ -71,7 +71,9 @@ def review_proposal(data: dict) -> dict:
     seen_bodies = {}
     for s in sections:
         title, body = s.get("title", ""), (s.get("body") or "").strip()
-        if len(body) < 60:
+        # الأقسام المستنسخة طبق الأصل من عروض الشركة الحقيقية قد تكون قصيرة
+        # بطبيعتها (جداول بيانات العقد مثلاً) — لا تُعد خطأً
+        if len(body) < 60 and s.get("source") != "master":
             issues.append({"level": "error", "kind": "short", "section": title,
                            "text": "قسم فارغ أو قصير جداً — أكمله أو احذفه قبل التقديم.",
                            "fixable": False})
@@ -152,7 +154,16 @@ def polish_proposal(data: dict) -> dict:
     for s in _sections(data):
         body = s.get("body", "")
         cleaned, hits = scrub_banned(body, TEMPLATE_CLICHES)
-        if hits and cleaned and len(cleaned) >= 40:
+        if not hits:
+            continue
+        # حذف الجملة كاملةً إن بقي نص ذو معنى، وإلا حذف العبارة وحدها —
+        # الضمانة: بعد الإصلاح لا تبقى أي عبارة قالبية أياً كان طول القسم
+        if not cleaned or len(cleaned) < 40:
+            cleaned = body
+            for h in hits:
+                cleaned = cleaned.replace(h, "")
+            cleaned = " ".join(cleaned.split())
+        if cleaned != body:
             s["body"] = cleaned
             changed.append(s.get("title", ""))
             removed.extend(hits)
