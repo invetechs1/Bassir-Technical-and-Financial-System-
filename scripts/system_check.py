@@ -196,9 +196,13 @@ r = c.get(f"/api/proposals/{pid}/export/docx")
 check("تصدير Word", r.status_code == 200 and len(r.content) > 10000)
 from docx import Document
 d = Document(io.BytesIO(r.content))
-footer_ok = any("+966114880122" in p.text and "1010467099" in p.text
-                for s in d.sections for p in s.footer.paragraphs)
-check("تذييل Word الرسمي في كل صفحة", footer_ok)
+# التذييل صار جدولاً من أربع خانات (هاتف | عنوان | سجل | صفحة) كما في العينة
+_ftr_text = " ".join(
+    [p.text for s in d.sections for p in s.footer.paragraphs]
+    + [cell.text for s in d.sections for t in s.footer.tables
+       for row in t.rows for cell in row.cells])
+footer_ok = "+966114880122" in _ftr_text and "1010467099" in _ftr_text
+check("تذييل Word الرسمي في كل صفحة", footer_ok, _ftr_text[:120])
 _doc_text = "\n".join(p2.text for p2 in d.paragraphs)
 for _t2 in d.tables:
     for _row in _t2.rows:
@@ -404,8 +408,12 @@ check("توليد صيانة: الفئة مكتشفة والخطة تشغيلي�
       str((_dk.get("project_kind"), _dk["plan"][1]["phase"])))
 _bank_refs = {s3.get("source_ref", "") for s3 in _dk["technical_sections"]
               if s3.get("source") in ("bank", "master")}
+# بوضع الاستنساخ قد يُتخطى قالب الصيانة إن كان نصه ممزقاً من استخراج PDF —
+# عندها يُستنسخ أنظف قالب بديل، وهذا هو الصواب لا خطأً في الفئة
 check("مصادر الصياغة من عروض الصيانة لا الإنشاءات (بنك أو استنساخ)",
-      any("صيانة" in (ref or "") for ref in _bank_refs), str(_bank_refs))
+      any("صيانة" in (ref or "") for ref in _bank_refs)
+      or (_dk.get("build_mode") == "master_clone" and _dk.get("master_ref")),
+      str(_bank_refs))
 c.delete(f"/api/proposals/{r.json()['id']}")
 
 # ---------- 16. تعدد الشركات والأدوار ----------
@@ -1240,7 +1248,10 @@ _masters = _lm()
 check("قوالب العروض الكاملة متاحة (عرضا عزوم الحقيقيان)", len(_masters) >= 2,
       str([m["filename"][:30] for m in _masters]))
 _mm = _pm("صيانة وتشغيل أنظمة تكييف وتبريد", "صيانة وتشغيل")
-check("اختيار القالب بفئة المشروع", _mm and _mm["project_kind"] == "صيانة وتشغيل")
+# قالب الصيانة المزروع ممزق النص من استخراج PDF — العقد الجديد: يُتخطى
+# القالب الذي لا يصمد بعد التنقية ويُختار أنظف بديل مهما كانت فئته
+check("اختيار القالب: صالح بعد التنقية (يُتخطى الممزق نصُّه إلى أنظف بديل)",
+      _mm is not None and len(_lms(_mm["id"])) >= 8, str(_mm and _mm["filename"]))
 r = c.post("/api/proposals/generate", data={"title": "فحص الاستنساخ طبق الأصل لصيانة وتشغيل المكيفات",
                                             "client": "جهة فحص الاستنساخ", "entity_type": "government"})
 _mc = r.json()
@@ -1254,6 +1265,17 @@ _sample_hits = sum(1 for x in _msecs if x["body"][:120] in _orig_bodies)
 check("النص طبق الأصل حرفياً (عينات المطلع)", _sample_hits >= 12, str(_sample_hits))
 check("لا قسم مالي مستنسخ (يُبنى من محرك التسعير)",
       not any("جدول الكميات" in x["title"] for x in _msecs))
+# تنقية تشوهات استخراج PDF: لا نص ملتصق أو ممزق يتسرب للعرض المُصدَّر
+from app.master_builder import _adapt_text as _mat, _fix_rotated_title as _frt, _garbled as _gbl
+check("لا نص ملتصق/ممزق من استخراج PDF في العرض المستنسخ",
+      not any(_gbl(x["body"]) for x in _mc["data"]["technical_sections"]),
+      str([x["title"][:25] for x in _mc["data"]["technical_sections"] if _gbl(x["body"])]))
+_yr = _mat("تأسست الشركة سنة 2017م ونقدم عرضنا لعام 2024", "", "عميل", "2026")
+check("الأقلمة: سنة التأسيس تبقى وسنة العرض تُحدَّث",
+      "سنة 2017" in _yr and "لعام 2026" in _yr and "2024" not in _yr, _yr)
+check("إصلاح العنوان المُدوَّر من استخراج PDF («هج والمنهجيةالن»)",
+      _frt("هج والمنهجيةالن") == "النهج والمنهجية"
+      and _frt("نطاق العمل") == "نطاق العمل")
 _qm = c.get(f"/api/proposals/{_mc['id']}/quality").json()
 check("جودة العرض المستنسخ (صوت الشركة)", _qm["score"] >= 80 and _qm["bank_sections"] >= 15,
       str(_qm["score"]))

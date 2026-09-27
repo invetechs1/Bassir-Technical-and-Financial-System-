@@ -56,20 +56,32 @@ def _doc_text_sample(doc_id: int, limit_paras: int = 60) -> str:
     return " ".join(r["body"] for r in rows)
 
 
-def pick_master(brief_text: str, project_kind: str) -> dict | None:
-    """أقرب عرض كامل: فئة المشروع نفسها أولاً ثم أعلى تقاطع محتوى مع الموجز."""
-    candidates = list_masters(project_kind) or list_masters()
+def rank_masters(brief_text: str, project_kind: str) -> list[dict]:
+    """القوالب مرتبة قرباً: فئة المشروع نفسها أولاً (علاوة +6 في الدرجة)
+    ثم أعلى تقاطع محتوى مع الموجز — الكل مرشح ليبقى بديل عند تشوه الأقرب."""
+    candidates = list_masters()
     if not candidates:
-        return None
+        return []
     brief = _tokens(brief_text[:6000])
-    best, best_score = None, -1.0
+    scored = []
     for doc in candidates:
         overlap = len(brief & _tokens(_doc_text_sample(doc["id"])))
         score = overlap + (6 if doc["project_kind"] == project_kind else 0) \
             + min(doc["sections_count"], 30) / 30.0
-        if score > best_score:
-            best, best_score = doc, score
-    return best
+        scored.append((score, doc))
+    scored.sort(key=lambda x: -x[0])
+    return [doc for _, doc in scored]
+
+
+def pick_master(brief_text: str, project_kind: str) -> dict | None:
+    """أقرب عرض كامل — أول قالب تصمد أقسامه بعد تنقية نصوص الاستخراج المشوهة.
+
+    قالب امتلأ بنص PDF ممزق قد لا يبقى منه ما يكفي — عندها يُجرَّب التالي
+    بدل الرجوع لبنك الفقرات مباشرة."""
+    for doc in rank_masters(brief_text, project_kind):
+        if len(load_master_sections(doc["id"])) >= MIN_MASTER_SECTIONS:
+            return doc
+    return None
 
 
 def _junk_title(title: str) -> bool:
@@ -78,11 +90,66 @@ def _junk_title(title: str) -> bool:
     return len(t) > 45 or (len(t) > 22 and " " not in t)
 
 
+def _squashed(text: str) -> bool:
+    """نص فقد مسافاته أثناء استخراج PDF (كلمات عربية ملتصقة في سطر واحد).
+
+    الكلمة العربية السليمة لا تتجاوز ~15 حرفاً؛ غلبة «كلمات» أطول من 18
+    تعني نصاً مشوهاً لا يصلح للظهور في عرض مُصدَّر."""
+    words = [w for w in text.split() if w.strip("•-—.،")]
+    if not words:
+        return False
+    long_runs = sum(1 for w in words if len(w) > 18)
+    return long_runs / len(words) > 0.3
+
+
+# أدوات عربية قصيرة مشروعة — لا تُحسب دليلاً على تمزق النص
+_AR_SHORT_OK = {"في", "من", "ما", "لا", "أو", "او", "إن", "ان", "عن",
+                "لم", "لن", "قد", "كل", "ثم", "بل", "هل", "لو", "ذا", "أن"}
+_AR_LETTER = re.compile(r"[؀-ۿ]")
+
+
+def _shredded(text: str) -> bool:
+    """نص تمزقت كلماته أثناء استخراج PDF (حروف وأشلاء كلمات متناثرة).
+
+    العتبات معايرة على بيانات حقيقية: النص العربي السليم لا تتجاوز نسبة
+    أحرفه المفردة 5% ولا أشلاؤه القصيرة 7%، والممزق يتجاوز 9% و25%."""
+    toks = [t.strip("،,.:؛()•-—/\\؟!") for t in text.split()]
+    ar = [t for t in toks if t and _AR_LETTER.search(t)]
+    if len(ar) < 6:
+        return False
+    singles = sum(1 for t in ar if len(t) == 1 and t != "و")
+    shorts = sum(1 for t in ar if len(t) <= 2 and t != "و" and t not in _AR_SHORT_OK)
+    return singles / len(ar) > 0.08 or shorts / len(ar) > 0.22
+
+
+def _garbled(text: str) -> bool:
+    return _squashed(text) or _shredded(text)
+
+
+def _fix_rotated_title(title: str) -> str:
+    """إصلاح عنوان دوّره استخراج PDF: «هج والمنهجيةالن» → «النهج والمنهجية».
+
+    يعمل فقط حين يبدأ العنوان بشظية يتيمة (حرفان فأقل ليست أداة) وتنتهي
+    نهايته بشظية «ال...» ملتصقة — عندها تُعاد الشظية إلى الصدارة."""
+    toks = title.split()
+    if len(toks) < 2 or len(toks[0]) > 2 or toks[0] in _AR_SHORT_OK or toks[0] == "و":
+        return title
+    for i in range(2, 5):
+        frag = title[-i:]
+        if frag.startswith("ال") and " " not in frag:
+            cand = (frag + title[:-i]).strip()
+            if all(len(x) >= 2 for x in cand.split()):
+                return cand
+    return title
+
+
 def load_master_sections(doc_id: int) -> list[dict]:
     """أقسام القالب كاملةً بترتيبها — النص يُعاد تجميعه من فقراته المخزنة.
 
     الأقسام ذات العناوين المشوهة (سطور PDF ملتصقة اعتُبرت عناوين عند الاستخراج)
-    تُدمج نصاً في القسم السابق فلا يتسرب عنوان ركيك إلى العرض المولد."""
+    تُدمج نصاً في القسم السابق فلا يتسرب عنوان ركيك إلى العرض المولد،
+    والفقرات التي فقدت مسافاتها عند الاستخراج تُستبعد كلياً — نص ملتصق
+    غير مقروء أسوأ في عرض مُقدَّم من غيابه."""
     with get_db() as db:
         secs = db.execute(
             "SELECT id, title, ordinal FROM tech_sections WHERE document_id = ? "
@@ -92,24 +159,53 @@ def load_master_sections(doc_id: int) -> list[dict]:
             paras = db.execute(
                 "SELECT body FROM tech_paragraphs WHERE section_id = ? ORDER BY ordinal",
                 (s["id"],)).fetchall()
-            body = "\n".join(p["body"] for p in paras).strip()
+            raw = "\n".join(p["body"] for p in paras).strip()
+            body = "\n".join(p["body"] for p in paras
+                             if not _garbled(p["body"])).strip()
+            # قسم أكله التشويه ولم يبق منه إلا شذرة — يُسقط كله بدل صفحة شبه
+            # فارغة (القسم القصير السليم أصلاً — جدول بيانات عقد مثلاً — يبقى)
+            had_garbage = len(body) < len(raw)
+            if had_garbage and (len(body) < 150 or
+                                (len(body) < 400 and len(body) < 0.25 * len(raw))):
+                body = ""
             if not body and not s["title"].strip():
                 continue
-            title = s["title"].strip()
+            # رقم صفحة تسرب لنهاية العنوان عند استخراج PDF («... المهنية 24»)
+            title = re.sub(r"\s+\d{1,3}$", "", s["title"].strip())
+            title = _fix_rotated_title(title)
             if _junk_title(title) and out:
-                out[-1]["body"] = (out[-1]["body"] + "\n" + title + "\n" + body).strip()
+                merged = "" if _garbled(title) else title
+                out[-1]["body"] = "\n".join(x for x in (out[-1]["body"], merged, body) if x).strip()
                 continue
             if body:
                 out.append({"title": title, "body": body})
     return out
 
 
+# سنة في سياق زمني صريح («عام 2024» لا أرقام العقود والأكواد)
+_YEAR_RE = re.compile(r"(عام|لعام|سنة|لسنة)\s*(20\d{2})")
+# سياقات تاريخية ثابتة لا تُحدَّث سنتها أبداً (سنة تأسيس الشركة مثلاً)
+_YEAR_KEEP_CONTEXT = ("تأسس", "التأسيس", "أُسس", "انطلق", "منذ")
+
+
+def _adapt_year(m: re.Match, new_year: str) -> str:
+    """تُحدَّث سنة العرض وحدها: السنة القديمة حقيقة تاريخية (تأسيس، سابقة
+    أعمال) تبقى، والحديثة تُحدَّث إلا إذا سبقها سياق تأسيس مباشرة."""
+    if int(m.group(2)) < int(new_year) - 3:
+        return m.group(0)
+    tight = m.string[max(0, m.start() - 25):m.start()]
+    if any(k in tight for k in _YEAR_KEEP_CONTEXT):
+        return m.group(0)
+    return f"{m.group(1)} {new_year}"
+
+
 def _adapt_text(text: str, old_client: str, new_client: str, new_year: str) -> str:
-    """الأقلمة الجراحية: العميل والسنة فقط — لا إعادة صياغة إطلاقاً."""
+    """الأقلمة الجراحية: العميل والسنة فقط — لا إعادة صياغة إطلاقاً.
+
+    التواريخ الثابتة (سنة تأسيس الشركة ونحوها) تبقى كما هي."""
     if old_client and new_client and len(old_client) >= 4:
         text = text.replace(old_client, new_client)
-    # سنوات في سياق زمني صريح فقط («عام 2024» لا أرقام العقود والأكواد)
-    text = re.sub(r"(عام|لعام|سنة|لسنة)\s*20\d{2}", lambda m: f"{m.group(1)} {new_year}", text)
+    text = _YEAR_RE.sub(lambda m: _adapt_year(m, new_year), text)
     return text
 
 
