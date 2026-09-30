@@ -51,7 +51,9 @@ init_db(); init_auth(); seed_if_empty()
 from app.style_engine import init_style_tables, migrate_repo_to_tech
 from app.execution import init_execution_tables
 from app.agents import init_agent_tables
+from app.leads import init_leads_tables
 init_style_tables(); migrate_repo_to_tech(); init_execution_tables(); init_agent_tables()
+init_leads_tables()
 c = TestClient(app)
 
 # ---------- 2. المصادقة ----------
@@ -1284,6 +1286,122 @@ check("الوكيل الفني يعلن الاستنساخ في التحليل",
       r.json()["tech"].get("build_mode") == "master_clone"
       and any("طبق الأصل" in x["text"] for x in r.json()["recommendations"]))
 c.delete(f"/api/proposals/{_mc['id']}")
+
+# ---------- وكيل فرص القطاع الخاص (Lead Generation) ----------
+from app import leads as _leads
+from app.leads import init_leads_tables as _ilt
+_ilt()
+c.post("/api/session/company/1")
+
+# المصادر الافتراضية تُزرع أول وصول
+r = c.get("/api/leads/sources")
+check("مصادر الرصد الافتراضية تُزرع أول مرة", r.status_code == 200 and len(r.json()["sources"]) >= 3,
+      r.text[:120])
+
+# الإدخال اليدوي السريع: تصنيف تلقائي بلا ذكاء اصطناعي
+r = c.post("/api/leads", json={"text": "مشروع تطوير مجمع سكني لشركة رتال للتطوير العمراني "
+                                       "في الخبر بقيمة 500 مليون ريال — فحص الفرص"})
+check("تسجيل فرصة بسطر واحد → استخلاص المطور والمدينة والقطاع والقيمة",
+      r.status_code == 200 and r.json()["developer"] == "شركة رتال للتطوير العمراني"
+      and r.json()["city"] == "الخبر" and r.json()["sector"] == "سكني"
+      and "مليون" in r.json()["est_value"], r.text[:200])
+_ld = r.json()
+check("درجة ملاءمة محسوبة وحالة «جديدة»",
+      isinstance(_ld["relevance"], int) and _ld["status"] == "جديدة")
+r = c.post("/api/leads", json={"text": "مشروع تطوير مجمع سكني لشركة رتال للتطوير العمراني "
+                                       "في الخبر بقيمة 500 مليون ريال — فحص الفرص"})
+check("الفرصة المكررة تُرفض (400)", r.status_code == 400)
+
+# جامع الأخبار: ترشيح إنشائي + إزالة تكرار — على محتوى ثابت بلا شبكة
+_rss = """<?xml version="1.0"?><rss><channel>
+<item><title>شركة البحر الأحمر الدولية توقع عقد إنشاء فندق جديد في مشروع أمالا للفحص</title>
+<link>https://x/1</link><description>بقيمة 1.2 مليار ريال</description></item>
+<item><title>ارتفاع أرباح البنوك السعودية في الربع الثالث للفحص</title>
+<link>https://x/2</link><description>نتائج مالية</description></item>
+<item><title>هيئة تطوير بوابة الدرعية تطلق مخطط وحدات سكنية فاخرة في الرياض للفحص</title>
+<link>https://x/3</link><description>تطوير عمراني</description></item>
+</channel></rss>"""
+_items = _leads.parse_content(_rss, "https://x")
+check("تحليل خلاصة RSS", len(_items) == 3, str(len(_items)))
+_added = _leads.ingest_items("مصدر الفحص", _items)
+check("الترشيح: الخبران الإنشائيان يدخلان وخبر الأرباح يُستبعد", _added == 2, str(_added))
+check("إزالة التكرار: إعادة نفس الخلاصة لا تضيف شيئاً",
+      _leads.ingest_items("مصدر الفحص", _items) == 0)
+_html = '<html><body><a href="/n/1">أمانة الرياض تطرح مشروع تطوير حديقة الملك سلمان للفحص</a></body></html>'
+check("صفحات HTML: استخلاص عناوين الروابط",
+      _leads.parse_content(_html, "https://site.sa")[0]["link"] == "https://site.sa/n/1")
+
+# فشل مصدر يُسجَّل على المصدر ولا يكسر الجمع
+_src = c.post("/api/leads/sources", json={"name": "مصدر معطوب للفحص",
+                                          "url": "https://invalid.invalid/rss"}).json()
+_orig_fetch = _leads._fetch_text
+_leads._fetch_text = lambda url, timeout=25: (_ for _ in ()).throw(OSError("DNS down"))
+try:
+    _res = _leads.collect_source({**_src})
+finally:
+    _leads._fetch_text = _orig_fetch
+_src_row = next(s for s in c.get("/api/leads/sources").json()["sources"] if s["id"] == _src["id"])
+check("فشل مصدر: يُسجَّل على بطاقته ولا يرمي خطأً",
+      not _res["ok"] and "⚠️" in _src_row["last_result"], str(_src_row)[:150])
+check("رابط مصدر غير صالح يُرفض (400)",
+      c.post("/api/leads/sources", json={"name": "x", "url": "ftp://x"}).status_code == 400)
+c.delete(f"/api/leads/sources/{_src['id']}")
+
+# خط الأنابيب: إيكال بإشعار → زيارة → تحويل لعرض
+r = c.post(f"/api/leads/{_ld['id']}/assign", json={"user_id": 1, "note": "زيارة الأحد"})
+check("الإيكال: الحالة «موكلة» والمكلف مسجل",
+      r.status_code == 200 and r.json()["status"] == "موكلة" and r.json()["assigned_to"] == 1)
+_nt = c.get("/api/notifications").json()
+check("إشعار جرس للمكلف بالفرصة",
+      any("فرصة موكلة إليك" in n["title"] for n in _nt["items"]), str(_nt["items"][:1])[:120])
+check("إيكال لغير عضو الشركة يُرفض (400)",
+      c.post(f"/api/leads/{_ld['id']}/assign", json={"user_id": 99999}).status_code == 400)
+r = c.put(f"/api/leads/{_ld['id']}", json={"status": "تمت الزيارة",
+                                           "visit_notes": "طلبوا عرضاً للهيكل",
+                                           "contact": "م. خالد 0501112222"})
+check("تسجيل الزيارة وبيانات التواصل", r.status_code == 200 and r.json()["status"] == "تمت الزيارة"
+      and r.json()["contact"] == "م. خالد 0501112222")
+check("حالة غير معروفة تُرفض (400)",
+      c.put(f"/api/leads/{_ld['id']}", json={"status": "غريبة"}).status_code == 400)
+r = c.post(f"/api/leads/{_ld['id']}/convert")
+check("التحويل لعرض: تعبئة العنوان والعميل وقطاع خاص + مرحلة «طُلب عرض»",
+      r.status_code == 200 and r.json()["client"] == "شركة رتال للتطوير العمراني"
+      and r.json()["entity_type"] == "private"
+      and _leads.get_lead(_ld["id"])["status"] == "طُلب عرض", r.text[:150])
+
+# الملخص اليومي: مرة واحدة لليوم ولأدمن الشركة
+from app.database import update_settings as _upds
+_upds({"leads_last_digest": ""})
+_n1 = _leads.run_daily_digest()
+check("الملخص اليومي يُرسل عند وجود فرص جديدة", _n1 >= 1, str(_n1))
+check("ولا يتكرر في نفس اليوم", _leads.run_daily_digest() == 0)
+
+# الحواجز: البوابة والخطة والأدوار والعزل
+# c5 على الخطة الأساسية (بلا تكاملات) بعد ترقيات قسم الفوترة — البوابة 402
+check("بوابة الخطة: وكيل الفرص 402 لخطة بلا تكاملات", c5.get("/api/leads").status_code == 402)
+check("مهندس الموقع محجوب عن الفرص (403)", c_eng.get("/api/leads").status_code == 403)
+r = c.post("/api/companies", json={"name": "شركة عزل الفرص للفحص", "plan": "pro",
+                                   "owner_username": "leadsiso", "owner_password": "Leads@12345"})
+_cid_l = r.json()["id"]
+c_l = TestClient(app)
+c_l.post("/api/login", json={"username": "leadsiso", "password": "Leads@12345"})
+c_l.post("/api/leads", json={"text": "مشروع برج مكاتب لشركة العزل الأولى في جدة للفحص"})
+_their = c_l.get("/api/leads").json()["leads"]
+_ours = c.get("/api/leads").json()["leads"]
+check("العزل بين الشركات: كلٌّ يرى فرصه فقط",
+      all("العزل الأولى" not in l["title"] for l in _ours)
+      and all("رتال" not in l["title"] for l in _their)
+      and len(_their) == 1, f"ours={len(_ours)} theirs={len(_their)}")
+check("مصادر كل شركة معزولة أيضاً",
+      all(s["name"] != "مصدر الفحص" for s in c_l.get("/api/leads/sources").json()["sources"]))
+c.post("/api/members", json={"username": "mktedit", "password": "Mkt@12345", "role": "editor"})
+_c_mkt = TestClient(app)
+_c_mkt.post("/api/login", json={"username": "mktedit", "password": "Mkt@12345"})
+check("الإيكال قرار إداري: المحرر يرى الفرص ولا يوكلها (403)",
+      _c_mkt.get("/api/leads").status_code == 200
+      and _c_mkt.post(f"/api/leads/{_ld['id']}/assign", json={"user_id": 1}).status_code == 403
+      and _c_mkt.post("/api/leads/sources", json={"name": "x", "url": "https://x.sa"}).status_code == 403)
+check("عدّاد الفرص في /api/status", c.get("/api/status").json().get("leads", 0) >= 3)
 
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)

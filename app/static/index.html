@@ -34,6 +34,7 @@
     <div class="nav-group" data-i18n="navgrp_opportunities">الفرص</div>
     <button class="nav-btn" data-page="etimad" data-i18n="nav_etimad">منافسات اعتماد<span class="nav-count" id="cntEtimad">—</span></button>
     <button class="nav-btn" data-page="forsah" data-i18n="nav_forsah">مشاريع منصة فرصة<span class="nav-count" id="cntForsah">—</span></button>
+    <button class="nav-btn" data-page="leads" data-i18n="nav_leads">فرص القطاع الخاص<span class="nav-count" id="cntLeads">—</span></button>
     <div class="nav-group" data-i18n="navgrp_company">الشركة</div>
     <button class="nav-btn" data-page="docs" data-i18n="nav_docs">وثائق الشركة<span class="nav-count" id="cntDocs">—</span></button>
     <button class="nav-btn" data-page="analytics" data-i18n="nav_analytics">التحليلات</button>
@@ -332,6 +333,54 @@
           <thead><tr><th>المشروع</th><th>التصنيف</th><th>القيمة</th><th>آخر موعد</th><th>الملاءمة لعزوم</th><th>الحالة</th><th>إجراءات</th></tr></thead>
           <tbody></tbody>
         </table></div>
+      </div>
+    </section>
+
+    <!-- فرص القطاع الخاص (Lead Generation) -->
+    <section class="page" id="page-leads">
+      <div class="page-head">
+        <div><h2 data-i18n="leads_title">فرص القطاع الخاص</h2><p data-i18n="leads_sub">وكيل تطوير الأعمال يرصد المشاريع المعلنة في السوق (أخبار اقتصادية وإعلانات مطورين) ويستخلص: المشروع، المطور الذي يُزار، المدينة والملاءمة — ثم توكلها لفريق التسويق ليزور العميل ويجلب المشروع</p></div>
+        <button class="btn gold" id="leadsCollectBtn" onclick="collectLeads()" data-i18n="leads_collect_btn">🔎 مسح المصادر الآن</button>
+      </div>
+      <div class="panel">
+        <h3 data-i18n="leads_quick_title">تسجيل فرصة سمعتم عنها</h3>
+        <div class="row">
+          <input type="text" id="leadText" data-i18n-ph="leads_quick_ph" placeholder="مثال: مشروع أبراج سكنية لشركة X في شمال الرياض — سمعنا أنهم يبحثون عن مقاولين" style="flex:1" onkeydown="if(event.key==='Enter')addLead()">
+          <button class="btn" onclick="addLead()" data-i18n="leads_quick_btn">➕ تسجيل</button>
+        </div>
+        <p class="muted" data-i18n="leads_quick_hint">سطر واحد يكفي — النظام يستخلص المطور والمدينة والقطاع ويحسب الملاءمة تلقائياً</p>
+      </div>
+      <div class="panel">
+        <div class="row mb" id="leadStats"></div>
+        <div class="row mb">
+          <input type="text" id="ldQ" data-i18n-ph="leads_search_ph" placeholder="🔍 بحث بالمشروع أو المطور أو المدينة..." style="max-width:280px" oninput="loadLeads()">
+          <select id="ldStatus" onchange="loadLeads()" style="max-width:170px">
+            <option value="" data-i18n="all_statuses">كل الحالات</option>
+          </select>
+          <label class="row" style="gap:6px;margin:0"><input type="checkbox" id="ldMine" onchange="loadLeads()" style="width:auto"> <span data-i18n="leads_mine_label">الموكلة إليّ فقط</span></label>
+        </div>
+        <div class="spinner" id="ldSpinner"><div class="dot"></div><span data-i18n="leads_spinner">جارٍ مسح المصادر واستخلاص الفرص...</span></div>
+        <div class="t-wrap"><table id="leadsTable">
+          <thead><tr>
+            <th data-i18n="th_lead_project">المشروع</th><th data-i18n="th_lead_dev">المطور / العميل</th>
+            <th data-i18n="th_lead_city">المدينة</th><th data-i18n="th_relevance2">الملاءمة</th>
+            <th data-i18n="th_lead_stage">مرحلة المتابعة</th><th data-i18n="th_lead_assignee">الموكل إليه</th>
+            <th data-i18n="th_actions">إجراءات</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+      <div class="panel" id="leadSourcesPanel" hidden>
+        <h3 data-i18n="leads_sources_title">مصادر الرصد <span class="muted">— تُضاف وتُعطَّل من هنا بلا أي تغيير في الكود</span></h3>
+        <div class="t-wrap"><table id="leadSourcesTable">
+          <thead><tr><th data-i18n="th_src_name">المصدر</th><th data-i18n="th_src_url">الرابط</th><th data-i18n="th_src_last">آخر مسح ونتيجته</th><th data-i18n="th_src_enabled">مفعّل</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <div class="grid-3 mt">
+          <div><label data-i18n="src_name_label">اسم المصدر</label><input type="text" id="srcName" placeholder="أرقام — عقار"></div>
+          <div><label data-i18n="src_url_label">رابط الخلاصة أو الصفحة</label><input type="text" id="srcUrl" placeholder="https://..."></div>
+          <div style="display:flex;align-items:flex-end"><button class="btn" onclick="saveLeadSource()" data-i18n="src_add_btn">➕ إضافة مصدر</button></div>
+        </div>
       </div>
     </section>
 

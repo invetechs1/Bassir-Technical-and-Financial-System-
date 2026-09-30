@@ -120,6 +120,7 @@ function go(page) {
   if (page === "library") loadLibrary();
   if (page === "etimad") loadEtimad();
   if (page === "forsah") loadForsah();
+  if (page === "leads") loadLeads();
   if (page === "repo") loadRepo();
   if (page === "docs") loadDocs();
   if (page === "analytics") loadAnalytics();
@@ -142,6 +143,7 @@ async function loadNavCounts() {
     setCount("cntRepo", c.repo_files);
     setCount("cntEtimad", c.etimad);
     setCount("cntForsah", c.forsah);
+    setCount("cntLeads", c.leads);
     setCount("cntDocs", c.docs);
   } catch {}
 }
@@ -733,6 +735,151 @@ function etToProposal(name, agency) {
   $("#npEntity").value = "government";
   suggestSimilar();
   toast(t("msg_etimad_loaded_hint"));
+}
+
+/* ---------- فرص القطاع الخاص (Lead Generation) ---------- */
+const LEAD_STATUSES = ["جديدة", "موكلة", "تمت الزيارة", "طُلب عرض", "فوز", "خسارة", "مستبعدة"];
+const LEAD_STATUS_KEY = {
+  "جديدة": "ld_st_new", "موكلة": "ld_st_assigned", "تمت الزيارة": "ld_st_visited",
+  "طُلب عرض": "ld_st_proposal", "فوز": "ld_st_won", "خسارة": "ld_st_lost", "مستبعدة": "ld_st_ignored",
+};
+let LEAD_MEMBERS = null;
+
+async function loadLeads() {
+  const sel = $("#ldStatus");
+  if (sel.options.length <= 1)
+    for (const s of LEAD_STATUSES) sel.add(new Option(t(LEAD_STATUS_KEY[s]), s));
+  if (ME.is_admin && LEAD_MEMBERS === null) {
+    try { LEAD_MEMBERS = await api("/api/members"); } catch { LEAD_MEMBERS = []; }
+  }
+  const params = new URLSearchParams({
+    q: $("#ldQ").value.trim(), status: sel.value, mine: $("#ldMine").checked ? 1 : 0,
+  });
+  const data = await api(`/api/leads?${params}`);
+  const counts = data.stats.counts || {};
+  $("#leadStats").innerHTML = LEAD_STATUSES.map((s) =>
+    `<span class="tag ${s === "فوز" ? "src" : s === "جديدة" ? "est" : "draft"}">${t(LEAD_STATUS_KEY[s])}: ${counts[s] || 0}</span>`).join("");
+  const memberOpts = (lead) => !ME.is_admin ? "" :
+    `<select onchange="assignLead(${lead.id}, this.value)" style="padding:4px 6px;font-size:12px">
+       <option value="">${t("ld_assign_ph")}</option>
+       ${(LEAD_MEMBERS || []).map((m) => `<option value="${m.id}" ${m.id === lead.assigned_to ? "selected" : ""}>${m.display_name || m.username}</option>`).join("")}
+     </select>`;
+  $("#leadsTable tbody").innerHTML = data.leads.map((l) => `
+    <tr>
+      <td>${l.source_url ? `<a href="${l.source_url}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600">${l.title.slice(0, 65)}</a>` : `<b>${l.title.slice(0, 65)}</b>`}
+        ${l.sector || l.est_value ? `<br><span class="muted" style="font-size:11px">${[l.sector, l.est_value, l.source_name].filter(Boolean).join(" · ")}</span>` : ""}
+        ${l.visit_notes ? `<br><span class="muted" style="font-size:11px">📝 ${l.visit_notes.slice(0, 70)}</span>` : ""}</td>
+      <td>${l.developer ? l.developer.slice(0, 35) : "—"}${l.contact ? `<br><span class="muted" style="font-size:11px">☎️ ${l.contact.slice(0, 30)}</span>` : ""}</td>
+      <td>${l.city || "—"}</td>
+      <td><span class="tag ${l.relevance >= 30 ? "src" : l.relevance >= 15 ? "est" : "draft"}">${l.relevance}%</span></td>
+      <td><select onchange="setLeadStatus(${l.id}, this.value)" style="padding:4px 8px;font-size:12px">
+        ${LEAD_STATUSES.map((s) => `<option value="${s}" ${s === l.status ? "selected" : ""}>${t(LEAD_STATUS_KEY[s])}</option>`).join("")}</select></td>
+      <td>${memberOpts(l) || l.assigned_name || "—"}</td>
+      <td>
+        <button class="btn sm ghost" onclick="leadNotes(${l.id})" title="${t("ld_notes_btn")}">📝</button>
+        <button class="btn sm ghost" onclick="leadToProposal(${l.id})">${t("create_proposal_btn")}</button>
+      </td>
+    </tr>`).join("") ||
+    `<tr><td colspan="7" class="muted">${t("empty_leads")}</td></tr>`;
+  const srcPanel = $("#leadSourcesPanel");
+  srcPanel.hidden = !ME.is_admin;
+  if (ME.is_admin) loadLeadSources();
+}
+
+async function collectLeads() {
+  $("#leadsCollectBtn").disabled = true;
+  $("#ldSpinner").classList.add("on");
+  try {
+    const r = await api("/api/leads/collect", { method: "POST" });
+    const failed = r.sources.filter((s) => !s.ok).length;
+    toast(`${t("ld_collect_done")} ${r.added} ${t("ld_collect_new")}` +
+          (failed ? ` — ${failed} ${t("ld_collect_failed")}` : ""), !!failed && !r.added);
+    loadLeads();
+  } catch (err) {
+    toast(t("msg_fetch_failed") + " " + err.message, true);
+  } finally {
+    $("#leadsCollectBtn").disabled = false;
+    $("#ldSpinner").classList.remove("on");
+  }
+}
+
+async function addLead() {
+  const text = $("#leadText").value.trim();
+  if (!text) return;
+  try {
+    await api("/api/leads", { method: "POST", json: { text } });
+    $("#leadText").value = "";
+    toast(t("ld_added"));
+    loadLeads();
+  } catch (err) { toast(err.message, true); }
+}
+
+function setLeadStatus(id, status) {
+  api(`/api/leads/${id}`, { method: "PUT", json: { status } }).then(() => { toast(t("msg_status_updated")); loadLeads(); });
+}
+
+async function assignLead(id, uid) {
+  if (!uid) return;
+  try {
+    await api(`/api/leads/${id}/assign`, { method: "POST", json: { user_id: +uid } });
+    toast(t("ld_assigned_ok"));
+    loadLeads();
+  } catch (err) { toast(err.message, true); }
+}
+
+async function leadNotes(id) {
+  const notes = prompt(t("ld_notes_prompt"));
+  if (notes === null) return;
+  const contact = prompt(t("ld_contact_prompt")) || "";
+  await api(`/api/leads/${id}`, { method: "PUT", json: { visit_notes: notes, ...(contact ? { contact } : {}) } });
+  toast(t("msg_status_updated"));
+  loadLeads();
+}
+
+async function leadToProposal(id) {
+  const pre = await api(`/api/leads/${id}/convert`, { method: "POST" });
+  go("new");
+  $("#npTitle").value = pre.title;
+  $("#npClient").value = pre.client;
+  $("#npEntity").value = pre.entity_type;
+  if (pre.files_text) {
+    pendingFiles.push(new File([pre.files_text], "بطاقة-الفرصة.txt", { type: "text/plain" }));
+    renderFileList();
+  }
+  suggestSimilar();
+  toast(t("ld_convert_hint"));
+}
+
+async function loadLeadSources() {
+  const data = await api("/api/leads/sources");
+  $("#leadSourcesTable tbody").innerHTML = data.sources.map((s) => `
+    <tr>
+      <td><b>${s.name}</b></td>
+      <td><span class="muted" style="font-size:11px;direction:ltr;display:inline-block">${s.url.slice(0, 45)}</span></td>
+      <td class="muted" style="font-size:11px">${s.last_run ? s.last_run.slice(0, 16).replace("T", " ") + "<br>" + (s.last_result || "") : "—"}</td>
+      <td><input type="checkbox" ${s.enabled ? "checked" : ""} onchange="toggleLeadSource(${s.id}, '${s.name.replace(/'/g, "&#39;")}', '${s.url}', this.checked)" style="width:auto"></td>
+      <td><button class="btn sm ghost danger" onclick="delLeadSource(${s.id})">🗑️</button></td>
+    </tr>`).join("");
+}
+
+async function saveLeadSource() {
+  try {
+    await api("/api/leads/sources", { method: "POST", json: { name: $("#srcName").value, url: $("#srcUrl").value } });
+    $("#srcName").value = ""; $("#srcUrl").value = "";
+    toast(t("ld_src_saved"));
+    loadLeadSources();
+  } catch (err) { toast(err.message, true); }
+}
+
+function toggleLeadSource(id, name, url, enabled) {
+  api("/api/leads/sources", { method: "POST", json: { id, name, url, enabled: enabled ? 1 : 0 } })
+    .then(() => toast(t("msg_status_updated")));
+}
+
+async function delLeadSource(id) {
+  if (!confirm(t("ld_src_del_confirm"))) return;
+  await api(`/api/leads/sources/${id}`, { method: "DELETE" });
+  loadLeadSources();
 }
 
 /* ---------- المستودع الفني ومحرك الأسلوب ---------- */
