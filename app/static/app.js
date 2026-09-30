@@ -344,7 +344,8 @@ function viewProposal(p) {
     meta += ` • ${t("built_on_label")} ${p.data.similar_refs.map((r) => `${r.title.slice(0, 30)}… (${r.score}%)`).join("، ")}`;
   }
   $("#vMeta").textContent = meta + (p.data.project_kind ? " • " + t("kind_label") + " " + p.data.project_kind : "")
-    + (p.data.master_ref ? " • 📋 " + t("master_clone_label") + ": " + p.data.master_ref : "");
+    + (p.data.master_ref ? " • 📋 " + t("master_clone_label") + ": " + p.data.master_ref : "")
+    + (p.data.boq_mode === "project" ? " • 🧾 " + t("boq_mode_project") : "");
   $("#vStatus").value = p.status;
   renderTech(p.data);
   renderFin(p.data);

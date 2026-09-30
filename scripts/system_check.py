@@ -1287,6 +1287,74 @@ check("الوكيل الفني يعلن الاستنساخ في التحليل",
       and any("طبق الأصل" in x["text"] for x in r.json()["recommendations"]))
 c.delete(f"/api/proposals/{_mc['id']}")
 
+# ---------- القاعدة الذهبية للعرض المالي: بنود المشروع مقدسة ----------
+from app.boq_parser import enforce_project_boq as _epb, parse_boq_from_text as _pbt
+c.post("/api/session/company/1")
+
+_boq_txt = """جدول الكميات — مشروع فحص القاعدة الذهبية
+م | وصف البند | الوحدة | الكمية | سعر الوحدة | الإجمالي
+1 | إزالة البلاط التالف في الدور الأرضي | م2 | 850
+2 | توريد وتركيب بلاط بورسلان 60×60 | م2 | ٨٥٠ | 45 | 38250
+3 | دهان الواجهة الخارجية بدهان أكريليك خاص جداً | م2 | 2,400
+4 | عزل مائي لسطح المبنى بطبقتين | م2 | 1200
+5 | صيانة شبكة الصرف الصحي للمبنى | مقطوعية | 1
+الإجمالي العام | | | 42000"""
+_items = _pbt(_boq_txt)
+check("مستخلص جدول الكميات: 5 بنود رغم الترويسة والإجمالي وأعمدة الأسعار",
+      len(_items) == 5, str(len(_items)))
+check("الكميات صحيحة (أرقام عربية-هندية وفواصل الآلاف تُقرأ)",
+      [i["qty"] for i in _items] == [850, 850, 2400, 1200, 1],
+      str([i["qty"] for i in _items]))
+check("نص بلا جدول لا يُلتقط خطأً",
+      _pbt("نلتزم بتنفيذ المشروع خلال 12 شهراً بفريق من 30 مهندساً وفنياً.") == [])
+
+r = c.post("/api/proposals/generate",
+           data={"title": "صيانة مبنى فحص القاعدة الذهبية", "client": "جهة فحص البنود",
+                 "entity_type": "private"},
+           files=[("files", ("boq.txt", _boq_txt.encode(), "text/plain"))])
+_dg = r.json()["data"]
+_names_in = [i["name"] for i in _items]
+check("مشروع له جدول كميات → البنود هي بنوده حرفياً وبترتيبها (لا نسخ من مشاريع أخرى)",
+      _dg.get("boq_mode") == "project"
+      and [l["name"] for l in _dg["boq"]] == _names_in
+      and [l["qty"] for l in _dg["boq"]] == [850, 850, 2400, 1200, 1],
+      str((_dg.get("boq_mode"), len(_dg["boq"]))))
+check("التسعير من قاعدة البيانات (قاعدة الأسعار/عرض سابق/سوق) لا اختلاقاً",
+      any(l["source"] == "قاعدة الأسعار" for l in _dg["boq"]))
+_unpriced_flagged = [l for l in _dg["boq"] if not l["unit_price"]]
+check("البند الذي لا سعر له في القاعدة يبقى معلَّماً للمراجعة لا مُختلَق السعر",
+      all("بلا سعر" in l["source"] for l in _unpriced_flagged))
+_qx = c.get(f"/api/proposals/{r.json()['id']}/quality").json()
+check("وكيل الجودة ينبه على البنود بلا سعر",
+      not _unpriced_flagged or any(i["kind"] == "finance" and "بلا سعر" in i["text"]
+                                   for i in _qx["issues"]))
+c.delete(f"/api/proposals/{r.json()['id']}")
+
+# صمام أمان مسار الذكاء الاصطناعي: مهما أخرج النموذج تبقى بنود المشروع
+_ai_fake = [{"name": "بند مختلق من مشروع آخر لا علاقة له", "unit": "م3", "qty": 999, "unit_price": 500},
+            {"name": "دهان الواجهة الخارجية بدهان أكريليك خاص", "unit": "م2", "qty": 111, "unit_price": 33}]
+_enf = _epb(_ai_fake, _items)
+check("صمام الذكاء الاصطناعي: البنود المختلقة تُطرح وبنود المشروع تبقى بكمياتها",
+      [l["name"] for l in _enf] == _names_in and _enf[2]["qty"] == 2400
+      and not any("مختلق" in l["name"] for l in _enf))
+check("تقدير النموذج يُقبل سعراً فقط للبند الذي لم تسعّره القاعدة",
+      _enf[2]["unit_price"] == 33 and "ذكاء اصطناعي" in _enf[2]["source"]
+      and _enf[0]["source"] == "قاعدة الأسعار" and _enf[0]["unit_price"] != 500,
+      str([(l["unit_price"], l["source"][:20]) for l in _enf]))
+
+# الاحتياط القديم يعمل فقط حين لا جدول في الملفات — ويُعلن في التحليل
+r = c.post("/api/proposals/generate", data={"title": "مشروع عزل أسطح بلا ملفات",
+                                            "client": "جهة الاحتياط", "entity_type": "government"})
+check("بلا جدول كميات → الاحتياط (مرجع/كلمات) يعمل كما كان",
+      r.json()["data"].get("boq_mode") in ("reference", "keywords") and r.json()["data"]["boq"])
+c.delete(f"/api/proposals/{r.json()['id']}")
+r = c.post("/api/agents/analyze",
+           data={"title": "صيانة فحص إعلان الجدول", "client": "جهة", "entity_type": "private"},
+           files=[("files", ("boq.txt", _boq_txt.encode(), "text/plain"))])
+check("الوكيل المالي يعلن قبل الاعتماد: بنود المشروع محفوظة والتسعير فقط من قاعدتكم",
+      any("سيُحافظ على بنوده" in x["text"] for x in r.json()["recommendations"]))
+
+
 # ---------- وكيل فرص القطاع الخاص (Lead Generation) ----------
 from app import leads as _leads
 from app.leads import init_leads_tables as _ilt
