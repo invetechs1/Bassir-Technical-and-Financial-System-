@@ -14,6 +14,7 @@ const I18N = {
   nav_etimad: { ar: "منافسات اعتماد", en: "Etimad Tenders" },
   nav_forsah: { ar: "مشاريع منصة فرصة", en: "Forsah Projects" },
   nav_leads: { ar: "فرص القطاع الخاص", en: "Private-Sector Leads" },
+  boq_mode_project: { ar: "جدول الكميات: بنود مشروعكم نفسها (التسعير من قاعدتكم)", en: "BoQ: your project's own items (priced from your database)" },
   nav_repo: { ar: "المستودع المعرفي", en: "Knowledge Repository" },
   nav_docs: { ar: "وثائق الشركة", en: "Company Documents" },
   nav_analytics: { ar: "التحليلات", en: "Analytics" },

@@ -158,6 +158,15 @@ def build_analysis(title: str, client: str, entity_type: str, files_text: str,
         recommendations.append({"agent": "tech", "level": "warn",
                                 "text": "لا عرض كامل سابق صالح قالباً ولا أقسام من بنك الفقرات — سيُستخدم أسلوب الانطلاق العام. "
                                         "ارفع عروضك الفنية الكاملة من معالج التهيئة ليستنسخها الوكيل طبق الأصل."})
+    if data.get("boq_mode") == "project":
+        recommendations.append({"agent": "fin", "level": "ok",
+                                "text": f"وُجد جدول كميات المشروع في ملفاته ({len(data.get('boq', []))} بنداً) — "
+                                        "سيُحافظ على بنوده ووحداته وكمياته حرفياً، والتسعير فقط من قاعدة أسعاركم "
+                                        "وعروضكم السابقة."})
+    elif data.get("boq_mode") == "reference":
+        recommendations.append({"agent": "fin", "level": "warn",
+                                "text": "لم يُعثر على جدول كميات في ملفات المشروع — سيُبنى الجدول استرشاداً بأقرب "
+                                        "عرض سابق. ارفع جدول كميات المشروع ليُسعَّر بنداً ببند كما هو."})
     if not matches:
         recommendations.append({"agent": "both", "level": "info",
                                 "text": "لا عروض سابقة مشابهة في الأرشيف — سيُبنى العرض من ملفات المشروع وقاعدة الأسعار مباشرة."})

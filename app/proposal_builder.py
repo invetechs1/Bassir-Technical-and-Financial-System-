@@ -218,17 +218,30 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
     text = f"{title}\n{files_text}"
     boq: list[dict] = []
     matched_ref_note = ""
+    boq_mode = "keywords"
 
     # فئة المشروع تُقرأ من ملفاته أولاً: إنشاءات / صيانة وتشغيل / نظافة / توريد /
     # تصميم وإشراف — فتُبنى الأقسام من فقرات الفئة نفسها والخطة الزمنية بنمطها
     project_kind = detect_kind(text)
 
-    # أولاً: البناء من أقرب عرض سابق مشابه إن وُجد تطابق قوي
-    if similar_refs:
+    # القاعدة الذهبية: إن كان في ملفات المشروع جدول كميات، فبنوده هي العرض
+    # المالي حرفياً (وصفاً ووحدة وكمية) — والعروض السابقة وقاعدة الأسعار
+    # مرجع تسعير فقط، لا مصدر بنود أبداً
+    from .boq_parser import parse_boq_from_text, price_project_boq
+    project_items = parse_boq_from_text(files_text)
+    if project_items:
+        boq = price_project_boq(project_items, similar_refs)
+        boq_mode = "project"
+        if similar_refs:
+            matched_ref_note = f"{similar_refs[0]['title']} ({similar_refs[0]['ref_no']})"
+
+    # احتياط أول (لا جدول في الملفات): البناء من أقرب عرض سابق مشابه
+    if not boq and similar_refs:
         best = similar_refs[0]
         ref_boq = best.get("data", {}).get("boq", [])
         if ref_boq:
             matched_ref_note = f"{best['title']} ({best['ref_no']})"
+            boq_mode = "reference"
             for l in ref_boq:
                 boq.append({
                     "code": l.get("code", ""), "name": l["name"], "unit": l.get("unit", "وحدة"),
@@ -236,7 +249,7 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
                     "source": l.get("source") or ("قاعدة الأسعار" if l.get("code") else "من عرض سابق"),
                 })
 
-    # ثانياً: المطابقة بالكلمات المفتاحية عند غياب مرجع مشابه
+    # احتياط ثانٍ: المطابقة بالكلمات المفتاحية عند غياب المرجع أيضاً
     if not boq:
         codes: list[str] = []
         for keywords, item_codes in _KEYWORD_MAP:
@@ -290,8 +303,11 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
         {"title": "من نحن", "body": library.get("نبذة عن شركة عزوم", "")},
         {"title": "مشاريع سابقة",
          "body": (f"نفذت الشركة وقدمت عروضاً لمشاريع مماثلة مباشرة لنطاق هذا المشروع، أقربها: "
-                  f"{matched_ref_note}، وقد بُني جدول الكميات في هذا العرض على خبرة التسعير الفعلية "
-                  f"لذلك المشروع.\n" + library.get("الخبرات والمشاريع المماثلة", ""))
+                  f"{matched_ref_note}، " +
+                  ("وقد سُعِّرت بنود جدول كميات مشروعكم على خبرة التسعير الفعلية لتلك المشاريع."
+                   if boq_mode == "project" else
+                   "وقد بُني جدول الكميات في هذا العرض على خبرة التسعير الفعلية لذلك المشروع.")
+                  + "\n" + library.get("الخبرات والمشاريع المماثلة", ""))
          if matched_ref_note else library.get("الخبرات والمشاريع المماثلة", "")},
         {"title": "نطاق العمل",
          "body": f"اطلعنا على وثائق مشروع «{title}» الخاص بـ{client}، وحللنا متطلباته وحصرنا بنود "
@@ -399,5 +415,6 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
         "project_kind": project_kind,
         "build_mode": "master_clone" if master_ref else "bank",
         "master_ref": master_ref,
+        "boq_mode": boq_mode,   # project = بنود المشروع نفسها | reference/keywords = احتياط
         "engine": "template",
     }
