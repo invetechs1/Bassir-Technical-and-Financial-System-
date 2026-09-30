@@ -48,6 +48,8 @@ def startup():
     migrate_repo_to_tech()
     execution.init_execution_tables()
     agents.init_agent_tables()
+    from .leads import init_leads_tables
+    init_leads_tables()
     _convert_legacy_logos()
     _cleanup_stale_exports()
     if os.environ.get("AZOOM_DISABLE_BACKGROUND") != "1":
@@ -55,6 +57,8 @@ def startup():
         threading.Thread(target=refresh_active_model, daemon=True).start()  # فحص فوري عند الإقلاع
         start_background_checker()
         _start_invoice_scheduler()
+        from .leads import start_leads_scheduler
+        start_leads_scheduler()
 
 
 def _cleanup_stale_exports():
@@ -180,8 +184,8 @@ async def auth_guard(request: Request, call_next):
 
     # بوابات الميزات: 402 لا 403 — الواجهة تعرض دعوة الترقية
     limits = tenancy.PLAN_LIMITS.get(company_row.get("plan", "trial"), tenancy.PLAN_LIMITS["trial"])
-    if _under(path, ("/api/etimad", "/api/forsah")) and not limits.get("integrations"):
-        return JSONResponse({"detail": "ربط اعتماد وفرصة متاح في الخطة الاحترافية فأعلى — رقّوا الاشتراك."},
+    if _under(path, ("/api/etimad", "/api/forsah", "/api/leads")) and not limits.get("integrations"):
+        return JSONResponse({"detail": "ربط اعتماد وفرصة ووكيل فرص السوق متاح في الخطة الاحترافية فأعلى — رقّوا الاشتراك."},
                             status_code=402)
     if _under(path, ("/api/style-profile", "/api/paragraph-bank", "/api/paragraphs",
                      "/api/repository/technical")) and not limits.get("style_engine"):
@@ -598,6 +602,7 @@ def index():
 def status():
     from .etimad import list_tenders
     from .forsah import list_projects
+    from .leads import pipeline_stats
     stats = db.market_stats()
     return {
         "ok": True,
@@ -609,6 +614,7 @@ def status():
         "repo_files": stats["repo_files"],
         "etimad": len(list_tenders()),
         "forsah": len(list_projects()),
+        "leads": pipeline_stats()["total"],
         "docs": len(db.list_company_docs()),
     }
 
@@ -1128,6 +1134,84 @@ def forsah_list(category: str = "", status: str = "", q: str = ""):
 def forsah_status(pid: int, body: dict):
     from .forsah import update_project_status
     update_project_status(pid, body.get("status", "جديد"))
+    return {"ok": True}
+
+
+# ------------------------ وكيل فرص القطاع الخاص (Lead Generation) ------------------------
+
+@app.get("/api/leads")
+def leads_list(request: Request, status: str = "", q: str = "", mine: int = 0):
+    from . import leads
+    leads.ensure_default_sources()
+    return {"leads": leads.list_leads(status, q, request.state.user_id if mine else 0),
+            "stats": leads.pipeline_stats()}
+
+
+@app.post("/api/leads")
+def leads_add(request: Request, body: dict):
+    from . import leads
+    try:
+        return leads.add_manual(body.get("text", ""), body.get("source_note", ""))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.put("/api/leads/{lead_id}")
+def leads_update(lead_id: int, body: dict):
+    from . import leads
+    try:
+        return leads.update_lead(lead_id, body)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/leads/{lead_id}/assign")
+def leads_assign(request: Request, lead_id: int, body: dict):
+    _require_admin(request)   # الإيكال قرار إداري
+    from . import leads
+    try:
+        return leads.assign_lead(lead_id, int(body.get("user_id") or 0), body.get("note", ""))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/leads/{lead_id}/convert")
+def leads_convert(lead_id: int):
+    from . import leads
+    try:
+        return leads.convert_prefill(lead_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/leads/collect")
+def leads_collect():
+    from . import leads
+    leads.ensure_default_sources()
+    return leads.collect_all()
+
+
+@app.get("/api/leads/sources")
+def leads_sources():
+    from . import leads
+    return {"sources": leads.list_sources()}
+
+
+@app.post("/api/leads/sources")
+def leads_source_save(request: Request, body: dict):
+    _require_admin(request)
+    from . import leads
+    try:
+        return leads.upsert_source(body)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.delete("/api/leads/sources/{source_id}")
+def leads_source_delete(request: Request, source_id: int):
+    _require_admin(request)
+    from . import leads
+    leads.delete_source(source_id)
     return {"ok": True}
 
 
