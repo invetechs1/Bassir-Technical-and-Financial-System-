@@ -127,6 +127,12 @@ def review_proposal(data: dict) -> dict:
                            "text": "مجموع التسعير الموجه للعميل لا يطابق الإجمالي قبل الضريبة.",
                            "fixable": False})
         unpriced = [l.get("name", "") for l in boq if not l.get("unit_price")]
+        uncertain = [l.get("name", "") for l in boq
+                     if l.get("quantity_issue") or float(l.get("qty") or 0) == 0]
+        if uncertain:
+            issues.append({"level": "error", "kind": "finance", "section": "boq",
+                           "text": "كميات تحتاج تأكيداً قبل اعتماد العرض: " + "، ".join(uncertain[:5]),
+                           "fixable": False})
         if unpriced:
             issues.append({"level": "warn", "kind": "finance", "section": "boq",
                            "text": "بنود بلا سعر: " + "، ".join(unpriced[:5]), "fixable": False})

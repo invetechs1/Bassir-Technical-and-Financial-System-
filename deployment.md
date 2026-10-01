@@ -245,7 +245,7 @@ the login was done on another machine. Fetching the public tenders list
 docker exec azoom-proposals python scripts/system_check.py
 ```
 
-Runs 267 checks: auth and brute-force limits, settings/secret handling, roles and
+Runs 322 checks: auth and brute-force limits, settings/secret handling, roles and
 tenant isolation, plan gates and lifecycle, proposal generation (template and Claude
 paths), Word/Excel exports (incl. 24 concurrent exports for two tenants), the agents
 flow, invoicing, notification channels, model updater, and the first-run password.
@@ -290,11 +290,11 @@ docker build -t azoom-proposals:latest .
 ### 2. (Recommended) Sanity-check the image before shipping it
 
 ```bash
-docker run --rm azoom-proposals:latest sh -c "python scripts/system_check.py"
+docker run --rm azoom-proposals:latest sh -c "python scripts/system_check.py && python scripts/test_boq_regressions.py"
 ```
 
-Should print `===== النتيجة: 267/267 =====` at the end (it uses a throwaway database
-inside the container). Don't ship if it doesn't.
+Should print `===== النتيجة: 322/322 =====`, followed by 17 passing BoQ regression
+tests (it uses a throwaway database inside the container). Don't ship if either fails.
 
 ### 3. Save it to a tar file
 
@@ -324,8 +324,9 @@ automatically if present (`ANTHROPIC_API_KEY`), so nothing needs to be re-entere
 
 ```bash
 curl -s https://pricing-system.bassir.net/api/status
-ssh root@13.140.138.252 "docker exec azoom-proposals python scripts/system_check.py" 2>&1 | tail -5
+ssh root@13.140.138.252 "docker exec azoom-proposals python scripts/system_check.py && docker exec azoom-proposals python scripts/test_boq_regressions.py" 2>&1 | tail -10
 ```
 
 The check runs on a scratch database, so it is safe on the live container and needs
-no password — it should end with `267/267`.
+no password — it should report `322/322`, followed by 17 passing BoQ regression tests.
+An unauthenticated `/api/status` request returns HTTP 401; this is expected.

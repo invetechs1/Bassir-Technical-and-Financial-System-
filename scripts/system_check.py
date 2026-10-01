@@ -1330,6 +1330,29 @@ check("وكيل الجودة ينبه على البنود بلا سعر",
                                    for i in _qx["issues"]))
 c.delete(f"/api/proposals/{r.json()['id']}")
 
+# Adversarial layouts through the actual upload/generate/quality API.
+for _qa_label, _qa_text, _qa_qty in [
+    ("price before quantity", "الوصف | الوحدة | سعر الوحدة | الكمية | الإجمالي\nوحدات إنارة الموقع | عدد | 250 | 40 | 10000\nكاميرات أمن الموقع | عدد | 900 | 15 | 13500\nلوحة تحكم الموقع | عدد | 4500 | 1 | 4500", [40, 15, 1]),
+    ("provisional zero", "الوصف | الوحدة | الكمية\nوحدات إنارة الموقع | عدد | 40\nكاميرات أمن الموقع | عدد | 15\nلوحة تحكم الموقع | عدد | 0", [40, 15, 0]),
+    ("missing quantity", "الوصف | الوحدة | الكمية | سعر الوحدة\nوحدات إنارة الموقع | عدد | TBD | 250", [0]),
+]:
+    _qa_response = c.post("/api/proposals/generate",
+                          data={"title": "فحص كميات المشروع", "client": "جهة الفحص", "entity_type": "private"},
+                          files=[("files", ("boq.txt", _qa_text.encode(), "text/plain"))])
+    _qa_data = _qa_response.json()["data"]
+    check("API BoQ regression: " + _qa_label,
+          _qa_response.status_code == 200 and _qa_data["boq_mode"] == "project"
+          and [l["qty"] for l in _qa_data["boq"]] == _qa_qty)
+    if 0 in _qa_qty:
+        _qa_quality = c.get(f"/api/proposals/{_qa_response.json()['id']}/quality").json()
+        check("Quality requires quantity review: " + _qa_label,
+              not _qa_quality["ready"] and any(i["level"] == "error" and "كميات" in i["text"]
+                                              for i in _qa_quality["issues"]))
+    _qa_enforced = _epb([], _pbt(_qa_text))
+    check("AI enforcement preserves quantities: " + _qa_label,
+          [l["qty"] for l in _qa_enforced] == _qa_qty)
+    c.delete(f"/api/proposals/{_qa_response.json()['id']}")
+
 # صمام أمان مسار الذكاء الاصطناعي: مهما أخرج النموذج تبقى بنود المشروع
 _ai_fake = [{"name": "بند مختلق من مشروع آخر لا علاقة له", "unit": "م3", "qty": 999, "unit_price": 500},
             {"name": "دهان الواجهة الخارجية بدهان أكريليك خاص", "unit": "م2", "qty": 111, "unit_price": 33}]

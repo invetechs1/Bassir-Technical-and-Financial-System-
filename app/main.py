@@ -1340,6 +1340,11 @@ def get_proposal(pid: int):
 def put_proposal(pid: int, fields: dict):
     # عند تعديل جدول الكميات نعيد الحسابات المالية
     if "data" in fields and "boq" in fields["data"]:
+        previous = db.get_proposal(pid)
+        if not previous:
+            raise HTTPException(404, "العرض غير موجود")
+        from .boq_parser import confirm_edited_quantities
+        confirm_edited_quantities(fields["data"]["boq"], previous["data"].get("boq", []))
         fields["data"]["boq"] = match_price_catalog(fields["data"]["boq"])
         fields["data"]["financial"] = compute_financials(fields["data"]["boq"])
     proposal = db.update_proposal(pid, fields)

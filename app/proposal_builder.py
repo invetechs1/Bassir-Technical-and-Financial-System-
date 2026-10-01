@@ -23,7 +23,7 @@ def compute_financials(boq: list[dict], settings: dict | None = None) -> dict:
     bid_bond_pct = float(s.get("bid_bond_pct", 1))
 
     for line in boq:
-        line["qty"] = float(line.get("qty", 1) or 1)
+        line["qty"] = float(line["qty"] if line.get("qty") is not None else 1)
         children = line.get("children") or []
         if children:
             # بند مقسّم إلى أجزاء فرعية: لكل جزء كميته ووحدته وسعره وإجماليه

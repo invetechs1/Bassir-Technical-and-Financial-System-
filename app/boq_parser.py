@@ -12,6 +12,8 @@
 احتياطاً أخيراً فقط حين لا تحوي الملفات أي جدول كميات.
 """
 import re
+import logging
+import math
 
 _AR_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 
@@ -25,8 +27,8 @@ _UNITS = {
 _HEADER_WORDS = ("الوصف", "وصف البند", "البند", "الكمية", "الوحدة", "بيان الأعمال")
 _TOTAL_WORDS = ("الإجمالي", "الاجمالي", "المجموع", "الإجمالى", "إجمالي عام")
 
-MIN_TABLE_ROWS = 3      # أقل من ذلك لا يُعد جدول كميات (تفادي الالتقاط الخاطئ)
-MAX_ITEMS = 500
+MIN_TABLE_ROWS = 3      # Confidence threshold only for tables without headers.
+MAX_ITEMS = 500        # Warning threshold; never discard client items.
 
 
 def _norm(text: str) -> str:
@@ -35,13 +37,13 @@ def _norm(text: str) -> str:
 
 def _num(field: str) -> float | None:
     """قيمة رقمية إن كان الحقل رقمياً صرفاً (يقبل الأرقام العربية-الهندية والفواصل)."""
-    s = _norm(field).replace(",", "").replace("٫", ".")
+    s = _norm(field).replace(",", "").replace("٬", "").replace("٫", ".")
     # أي حرف يعني أنه ليس حقل كمية (الأوصاف قد تحوي أرقاماً مثل «بلاط 60×60»)
     if not s or re.search(r"[؀-ۿA-Za-z]", s):
         return None
     try:
         v = float(s)
-        return v if 0 < v < 10_000_000 else None
+        return v if 0 <= v < 10_000_000 else None
     except ValueError:
         return None
 
@@ -58,29 +60,102 @@ def _split_fields(line: str) -> list[str]:
         parts = line.split("\t")
     else:
         parts = re.split(r"\s{2,}", line)
-    return [p.strip() for p in parts if p.strip()]
+    # Keep internal empty cells: dropping them shifts the quantity column.
+    return [p.strip() for p in parts]
+
+
+def _is_total_label(field: str) -> bool:
+    label = _norm(field).lower().strip(" :：*-_")
+    label = label.translate(str.maketrans("أإآى", "اااي"))
+    return label in {
+        "اجمالي", "الاجمالي", "اجمالي عام", "الاجمالي العام",
+        "المجموع", "المجموع العام", "المجموع الكلي",
+        "total", "subtotal", "sub-total", "sub total", "grand total",
+    }
+
+
+def confirm_edited_quantities(items: list[dict], previous: list[dict]) -> None:
+    """A valid manual quantity change resolves its extraction warning.
+
+    Match unchanged item identities, including duplicate occurrences. Price edits
+    and unchanged quantities must not silently confirm an unresolved quantity.
+    """
+    by_identity = {}
+    for line in previous:
+        key = (line.get("name", ""), line.get("unit", ""))
+        by_identity.setdefault(key, []).append(line)
+    for line in items:
+        key = (line.get("name", ""), line.get("unit", ""))
+        matches = by_identity.get(key, [])
+        old = matches.pop(0) if matches else None
+        if not old or not old.get("quantity_issue"):
+            continue
+        try:
+            qty = float(line.get("qty"))
+            old_qty = float(old.get("qty"))
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(qty) and 0 < qty < 10_000_000 and qty != old_qty:
+            line.pop("quantity_issue", None)
 
 
 def parse_boq_from_text(text: str) -> list[dict]:
     """بنود جدول كميات المشروع من نص ملفاته (Excel/PDF/نصي) كما كتبها العميل.
 
-    يتعرف الصف على أنه بند حين يجمع وصفاً عربياً + كمية رقمية، ويتجاهل صفوف
-    الترويسة والإجماليات. يعيد [] إن لم يجد جدولاً حقيقياً (أقل من 3 بنود)."""
+    Headers define column roles. Headerless rows need three items for confidence;
+    ambiguous quantities are retained at zero and marked for manual review.
+    """
     items: list[dict] = []
+    columns = None
+    explicit_table = False
     for raw in (text or "").splitlines():
-        line = raw.strip()
-        if not line or len(line) > 500:
+        # Tabs encode empty edge cells; stripping them would shift header indices.
+        line = raw.strip(" \r") if "\t" in raw else raw.strip()
+        if line.lstrip().startswith(("##", "[ملف", "=====")):
+            columns = None
+            continue
+        if not line.strip():
             continue
         fields = _split_fields(line)
         if len(fields) < 2:
             continue
         joined = " ".join(fields)
+        labels = [_norm(f).lower() for f in fields]
+        qty_idx = next((i for i, f in enumerate(labels) if f in
+                        ("الكمية", "كمية", "الكميه", "quantity", "qty")), None)
+        desc_idx = next((i for i, f in enumerate(labels) if f in
+                         ("الوصف", "وصف البند", "البند", "بيان الأعمال", "description", "item")), None)
+        if qty_idx is not None and desc_idx is not None:
+            unit_idx = next((i for i, f in enumerate(labels) if f in
+                             ("الوحدة", "وحدة", "الوحده", "unit")), None)
+            columns = (desc_idx, unit_idx, qty_idx, len(fields))
+            explicit_table = True
+            continue
+        if columns is not None:
+            di, ui, qi, width = columns
+            if di >= len(fields):
+                continue
+            name = fields[di]
+            if not name or _is_total_label(name) or re.fullmatch(r"[-: ]+", name):
+                continue
+            qty = _num(fields[qi]) if qi < len(fields) else None
+            # Space-separated extraction cannot represent an empty cell. A row
+            # with fewer/more fields than its header cannot safely identify qty.
+            if "|" not in line and "\t" not in line and len(fields) != width:
+                qty = None
+            item = {"name": name, "unit": fields[ui] if ui is not None and ui < len(fields) and fields[ui] else "وحدة",
+                    "qty": qty if qty is not None else 0.0}
+            if qty is None:
+                item["quantity_issue"] = "كمية غير واضحة — تحتاج مراجعة يدوية"
+            elif qty == 0:
+                item["quantity_issue"] = "كمية صفرية — تحتاج تأكيداً قبل اعتماد العرض"
+            items.append(item)
+            continue
         # صف ترويسة (وصف + كمية كعناوين أعمدة) أو صف إجماليات — ليس بنداً
         if sum(1 for h in _HEADER_WORDS if h in joined) >= 2 and not any(
                 _num(f) for f in fields if not _is_unit(f)):
             continue
-        if any(w in joined for w in _TOTAL_WORDS) and not any(
-                len(_norm(f)) > 25 for f in fields):
+        if any(_is_total_label(f) for f in fields):
             continue
         # الوصف: أطول حقل عربي ذي معنى (وليس وحدة قياس)
         arabic_fields = [f for f in fields
@@ -103,17 +178,35 @@ def parse_boq_from_text(text: str) -> list[dict]:
             continue
         # ترتيب الأعمدة المتعارف عليه: م | الوصف | الوحدة | الكمية | السعر | الإجمالي
         # → الكمية أول رقم بعد الوصف/الوحدة (والسعر والإجمالي بعدها إن وُجدا)
-        qty = next((v for i, v in qty_numbers if i > name_idx), qty_numbers[0][1])
-        items.append({"name": name, "unit": _norm(unit) or "وحدة", "qty": qty})
-        if len(items) >= MAX_ITEMS:
-            break
-    return items if len(items) >= MIN_TABLE_ROWS else []
+        qty = qty_numbers[0][1] if len(qty_numbers) == 1 else 0.0
+        item = {"name": name, "unit": _norm(unit) or "وحدة", "qty": qty}
+        if len(qty_numbers) > 1:
+            item["quantity_issue"] = "أعمدة رقمية بلا ترويسة — يجب تحديد عمود الكمية يدوياً"
+        elif qty == 0:
+            item["quantity_issue"] = "كمية صفرية — تحتاج تأكيداً قبل اعتماد العرض"
+        items.append(item)
+    if len(items) > MAX_ITEMS:
+        logging.getLogger(__name__).warning("BoQ exceeds %s rows; preserving all %s items", MAX_ITEMS, len(items))
+    return items if explicit_table or len(items) >= MIN_TABLE_ROWS else []
 
 
 # ------------------------- التسعير -------------------------
 
 def _tokens(text: str) -> set[str]:
-    return {t for t in re.split(r"[\s،,/|()×xX*-]+", _norm(text)) if len(t) > 2}
+    text = re.sub(r"[\u064b-\u065f\u0670]", "", _norm(text)).lower()
+    text = text.translate(str.maketrans("أإآى", "اااي"))
+    tokens = set()
+    for token in re.split(r"[\s،,/|()×xX*-]+", text):
+        if token.startswith("وال"):
+            token = token[1:]
+        if token.startswith("ال") and len(token) > 4:
+            token = token[2:]
+        # Conservative aliases; avoid stripping roots or technical specifications.
+        token = {"للمواقع": "موقع", "للموقع": "موقع", "مواقع": "موقع",
+                 "ونظافة": "نظافة", "وتركيب": "تركيب", "وتوريد": "توريد"}.get(token, token)
+        if len(token) > 2:
+            tokens.add(token)
+    return tokens
 
 
 def _best_match(name: str, candidates: list, key=lambda c: c.get("name", "")):
@@ -157,7 +250,9 @@ def price_project_boq(items: list[dict], similar_refs: list[dict] | None = None)
     out = []
     for it in items:
         line = {"code": "", "name": it["name"], "unit": it.get("unit") or "وحدة",
-                "qty": float(it.get("qty") or 1), "unit_price": 0.0, "source": ""}
+                "qty": float(it.get("qty", 1)), "unit_price": 0.0, "source": ""}
+        if it.get("quantity_issue"):
+            line["quantity_issue"] = it["quantity_issue"]
         cat, _ = _best_match(it["name"], catalog)
         if cat:
             line.update(code=cat["code"], unit_price=float(cat["unit_price"]),

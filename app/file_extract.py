@@ -101,7 +101,7 @@ def _extract_xlsx(content: bytes) -> str:
     for ws in wb.worksheets:
         parts.append(f"## ورقة: {ws.title}")
         for row in ws.iter_rows(values_only=True):
-            cells = [str(c) for c in row if c is not None]
-            if cells:
+            cells = [str(c) if c is not None else "" for c in row]
+            if any(cells):
                 parts.append(" | ".join(cells))
     return "\n".join(parts)
