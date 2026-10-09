@@ -89,9 +89,9 @@ async function fillTenantMenu() {
   const companies = await api("/api/me/companies");
   $("#tenantList").innerHTML = companies.map((c) => `
     <button onclick="switchCompany(${c.id})" ${c.id === ME.company_id ? 'style="background:var(--accent-soft)"' : ""}>
-      <span class="tenant-mark">${(c.short_name || c.name).slice(0, 1)}</span>
-      <span style="font-size:12.5px;font-weight:500">${c.name}</span>
-      <span class="plan" style="margin-inline-start:auto">${t("role_" + c.role) || c.role}</span>
+      <span class="tenant-mark">${escH((c.short_name || c.name).slice(0, 1))}</span>
+      <span style="font-size:12.5px;font-weight:500">${escH(c.name)}</span>
+      <span class="plan" style="margin-inline-start:auto">${t("role_" + c.role) || escH(c.role)}</span>
     </button>`).join("") || `<p class="muted" style="padding:8px">${t("tenant_none")}</p>`;
 }
 
@@ -211,8 +211,8 @@ async function loadDashboard() {
   const expiring = docs.filter((d) => d.status === "expiring");
   if (expired.length || expiring.length) {
     const parts = [];
-    if (expired.length) parts.push(`⛔ ${t("docs_alert_expired")} ${expired.map((d) => d.name).join("، ")}`);
-    if (expiring.length) parts.push(`⚠️ ${t("docs_alert_expiring")} ${expiring.map((d) => `${d.name} (${d.days_left} ${t("docs_alert_days")})`).join("، ")}`);
+    if (expired.length) parts.push(`⛔ ${t("docs_alert_expired")} ${expired.map((d) => escH(d.name)).join("، ")}`);
+    if (expiring.length) parts.push(`⚠️ ${t("docs_alert_expiring")} ${expiring.map((d) => `${escH(d.name)} (${d.days_left} ${t("docs_alert_days")})`).join("، ")}`);
     $("#docsAlert").innerHTML = `<div class="alert">
       <div><b>${t("docs_alert_title")}</b><br><span style="line-height:1.9">${parts.join("<br>")}</span></div>
       <button class="btn ghost sm" onclick="go('docs')">${t("docs_alert_btn")}</button></div>`;
@@ -223,7 +223,7 @@ async function loadDashboard() {
 
 function rowHtml(p) {
   return `<tr>
-    <td class="code">${p.ref_no}</td><td class="ellipsis">${p.title}</td><td class="ellipsis">${p.client}</td>
+    <td class="code">${escH(p.ref_no)}</td><td class="ellipsis">${escH(p.title)}</td><td class="ellipsis">${escH(p.client)}</td>
     <td><span class="tag ${p.entity_type === "government" ? "gov" : "private"}">${t(SECTOR_KEY[p.entity_type]) || p.entity_type}</span></td>
     <td><span class="tag ${p.status}">${t(STATUS_KEY[p.status]) || p.status}</span></td>
     <td class="num-cell">${p.created_at.slice(0, 10)}</td>
@@ -252,7 +252,7 @@ function addFiles(list) {
 const fileSize = (b) => b > 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.ceil(b / 1024) + " KB";
 function renderFileList() {
   $("#fileList").innerHTML = pendingFiles.map((f, i) =>
-    `<span class="file-chip">${f.name}<span class="size">${fileSize(f.size)}</span><button onclick="pendingFiles.splice(${i},1);renderFileList()">✕</button></span>`
+    `<span class="file-chip">${escH(f.name)}<span class="size">${fileSize(f.size)}</span><button onclick="pendingFiles.splice(${i},1);renderFileList()">✕</button></span>`
   ).join("");
 }
 
@@ -271,7 +271,7 @@ function suggestSimilar() {
           <b style="color:var(--primary)">${t("similar_title")}</b>
           ${matches.map((m) => `
             <div class="row mt" style="justify-content:space-between;font-size:13px">
-              <span>${m.title} <span class="muted">(${m.client})</span></span>
+              <span>${escH(m.title)} <span class="muted">(${escH(m.client)})</span></span>
               <span class="tag gov">${t("similar_match")} ${m.score}% • ${m.boq_lines} ${t("similar_lines")}</span>
             </div>`).join("")}
         </div>`;
@@ -366,21 +366,21 @@ function renderTech(d) {
     </div>`;
   }
   html += (d.technical_sections || []).map((s) =>
-    `<div class="panel section-block"><h4>${s.title}
+    `<div class="panel section-block"><h4>${escH(s.title)}
        ${showProvenance && s.source ? (s.source === "bank"
-         ? `<span class="tag src" title="${s.source_ref || ""}">${t("prov_bank")}</span>`
-         : `<span class="tag est">${t("prov_new")}</span>`) : ""}</h4><p>${s.body}</p></div>`).join("");
+         ? `<span class="tag src" title="${escH(s.source_ref || "")}">${t("prov_bank")}</span>`
+         : `<span class="tag est">${t("prov_new")}</span>`) : ""}</h4><p>${escH(s.body)}</p></div>`).join("");
 
   if (d.team?.length) {
     html += `<div class="panel section-block"><h4>${t("team_title")}</h4>
       <div class="t-wrap"><table><thead><tr><th>${t("th_role")}</th><th>${t("th_count")}</th></tr></thead><tbody>
-      ${d.team.map((t2) => `<tr><td>${t2.role}</td><td>${t2.count}</td></tr>`).join("")}
+      ${d.team.map((t2) => `<tr><td>${escH(t2.role)}</td><td>${escH(t2.count)}</td></tr>`).join("")}
       </tbody></table></div></div>`;
   }
   if (d.compliance_matrix?.length) {
     html += `<div class="panel section-block"><h4>${t("compliance_title")}</h4>
       <div class="t-wrap"><table><thead><tr><th>${t("th_requirement")}</th><th>${t("th_compliance")}</th><th>${t("th_reference")}</th></tr></thead><tbody>
-      ${d.compliance_matrix.map((m) => `<tr><td>${m.requirement}</td><td>${m.response}</td><td>${m.reference}</td></tr>`).join("")}
+      ${d.compliance_matrix.map((m) => `<tr><td>${escH(m.requirement)}</td><td>${escH(m.response)}</td><td>${escH(m.reference)}</td></tr>`).join("")}
       </tbody></table></div></div>`;
   }
   $("#tab-tech").innerHTML = html;
@@ -411,7 +411,7 @@ function renderFin(d) {
       <p class="muted mt">${t("fin_bid_bond")} (${f.bid_bond_pct ?? 1}%): <b>${fmt(f.bid_bond)} ${cur}</b></p>
       <p class="muted mt" style="border-top:1px solid var(--line);padding-top:8px">🔒 ${t("fin_internal_note")}</p>
     </div>
-    ${(d.assumptions || []).length ? `<div class="panel"><h3>${t("assumptions_title")}</h3>${d.assumptions.map((a) => `<p class="muted">• ${a}</p>`).join("")}</div>` : ""}`;
+    ${(d.assumptions || []).length ? `<div class="panel"><h3>${t("assumptions_title")}</h3>${d.assumptions.map((a) => `<p class="muted">• ${escH(a)}</p>`).join("")}</div>` : ""}`;
 }
 
 function renderBoqRow(l, i) {
@@ -420,9 +420,9 @@ function renderBoqRow(l, i) {
   const parentRow = `
     <tr class="${hasKids ? "boq-parent" : ""}">
       <td>${i + 1}</td>
-      <td class="num-cell">${l.code || "—"}</td>
-      <td>${l.name}</td>
-      <td>${l.unit}</td>
+      <td class="num-cell">${escH(l.code || "—")}</td>
+      <td>${escH(l.name)}</td>
+      <td>${escH(l.unit)}</td>
       <td style="width:90px"><input type="number" value="${l.qty}" step="0.01" onchange="editBoq(${i},'qty',this.value)"></td>
       <td style="width:120px">${hasKids
         ? `<input type="number" value="${l.unit_price}" disabled title="${t("boq_computed_hint")}">`
@@ -438,8 +438,8 @@ function renderBoqRow(l, i) {
     <tr class="boq-sub-row${j === kids.length - 1 ? " last" : ""}">
       <td class="muted num-cell">${i + 1}.${j + 1}</td>
       <td></td>
-      <td><div class="boq-sub-name"><span class="boq-sub-arrow">↳</span><input type="text" value="${c.name}" onchange="editBoqSub(${i},${j},'name',this.value)"></div></td>
-      <td style="width:80px"><input type="text" value="${c.unit ?? l.unit}" onchange="editBoqSub(${i},${j},'unit',this.value)"></td>
+      <td><div class="boq-sub-name"><span class="boq-sub-arrow">↳</span><input type="text" value="${escH(c.name)}" onchange="editBoqSub(${i},${j},'name',this.value)"></div></td>
+      <td style="width:80px"><input type="text" value="${escH(c.unit ?? l.unit)}" onchange="editBoqSub(${i},${j},'unit',this.value)"></td>
       <td style="width:90px"><input type="number" value="${c.qty ?? l.qty}" step="0.01" onchange="editBoqSub(${i},${j},'qty',this.value)"></td>
       <td style="width:120px"><input type="number" value="${c.unit_price}" step="0.01" onchange="editBoqSub(${i},${j},'unit_price',this.value)"></td>
       <td class="num-cell muted">${fmt(c.total ?? ((c.qty ?? l.qty) * c.unit_price))}</td>
@@ -470,7 +470,7 @@ function renderPlan(d) {
   const gantt = plan.map((p) => {
     const width = (p.duration_weeks / totalWeeks) * 100;
     const bar = `<div class="gantt-row">
-      <div class="gantt-label">${p.phase}</div>
+      <div class="gantt-label">${escH(p.phase)}</div>
       <div class="gantt-track"><div class="gantt-bar" style="inset-inline-start:${(start / totalWeeks) * 100}%;width:${width}%"></div></div>
     </div>`;
     start += Number(p.duration_weeks || 0);
@@ -482,9 +482,9 @@ function renderPlan(d) {
       <h3>${t("plan_title")} ${d.duration_weeks || totalWeeks} ${t("weeks_label")}</h3>
       ${plan.map((p, i) => `
         <div class="phase">
-          <h4>${t("phase_label")} ${i + 1}: ${p.phase} <span class="dur">(${p.duration_weeks} ${t("weeks_label_short")})</span></h4>
-          <p>${p.description}</p>
-          <ul>${(p.deliverables || []).map((x) => `<li>${x}</li>`).join("")}</ul>
+          <h4>${t("phase_label")} ${i + 1}: ${escH(p.phase)} <span class="dur">(${escH(p.duration_weeks)} ${t("weeks_label_short")})</span></h4>
+          <p>${escH(p.description)}</p>
+          <ul>${(p.deliverables || []).map((x) => `<li>${escH(x)}</li>`).join("")}</ul>
         </div>`).join("")}
       <h3 class="mt">${t("timeline_title")}</h3>
       <div class="gantt">${gantt}</div>
@@ -586,7 +586,7 @@ async function loadPrices() {
 
   $("#pricesTable tbody").innerHTML = items.map((i) => `
     <tr>
-      <td class="num-cell">${i.code}</td><td>${i.category}</td><td>${i.name}</td><td>${i.unit}</td>
+      <td class="num-cell">${escH(i.code)}</td><td>${escH(i.category)}</td><td>${escH(i.name)}</td><td>${escH(i.unit)}</td>
       <td class="num-cell"><b>${fmt(i.unit_price)}</b></td>
       <td class="num-cell muted">${i.updated_at.slice(0, 10)}</td>
       <td>
@@ -642,13 +642,13 @@ async function loadLibrary() {
   $("#libraryList").innerHTML = entries.map((e) => `
     <div class="panel">
       <div class="row" style="justify-content:space-between">
-        <div><b style="color:var(--primary)">${e.title}</b> <span class="tag gov">${e.category}</span></div>
+        <div><b style="color:var(--primary)">${escH(e.title)}</b> <span class="tag gov">${escH(e.category)}</span></div>
         <div>
           <button class="btn sm ghost" onclick='fillLibraryForm(${JSON.stringify(e).replace(/'/g, "&#39;")})'>${t("edit_btn")}</button>
           <button class="btn sm danger" onclick="removeLibrary(${e.id})">${t("delete_btn")}</button>
         </div>
       </div>
-      <p class="muted mt" style="line-height:1.8">${e.body}</p>
+      <p class="muted mt" style="line-height:1.8">${escH(e.body)}</p>
     </div>`).join("");
 }
 
@@ -708,18 +708,19 @@ async function loadEtimad() {
     min_relevance: $("#etRelevant").checked ? 15 : 0,
   });
   const data = await api(`/api/etimad?${params}`);
+  ET_TENDERS = data.tenders;
   $("#etimadSessionNote").style.display = data.session ? "none" : "block";
-  $("#etimadTable tbody").innerHTML = data.tenders.map((t3) => `
+  $("#etimadTable tbody").innerHTML = data.tenders.map((t3, idx) => `
     <tr>
-      <td><a href="${t3.details_url}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600">${t3.name.slice(0, 70)}</a>
-        ${t3.matched_ref ? `<br><span class="muted" style="font-size:11px">${t("closest_experience")} ${t3.matched_ref.slice(0, 50)}</span>` : ""}</td>
-      <td>${t3.agency.slice(0, 35)}</td>
+      <td><a href="${safeUrl(t3.details_url)}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600">${escH(t3.name.slice(0, 70))}</a>
+        ${t3.matched_ref ? `<br><span class="muted" style="font-size:11px">${t("closest_experience")} ${escH(t3.matched_ref.slice(0, 50))}</span>` : ""}</td>
+      <td>${escH(t3.agency.slice(0, 35))}</td>
       <td class="num-cell">${t3.deadline || "—"}</td>
       <td><span class="tag ${t3.relevance >= 30 ? "src" : t3.relevance >= 15 ? "est" : "draft"}">${t3.relevance}%</span></td>
       <td><select onchange="setEtStatus(${t3.id}, this.value)" style="padding:4px 8px;font-size:12px">
         ${ET_STATUSES.map((s) => `<option value="${s}" ${s === t3.status ? "selected" : ""}>${t(ET_STATUS_KEY[s])}</option>`).join("")}</select></td>
       <td>
-        <button class="btn sm ghost" onclick="etToProposal('${t3.name.replace(/'/g, "&#39;").slice(0, 90)}', '${t3.agency.replace(/'/g, "&#39;").slice(0, 60)}')">${t("create_proposal_btn")}</button>
+        <button class="btn sm ghost" onclick="etToProposal(${idx})">${t("create_proposal_btn")}</button>
       </td>
     </tr>`).join("") ||
     `<tr><td colspan="6" class="muted">${t("empty_tenders")}</td></tr>`;
@@ -729,10 +730,14 @@ function setEtStatus(id, status) {
   api(`/api/etimad/${id}`, { method: "PUT", json: { status } }).then(() => toast(t("msg_status_updated")));
 }
 
-function etToProposal(name, agency) {
+let ET_TENDERS = [];
+function etToProposal(idx) {
+  const t3 = ET_TENDERS[idx];
+  if (!t3) return;
   go("new");
-  $("#npTitle").value = name;
-  $("#npClient").value = agency;
+  // قيم تُسند عبر .value (نص خام، لا HTML) — آمنة من الحقن
+  $("#npTitle").value = (t3.name || "").slice(0, 90);
+  $("#npClient").value = (t3.agency || "").slice(0, 60);
   $("#npEntity").value = "government";
   suggestSimilar();
   toast(t("msg_etimad_loaded_hint"));
@@ -763,19 +768,19 @@ async function loadLeads() {
   const memberOpts = (lead) => !ME.is_admin ? "" :
     `<select onchange="assignLead(${lead.id}, this.value)" style="padding:4px 6px;font-size:12px">
        <option value="">${t("ld_assign_ph")}</option>
-       ${(LEAD_MEMBERS || []).map((m) => `<option value="${m.id}" ${m.id === lead.assigned_to ? "selected" : ""}>${m.display_name || m.username}</option>`).join("")}
+       ${(LEAD_MEMBERS || []).map((m) => `<option value="${m.id}" ${m.id === lead.assigned_to ? "selected" : ""}>${escH(m.display_name || m.username)}</option>`).join("")}
      </select>`;
   $("#leadsTable tbody").innerHTML = data.leads.map((l) => `
     <tr>
-      <td>${l.source_url ? `<a href="${l.source_url}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600">${l.title.slice(0, 65)}</a>` : `<b>${l.title.slice(0, 65)}</b>`}
-        ${l.sector || l.est_value ? `<br><span class="muted" style="font-size:11px">${[l.sector, l.est_value, l.source_name].filter(Boolean).join(" · ")}</span>` : ""}
-        ${l.visit_notes ? `<br><span class="muted" style="font-size:11px">📝 ${l.visit_notes.slice(0, 70)}</span>` : ""}</td>
-      <td>${l.developer ? l.developer.slice(0, 35) : "—"}${l.contact ? `<br><span class="muted" style="font-size:11px">☎️ ${l.contact.slice(0, 30)}</span>` : ""}</td>
-      <td>${l.city || "—"}</td>
+      <td>${l.source_url ? `<a href="${safeUrl(l.source_url)}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600">${escH(l.title.slice(0, 65))}</a>` : `<b>${escH(l.title.slice(0, 65))}</b>`}
+        ${l.sector || l.est_value ? `<br><span class="muted" style="font-size:11px">${escH([l.sector, l.est_value, l.source_name].filter(Boolean).join(" · "))}</span>` : ""}
+        ${l.visit_notes ? `<br><span class="muted" style="font-size:11px">📝 ${escH(l.visit_notes.slice(0, 70))}</span>` : ""}</td>
+      <td>${l.developer ? escH(l.developer.slice(0, 35)) : "—"}${l.contact ? `<br><span class="muted" style="font-size:11px">☎️ ${escH(l.contact.slice(0, 30))}</span>` : ""}</td>
+      <td>${escH(l.city || "—")}</td>
       <td><span class="tag ${l.relevance >= 30 ? "src" : l.relevance >= 15 ? "est" : "draft"}">${l.relevance}%</span></td>
       <td><select onchange="setLeadStatus(${l.id}, this.value)" style="padding:4px 8px;font-size:12px">
         ${LEAD_STATUSES.map((s) => `<option value="${s}" ${s === l.status ? "selected" : ""}>${t(LEAD_STATUS_KEY[s])}</option>`).join("")}</select></td>
-      <td>${memberOpts(l) || l.assigned_name || "—"}</td>
+      <td>${memberOpts(l) || escH(l.assigned_name || "—")}</td>
       <td>
         <button class="btn sm ghost" onclick="leadNotes(${l.id})" title="${t("ld_notes_btn")}">📝</button>
         <button class="btn sm ghost" onclick="leadToProposal(${l.id})">${t("create_proposal_btn")}</button>
@@ -851,14 +856,16 @@ async function leadToProposal(id) {
   toast(t("ld_convert_hint"));
 }
 
+let LEAD_SOURCES = [];
 async function loadLeadSources() {
   const data = await api("/api/leads/sources");
+  LEAD_SOURCES = data.sources;
   $("#leadSourcesTable tbody").innerHTML = data.sources.map((s) => `
     <tr>
-      <td><b>${s.name}</b></td>
-      <td><span class="muted" style="font-size:11px;direction:ltr;display:inline-block">${s.url.slice(0, 45)}</span></td>
-      <td class="muted" style="font-size:11px">${s.last_run ? s.last_run.slice(0, 16).replace("T", " ") + "<br>" + (s.last_result || "") : "—"}</td>
-      <td><input type="checkbox" ${s.enabled ? "checked" : ""} onchange="toggleLeadSource(${s.id}, '${s.name.replace(/'/g, "&#39;")}', '${s.url}', this.checked)" style="width:auto"></td>
+      <td><b>${escH(s.name)}</b></td>
+      <td><span class="muted" style="font-size:11px;direction:ltr;display:inline-block">${escH(s.url.slice(0, 45))}</span></td>
+      <td class="muted" style="font-size:11px">${s.last_run ? escH(s.last_run.slice(0, 16).replace("T", " ")) + "<br>" + escH(s.last_result || "") : "—"}</td>
+      <td><input type="checkbox" ${s.enabled ? "checked" : ""} onchange="toggleLeadSource(${s.id}, this.checked)" style="width:auto"></td>
       <td><button class="btn sm ghost danger" onclick="delLeadSource(${s.id})">🗑️</button></td>
     </tr>`).join("");
 }
@@ -872,8 +879,10 @@ async function saveLeadSource() {
   } catch (err) { toast(err.message, true); }
 }
 
-function toggleLeadSource(id, name, url, enabled) {
-  api("/api/leads/sources", { method: "POST", json: { id, name, url, enabled: enabled ? 1 : 0 } })
+function toggleLeadSource(id, enabled) {
+  const s = LEAD_SOURCES.find((x) => x.id === id);
+  if (!s) return;
+  api("/api/leads/sources", { method: "POST", json: { id, name: s.name, url: s.url, enabled: enabled ? 1 : 0 } })
     .then(() => toast(t("msg_status_updated")));
 }
 
@@ -910,19 +919,19 @@ async function loadTechRepo() {
   $("#paraBank").innerHTML = bank.map((b) => `
     <div class="card" style="text-align:start">
       <div class="row mb" style="justify-content:space-between">
-        <span class="tag ${b.approved ? "src" : "est"}">${b.title.slice(0, 25)}</span>
+        <span class="tag ${b.approved ? "src" : "est"}">${escH(b.title.slice(0, 25))}</span>
         <span class="muted" style="font-size:11px">${t("bank_used")} ${b.use_count}</span>
       </div>
-      <p class="muted" style="font-size:12px;line-height:1.8">${b.body.slice(0, 180)}…</p>
+      <p class="muted" style="font-size:12px;line-height:1.8">${escH(b.body.slice(0, 180))}…</p>
       <button class="btn sm ${b.approved ? "ghost" : ""}" onclick="toggleParagraph(${b.id}, ${b.approved ? 0 : 1})">
         ${b.approved ? t("bank_unapprove") : t("bank_approve")}</button>
     </div>`).join("") || `<p class="muted">${t("bank_empty")}</p>`;
 
   $("#techDocsTable tbody").innerHTML = data.documents.map((d) => `
     <tr>
-      <td class="ellipsis">${d.filename}</td>
+      <td class="ellipsis">${escH(d.filename)}</td>
       <td><span class="tag ${d.doc_kind === "competitor" ? "est" : "gov"}">${d.doc_kind === "competitor" ? t("kind_competitor") : t("kind_azoom")}</span></td>
-      <td>${d.project_kind || "—"}</td>
+      <td>${escH(d.project_kind || "—")}</td>
       <td class="num-cell">${d.sections_count}</td>
       <td class="num-cell">${d.paragraphs_count}</td>
       <td>${d.is_style_source ? `<span class="tag src">${t("style_src_yes")}</span>` : "—"}</td>
@@ -946,8 +955,8 @@ async function loadTenants() {
   const canManage = ME.role === "owner" || ME.is_platform_admin;
   $("#membersTable tbody").innerHTML = members.map((m) => `
     <tr>
-      <td class="code">${m.username}</td>
-      <td>${m.display_name || "—"}</td>
+      <td class="code">${escH(m.username)}</td>
+      <td>${escH(m.display_name || "—")}</td>
       <td>${canManage && m.id !== ME.user_id ? `
         <select onchange="changeRole(${m.id}, this.value)" style="padding:4px 8px;font-size:12px">
           ${["viewer", "engineer", "editor", "admin", "owner"].map((r) => `<option value="${r}" ${r === m.role ? "selected" : ""}>${t("role_" + r)}</option>`).join("")}
@@ -976,9 +985,9 @@ async function loadTenants() {
     <div class="card"><div class="num">${mt.companies_total}</div><div class="lbl">${t("mt_companies")} <span class="muted">(${mt.paid_count} ${t("mt_paid_label")})</span></div></div>`;
   $("#companiesTableOverview tbody").innerHTML = companies.map((c) => `
     <tr>
-      <td><b>${c.name}</b>${c.id === ME.company_id ? ` <span class="tag src">${t("company_current")}</span>` : ""}</td>
-      <td><span class="tag est">${t("plan_" + c.plan) || c.plan}</span></td>
-      <td>${c.sector || "—"}</td>
+      <td><b>${escH(c.name)}</b>${c.id === ME.company_id ? ` <span class="tag src">${t("company_current")}</span>` : ""}</td>
+      <td><span class="tag est">${t("plan_" + c.plan) || escH(c.plan)}</span></td>
+      <td>${escH(c.sector || "—")}</td>
       <td class="num-cell">${c.usage.users}</td>
       <td class="num-cell">${c.usage.proposals_total}</td>
       <td class="num-cell">${c.usage.price_items}</td>
@@ -1049,8 +1058,8 @@ async function loadBillingPage() {
   };
   $("#planUsageTable tbody").innerHTML = companies.map((c) => `
     <tr>
-      <td><b>${c.name}</b></td>
-      <td><span class="tag est">${t("plan_" + c.plan) || c.plan}</span></td>
+      <td><b>${escH(c.name)}</b></td>
+      <td><span class="tag est">${t("plan_" + c.plan) || escH(c.plan)}</span></td>
       <td>${usageBar(c.usage.users, c.limits.users)}</td>
       <td>${usageBar(c.usage.proposals_month, c.limits.proposals_month)}</td>
       <td>${usageBar(c.usage.price_items, c.limits.price_items)}</td>
@@ -1238,18 +1247,19 @@ async function loadForsah() {
     status: $("#fsStatus").value,
   });
   const data = await api(`/api/forsah?${params}`);
-  $("#forsahTable tbody").innerHTML = data.projects.map((p) => `
+  FS_PROJECTS = data.projects;
+  $("#forsahTable tbody").innerHTML = data.projects.map((p, idx) => `
     <tr>
-      <td><a href="${p.details_url}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600">${p.title.slice(0, 70)}</a>
-        ${p.matched_ref ? `<br><span class="muted" style="font-size:11px">أقرب خبرة: ${p.matched_ref.slice(0, 50)}</span>` : ""}</td>
-      <td><span class="tag est">${p.category}</span></td>
-      <td class="num-cell">${p.budget || "—"}</td>
-      <td class="num-cell">${p.deadline || "—"}</td>
+      <td><a href="${safeUrl(p.details_url)}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600">${escH(p.title.slice(0, 70))}</a>
+        ${p.matched_ref ? `<br><span class="muted" style="font-size:11px">أقرب خبرة: ${escH(p.matched_ref.slice(0, 50))}</span>` : ""}</td>
+      <td><span class="tag est">${escH(p.category)}</span></td>
+      <td class="num-cell">${escH(p.budget || "—")}</td>
+      <td class="num-cell">${escH(p.deadline || "—")}</td>
       <td><span class="fit${p.relevance < 15 ? " low" : ""}"><i style="width:${Math.min(p.relevance * 2, 100)}%"></i></span> <span class="num-cell">${p.relevance}%</span></td>
       <td><select onchange="setFsStatus(${p.id}, this.value)" style="padding:4px 8px;font-size:12px">
-        ${FS_STATUSES.map((s) => `<option ${s === p.status ? "selected" : ""}>${s}</option>`).join("")}</select></td>
+        ${FS_STATUSES.map((s) => `<option ${s === p.status ? "selected" : ""}>${escH(s)}</option>`).join("")}</select></td>
       <td>
-        <button class="btn sm ghost" onclick="fsToProposal('${p.title.replace(/'/g, "&#39;").slice(0, 90)}')">✨ أنشئ عرضاً</button>
+        <button class="btn sm ghost" onclick="fsToProposal(${idx})">✨ أنشئ عرضاً</button>
       </td>
     </tr>`).join("") ||
     `<tr><td colspan="7" class="muted">لا مشاريع مخزنة — احفظ بيانات الدخول ثم اضغط «سحب المشاريع من فرصة»</td></tr>`;
@@ -1259,9 +1269,12 @@ function setFsStatus(id, status) {
   api(`/api/forsah/${id}`, { method: "PUT", json: { status } }).then(() => toast("تم تحديث الحالة"));
 }
 
-function fsToProposal(title) {
+let FS_PROJECTS = [];
+function fsToProposal(idx) {
+  const p = FS_PROJECTS[idx];
+  if (!p) return;
   go("new");
-  $("#npTitle").value = title;
+  $("#npTitle").value = (p.title || "").slice(0, 90);
   $("#npEntity").value = "private";
   suggestSimilar();
   toast("حُمّل اسم المشروع — أدخل اسم العميل وارفع ملفات المشروع ثم اضغط توليد");
@@ -1284,7 +1297,7 @@ repoInput.addEventListener("change", () => {
 });
 function renderRepoFiles() {
   $("#repoFileList").innerHTML = repoFiles.map((f, i) =>
-    `<span class="file-chip">${f.name}<span class="size">${fileSize(f.size)}</span><button onclick="repoFiles.splice(${i},1);renderRepoFiles()">✕</button></span>`).join("");
+    `<span class="file-chip">${escH(f.name)}<span class="size">${fileSize(f.size)}</span><button onclick="repoFiles.splice(${i},1);renderRepoFiles()">✕</button></span>`).join("");
 }
 
 async function uploadRepo() {
@@ -1321,10 +1334,10 @@ async function loadRepo() {
   const data = await api("/api/repo");
   $("#repoTable tbody").innerHTML = data.files.map((f) => `
     <tr>
-      <td>${f.filename}</td>
-      <td><span class="tag ${f.source_type.includes("منافس") ? "est" : "gov"}">${f.source_type}</span></td>
+      <td>${escH(f.filename)}</td>
+      <td><span class="tag ${f.source_type.includes("منافس") ? "est" : "gov"}">${escH(f.source_type)}</span></td>
       <td>${t(SECTOR_KEY[f.sector || ""]) || t("sector_general")}</td>
-      <td>${f.company || "—"}</td>
+      <td>${escH(f.company || "—")}</td>
       <td class="num-cell">${f.items_count}</td>
       <td class="num-cell muted">${f.uploaded_at.slice(0, 10)}</td>
       <td style="white-space:nowrap">
@@ -1369,13 +1382,13 @@ $("#marketSearch").addEventListener("input", () => {
         <span>${t("msg_market_max")} <b>${fmt(b.max)}</b></span></div>`;
     }
     if (r.azoom.length) {
-      html += `<p class="muted mb">${t("msg_azoom_prices_match")} ${r.azoom.slice(0, 3).map((a) => `${a.name.slice(0, 30)} = <b>${fmt(a.unit_price)}</b>`).join(" • ")}</p>`;
+      html += `<p class="muted mb">${t("msg_azoom_prices_match")} ${r.azoom.slice(0, 3).map((a) => `${escH(a.name.slice(0, 30))} = <b>${fmt(a.unit_price)}</b>`).join(" • ")}</p>`;
     }
     html += r.market.length ? `<div class="t-wrap"><table>
       <thead><tr><th>${t("th_item")}</th><th>${t("th_unit")}</th><th>${t("th_price")}</th><th>${t("th_source")}</th></tr></thead>
-      <tbody>${r.market.slice(0, 12).map((m) => `<tr><td>${m.name.slice(0, 60)}</td><td>${m.unit || "—"}</td>
+      <tbody>${r.market.slice(0, 12).map((m) => `<tr><td>${escH(m.name.slice(0, 60))}</td><td>${escH(m.unit || "—")}</td>
         <td class="num-cell"><b>${fmt(m.unit_price)}</b></td>
-        <td class="muted">${m.source_company || m.source_type || m.filename || ""}</td></tr>`).join("")}</tbody>
+        <td class="muted">${escH(m.source_company || m.source_type || m.filename || "")}</td></tr>`).join("")}</tbody>
       </table></div>` : `<p class="muted">${t("msg_no_market_notes")}</p>`;
     $("#marketResult").innerHTML = html;
   }, 400);
@@ -1398,11 +1411,11 @@ async function runOpportunity() {
       <div class="panel mt" style="border-inline-start:5px solid ${colors[a.verdict_class]}">
         <div class="row" style="justify-content:space-between">
           <h3 style="margin:0">${t("opp_score_title")} ${a.score}%</h3>
-          <b style="color:${colors[a.verdict_class]}">${a.verdict}</b>
+          <b style="color:${colors[a.verdict_class]}">${escH(a.verdict)}</b>
         </div>
         <div class="mt">${a.factors.map((f) => `
-          <div class="fin-row"><span>${f.name} <span class="muted">(${t("opp_weight_label")} ${f.weight}%)</span><br>
-            <span class="muted" style="font-size:12px">${f.detail}</span></span>
+          <div class="fin-row"><span>${escH(f.name)} <span class="muted">(${t("opp_weight_label")} ${f.weight}%)</span><br>
+            <span class="muted" style="font-size:12px">${escH(f.detail)}</span></span>
             <b class="num-cell" style="color:${f.score >= 65 ? "var(--ok)" : f.score >= 40 ? "var(--warn)" : "#a33"}">${f.score}%</b></div>`).join("")}
         </div>
         ${a.qualification_warnings.length ? `<div class="mt"><b>${t("opp_warnings_title")}</b>
@@ -1430,8 +1443,8 @@ async function loadDocs() {
     const [labelKey, cls] = DOC_STATUS[d.status] || DOC_STATUS.missing;
     const days = d.status === "expiring" ? ` (${d.days_left} ${t("docs_alert_days")})` : "";
     return `<tr>
-      <td><b>${d.name}</b></td><td class="num-cell">${d.number || "—"}</td><td>${d.issuer || "—"}</td>
-      <td class="num-cell">${d.expiry_date || "—"}</td>
+      <td><b>${escH(d.name)}</b></td><td class="num-cell">${escH(d.number || "—")}</td><td>${escH(d.issuer || "—")}</td>
+      <td class="num-cell">${escH(d.expiry_date || "—")}</td>
       <td><span class="tag ${cls}">${t(labelKey)}${days}</span></td>
       <td>
         <button class="btn sm ghost" onclick='fillDocForm(${JSON.stringify(d).replace(/'/g, "&#39;")})'>${t("edit_btn")}</button>
@@ -1501,7 +1514,7 @@ async function loadAnalytics() {
     <td class="num-cell">${fmt(e.won_value)}</td></tr>`).join("");
 
   $("#anClientTable tbody").innerHTML = a.by_client.map((c) => `
-    <tr><td>${c.client}</td><td>${c.total}</td><td>${c.won}</td><td>${c.lost}</td>
+    <tr><td>${escH(c.client)}</td><td>${c.total}</td><td>${c.won}</td><td>${c.lost}</td>
     <td>${c.win_rate !== null ? c.win_rate + "%" : "—"}</td>
     <td class="num-cell">${fmt(c.won_value)}</td></tr>`).join("") ||
     `<tr><td colspan="6" class="muted">${t("no_data")}</td></tr>`;
@@ -1552,6 +1565,12 @@ async function saveSettings() {
 let EXEC = { projects: [], executors: [], editing: null };
 const escH = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// رابط آمن لسمة href: يسمح بـ http/https/mailto فقط (يمنع javascript: وغيرها)،
+// ويُهرَّب كنص. المصادر الخارجية (أخبار/منصات حكومية) قد تحمل روابط خبيثة.
+const safeUrl = (u) => {
+  const s = String(u ?? "").trim();
+  return /^(https?:|mailto:)/i.test(s) ? escH(s) : "#";
+};
 
 async function loadExecution() {
   await Promise.all([loadExecProjects(), loadExecExecutors()]);

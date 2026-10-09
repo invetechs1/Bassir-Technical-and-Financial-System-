@@ -1355,7 +1355,8 @@ def put_proposal(pid: int, fields: dict):
 
 @app.delete("/api/proposals/{pid}")
 def remove_proposal(pid: int):
-    db.delete_proposal(pid)
+    if not db.delete_proposal(pid):
+        raise HTTPException(404, "العرض غير موجود")
     return {"ok": True}
 
 
