@@ -900,9 +900,12 @@ def list_proposals() -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def delete_proposal(pid: int):
+def delete_proposal(pid: int) -> bool:
+    """يحذف عرض الشركة الحالية فقط — يعيد True إن حُذف فعلاً (ليميّز المستدعي
+    بين النجاح والمحاولة على عرض لا يملكه/غير موجود فيردّ 404 لا 200 مضلِّلاً)."""
     with get_db() as db:
-        db.execute("DELETE FROM proposals WHERE id = ? AND company_id = ?", (pid, cid()))
+        cur = db.execute("DELETE FROM proposals WHERE id = ? AND company_id = ?", (pid, cid()))
+        return cur.rowcount > 0
 
 
 def _proposal_dict(row) -> dict:

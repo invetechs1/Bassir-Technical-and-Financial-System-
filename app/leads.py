@@ -15,19 +15,78 @@
 الإدخال اليدوي السريع جزء أصيل: الفريق يسمع عن مشروع فيسجله بسطر واحد
 والنظام يكمل تصنيفه — فلا تعتمد الوحدة على المصادر الآلية وحدها.
 """
+import ipaddress
 import json
 import re
+import socket
 import ssl
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
+from urllib.parse import urljoin, urlsplit
 
 from .database import get_db, get_settings, now_iso, update_settings
 from .tenancy import cid
 
 MAX_FETCH_BYTES = 900_000
 MAX_ITEMS_PER_SOURCE = 40
+MAX_REDIRECTS = 3
+
+
+class UnsafeSourceURL(ValueError):
+    """رابط مصدر يشير إلى عنوان داخلي/خاص — يُرفض لمنع SSRF."""
+
+
+def _ip_is_blocked(ip: ipaddress._BaseAddress) -> bool:
+    """عناوين لا يجوز لوكيل الجمع الوصول إليها — تمنع تسريب خدمات الخادم
+    الداخلية وبيانات اعتماد السحابة (169.254.169.254) عبر SSRF."""
+    return (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+            or ip.is_multicast or ip.is_unspecified
+            or getattr(ip, "is_site_local", False)
+            # IPv4-mapped IPv6 (::ffff:127.0.0.1) يُفحص عنوانه الرباعي أيضاً
+            or (getattr(ip, "ipv4_mapped", None) is not None
+                and _ip_is_blocked(ip.ipv4_mapped)))
+
+
+def _assert_public_host(host: str):
+    """يرفض المضيف متى ثبت أنه داخلي: عنوان رقمي داخلي، أو اسم يحل إلى عنوان
+    داخلي (يُفحص كل النتائج لمنع الالتفاف باسم يحل لعنوانين). الاسم الذي لا
+    يُحَل لا يُرفض هنا — لا هدف SSRF بلا عنوان — والفحص يُعاد قبل كل جلب فعلي
+    (يمسك إعادة ربط DNS لعنوان داخلي لحظة الاتصال)."""
+    host = (host or "").strip("[]")
+    try:  # عنوان رقمي مباشر
+        if _ip_is_blocked(ipaddress.ip_address(host)):
+            raise UnsafeSourceURL("عنوان داخلي غير مسموح")
+        return
+    except ValueError:
+        pass
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return  # لا يُحَل الآن → لا عنوان داخلي يُتصل به؛ يُعاد الفحص عند الجلب
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if _ip_is_blocked(ip):
+            raise UnsafeSourceURL(f"اسم المضيف يحل إلى عنوان داخلي ({ip})")
+
+
+def validate_source_url(url: str) -> str:
+    """يتحقق أن الرابط http/https ومضيفه عام — يُستدعى عند الحفظ وقبل كل جلب."""
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https"):
+        raise UnsafeSourceURL("يُسمح فقط بروابط http/https")
+    if not parts.hostname:
+        raise UnsafeSourceURL("رابط بلا مضيف")
+    _assert_public_host(parts.hostname)
+    return url
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """يمنع إعادة التوجيه التلقائي — موقع خارجي قد يُحوِّل إلى عنوان داخلي
+    للالتفاف على فحص SSRF، فنتحقق من كل قفزة يدوياً."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS leads (
@@ -134,10 +193,23 @@ def ensure_default_sources():
 # ------------------------- الجلب والتحليل -------------------------
 
 def _fetch_text(url: str, timeout: int = 25) -> str:
-    req = urllib.request.Request(url, headers=_HEADERS)
+    """جلب نص المصدر بأمان: كل قفزة (الأصل وكل إعادة توجيه) تُفحص ضد العناوين
+    الداخلية قبل الاتصال، فلا SSRF عبر رابط خبيث أو تحويل مُوجَّه."""
     ctx = ssl.create_default_context()
-    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-        return resp.read(MAX_FETCH_BYTES).decode("utf-8", errors="replace")
+    opener = urllib.request.build_opener(_NoRedirect)
+    current = url
+    for _ in range(MAX_REDIRECTS + 1):
+        validate_source_url(current)
+        req = urllib.request.Request(current, headers=_HEADERS)
+        try:
+            with opener.open(req, timeout=timeout) as resp:
+                return resp.read(MAX_FETCH_BYTES).decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            if exc.code in (301, 302, 303, 307, 308) and exc.headers.get("Location"):
+                current = urljoin(current, exc.headers["Location"])
+                continue
+            raise
+    raise UnsafeSourceURL("تجاوز عدد التحويلات المسموح")
 
 
 def _strip_tags(html: str) -> str:
@@ -545,6 +617,12 @@ def upsert_source(data: dict) -> dict:
     name, url = (data.get("name") or "").strip(), (data.get("url") or "").strip()
     if not name or not url.startswith(("http://", "https://")):
         raise ValueError("اسم المصدر ورابط يبدأ بـ https مطلوبان")
+    # منع SSRF: لا يُقبل مصدر يشير إلى عنوان داخلي/خاص (خدمات الخادم أو بيانات
+    # اعتماد السحابة) — يُفحص عند الحفظ وأيضاً قبل كل جلب (الاسم قد يتغيّر حله)
+    try:
+        validate_source_url(url)
+    except UnsafeSourceURL as exc:
+        raise ValueError(f"رابط غير مسموح: {exc}") from None
     with get_db() as db:
         if data.get("id"):
             db.execute("UPDATE lead_sources SET name = ?, url = ?, enabled = ? "

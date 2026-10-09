@@ -1422,11 +1422,12 @@ _html = '<html><body><a href="/n/1">أمانة الرياض تطرح مشروع 
 check("صفحات HTML: استخلاص عناوين الروابط",
       _leads.parse_content(_html, "https://site.sa")[0]["link"] == "https://site.sa/n/1")
 
-# فشل مصدر يُسجَّل على المصدر ولا يكسر الجمع
+# فشل مصدر (شبكة/تحليل) يُسجَّل على بطاقته ولا يكسر الجمع — الرابط عام صالح
+# ليتجاوز فحص SSRF عند الإنشاء، والعطل يُحاكى بمقاطعة الجلب
 _src = c.post("/api/leads/sources", json={"name": "مصدر معطوب للفحص",
-                                          "url": "https://invalid.invalid/rss"}).json()
+                                          "url": "https://news-fail-check.example/rss"}).json()
 _orig_fetch = _leads._fetch_text
-_leads._fetch_text = lambda url, timeout=25: (_ for _ in ()).throw(OSError("DNS down"))
+_leads._fetch_text = lambda url, timeout=25: (_ for _ in ()).throw(OSError("الخادم لا يستجيب"))
 try:
     _res = _leads.collect_source({**_src})
 finally:
@@ -1493,6 +1494,77 @@ check("الإيكال قرار إداري: المحرر يرى الفرص ولا
       and _c_mkt.post(f"/api/leads/{_ld['id']}/assign", json={"user_id": 1}).status_code == 403
       and _c_mkt.post("/api/leads/sources", json={"name": "x", "url": "https://x.sa"}).status_code == 403)
 check("عدّاد الفرص في /api/status", c.get("/api/status").json().get("leads", 0) >= 3)
+
+# ---------- فحوص أمنية (منع الثغرات المكتشفة في المراجعة الأمنية) ----------
+# 1) SSRF: مدقّق روابط المصادر يرفض العناوين الداخلية ويقبل العامة
+from app.leads import validate_source_url as _vsu, UnsafeSourceURL as _UUE
+_internal = ["http://169.254.169.254/latest/meta-data/", "http://127.0.0.1:8000/x",
+             "http://localhost/x", "http://[::1]/", "http://10.0.0.1/", "http://192.168.0.1/",
+             "http://172.16.0.1/", "http://0.0.0.0/", "http://[::ffff:127.0.0.1]/",
+             "file:///etc/passwd", "gopher://127.0.0.1:6379/"]
+_blocked_all = True
+for _u in _internal:
+    try:
+        _vsu(_u); _blocked_all = False
+    except (_UUE, ValueError):
+        pass
+check("SSRF: مدقّق المصادر يرفض كل العناوين الداخلية وبيانات اعتماد السحابة", _blocked_all)
+_pub_ok = True
+for _u in ("https://www.aleqt.com/rss", "http://example.com/feed"):
+    try:
+        _vsu(_u)
+    except Exception:
+        _pub_ok = False
+check("SSRF: الروابط العامة تبقى مقبولة", _pub_ok)
+# عبر الـ API (شركة بخطة تتيح التكاملات): مصدر داخلي يُرفض 400، وخارجي يُقبل
+c.post("/api/session/company/1")
+_ss_int = c.post("/api/leads/sources", json={"name": "ssrf", "url": "http://169.254.169.254/"})
+_ss_ext = c.post("/api/leads/sources", json={"name": "خبر فحص", "url": "https://news-public-check.example/rss"})
+check("SSRF عبر API: مصدر داخلي يُرفض (400) وخارجي يُقبل",
+      _ss_int.status_code == 400 and _ss_ext.status_code == 200,
+      f"int={_ss_int.status_code} ext={_ss_ext.status_code}")
+if _ss_ext.status_code == 200:
+    c.delete(f"/api/leads/sources/{_ss_ext.json()['id']}")
+
+# 2) عزل المستأجرين (IDOR): شركة لا تقرأ/تحذف/تصدّر عرض شركة أخرى، والصف يبقى
+_secA = c.post("/api/companies", json={"name": "أمن ألف", "plan": "pro",
+               "owner_username": "isoA", "owner_password": "IsoA@12345"}).json()["id"]
+_secB = c.post("/api/companies", json={"name": "أمن باء", "plan": "pro",
+               "owner_username": "isoB", "owner_password": "IsoB@12345"}).json()["id"]
+_cia = TestClient(app); _cia.post("/api/login", json={"username": "isoA", "password": "IsoA@12345"})
+_cib = TestClient(app); _cib.post("/api/login", json={"username": "isoB", "password": "IsoB@12345"})
+_cia.post(f"/api/companies/{_secA}/logo", files={"logo": ("l.png", _png((1, 2, 3)), "image/png")})
+_cib.post(f"/api/companies/{_secB}/logo", files={"logo": ("l.png", _png((4, 5, 6)), "image/png")})
+_pidA = _cia.post("/api/proposals/generate",
+                  data={"title": "عرض سري ألف", "client": "جهة ألف", "entity_type": "private"}).json()["id"]
+_idor = {"read": _cib.get(f"/api/proposals/{_pidA}").status_code,
+         "put": _cib.put(f"/api/proposals/{_pidA}", json={"status": "won"}).status_code,
+         "del": _cib.delete(f"/api/proposals/{_pidA}").status_code,
+         "docx": _cib.get(f"/api/proposals/{_pidA}/export/docx").status_code,
+         "xlsx": _cib.get(f"/api/proposals/{_pidA}/export/xlsx").status_code,
+         "quality": _cib.get(f"/api/proposals/{_pidA}/quality").status_code}
+_a_alive = _cia.get(f"/api/proposals/{_pidA}").status_code == 200
+_b_list = _cib.get("/api/proposals").json()
+_no_cross = all("ألف" not in p.get("title", "") for p in (_b_list if isinstance(_b_list, list) else []))
+check("عزل المستأجرين: لا قراءة/تعديل/حذف/تصدير عرض شركة أخرى (كلها 403/404)",
+      all(v in (403, 404) for v in _idor.values()), str(_idor))
+check("عزل المستأجرين: محاولة الحذف عبر الشركات لا تمس الصف", _a_alive and _no_cross)
+check("حذف عرض غير مملوك يردّ 404 لا 200 مضلِّلاً", _idor["del"] == 404)
+
+# 3) XSS: الواجهة تُهرّب الحقول غير الموثوقة في innerHTML (حارس ثابت على app.js)
+from pathlib import Path as _P
+_appjs = (_P(__file__).resolve().parent.parent / "app" / "static" / "app.js").read_text(encoding="utf-8")
+check("XSS: مُهرّب HTML (escH) ومُنقّي الروابط (safeUrl) موجودان", "escH" in _appjs and "safeUrl" in _appjs)
+# الأنماط الخام الخطيرة التي أُصلحت يجب ألا تعود (حقن مباشر بلا تهريب)
+_raw_bad = [r"${l.title.slice", r'href="${l.source_url}"', r"${p.title}</td>",
+            r"${t3.name.slice(0, 70)}</a>", r'href="${t3.details_url}"', r"${m.requirement}</td>",
+            r"${l.developer.slice", r'href="${p.details_url}"']
+_leaks = [p for p in _raw_bad if p in _appjs]
+check("XSS: لا حقول غير موثوقة خام في innerHTML (الأنماط المُصلحة لم تعُد)",
+      not _leaks, str(_leaks))
+# قيم href للمصادر الخارجية تمرّ عبر safeUrl (يمنع javascript:)
+check("XSS: روابط المصادر الخارجية تُمرَّر عبر safeUrl", "safeUrl(l.source_url)" in _appjs
+      and "safeUrl(t3.details_url)" in _appjs and "safeUrl(p.details_url)" in _appjs)
 
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)
