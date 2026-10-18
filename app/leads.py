@@ -135,34 +135,82 @@ DEFAULT_SOURCES = [
     ("الشرق الأوسط — اقتصاد", "https://aawsat.com/feed/economy"),
 ]
 
-# كلمات ترشيح الخبر الإنشائي/العقاري — يكفي ورود واحدة في العنوان أو الموجز
-_CONSTRUCTION_KW = (
+# كلمات ترشيح الخبر الإنشائي/العقاري — عربية وإنجليزية (منصات المشاريع كـ MEED
+# إنجليزية؛ الترشيح أحادي اللغة كان يسقط كل أخبارها). يكفي ورود واحدة.
+_CONSTRUCTION_KW_AR = (
     "مشروع", "مشاريع", "تطوير", "إنشاء", "انشاء", "إنشاءات", "تشييد", "بناء",
     "برج", "أبراج", "ابراج", "مجمع", "وجهة", "ضاحية", "مخطط", "وحدات سكنية",
-    "فندق", "فنادق", "مول", "بنية تحتية", "يوقع", "توقيع عقد", "ترسية",
+    "فندق", "فنادق", "مول", "بنية تحتية", "يوقع", "توقيع عقد", "ترسية", "عقد",
     "تدشين", "يطلق", "إطلاق", "يدشن", "مقاولات", "عقاري", "عقارية", "عمراني",
+    "توسعة", "ترميم", "صيانة", "تأهيل", "مستشفى", "جامعة", "مدرسة", "مطار",
 )
+_CONSTRUCTION_KW_EN = (
+    "project", "projects", "development", "develop", "construction", "build",
+    "building", "tower", "complex", "district", "residential", "commercial",
+    "infrastructure", "contract", "awards", "awarded", "launch", "epc",
+    "mixed-use", "mixed use", "masterplan", "master plan", "scheme", "tender",
+    "groundbreaking", "breaks ground", "phase", "expansion", "redevelopment",
+    "refinery", "plant", "facility", "housing", "units", "hotel", "resort",
+    "mall", "hospital", "campus", "metro", "airport", "port", "highway",
+    "bridge", "pipeline", "real estate", "contractor", "developer", "builds",
+)
+# مطابقة بحدود كلمات للإنجليزية (الأطول أولاً لتُطابَق العبارات المركبة)
+_CONSTRUCTION_EN_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(k) for k in
+                        sorted(_CONSTRUCTION_KW_EN, key=len, reverse=True)) + r")\b", re.I)
 
-_SAUDI_CITIES = (
+_SAUDI_CITIES_AR = (
     "الرياض", "جدة", "مكة", "المدينة المنورة", "الدمام", "الخبر", "الظهران",
     "الأحساء", "القطيف", "الجبيل", "ينبع", "الطائف", "أبها", "خميس مشيط",
     "جازان", "نجران", "تبوك", "حائل", "بريدة", "عنيزة", "القصيم", "الباحة",
     "عرعر", "سكاكا", "نيوم", "العلا", "القدية", "البحر الأحمر",
 )
+# اسم المدينة الإنجليزي ← مقابله العربي الذي يُخزَّن في البطاقة
+_SAUDI_CITIES_EN = {
+    "riyadh": "الرياض", "jeddah": "جدة", "jiddah": "جدة", "makkah": "مكة",
+    "mecca": "مكة", "madinah": "المدينة المنورة", "medina": "المدينة المنورة",
+    "dammam": "الدمام", "khobar": "الخبر", "dhahran": "الظهران",
+    "al-ahsa": "الأحساء", "ahsa": "الأحساء", "qatif": "القطيف", "jubail": "الجبيل",
+    "yanbu": "ينبع", "taif": "الطائف", "abha": "أبها", "tabuk": "تبوك",
+    "hail": "حائل", "buraidah": "بريدة", "qassim": "القصيم", "neom": "نيوم",
+    "alula": "العلا", "al-ula": "العلا", "qiddiya": "القدية", "diriyah": "الدرعية",
+    "red sea": "البحر الأحمر", "eastern province": "المنطقة الشرقية",
+}
 
 _SECTOR_KW = [
-    ("سكني", ("سكني", "وحدات سكنية", "فلل", "ضاحية", "إسكان")),
-    ("تجاري", ("تجاري", "مول", "مكاتب", "معارض")),
-    ("سياحي وفندقي", ("فندق", "فنادق", "منتجع", "سياحي", "ترفيه")),
-    ("بنية تحتية", ("بنية تحتية", "طرق", "جسور", "مياه", "صرف", "كهرباء")),
-    ("صحي", ("مستشفى", "مركز صحي", "طبي")),
-    ("تعليمي", ("مدرسة", "مدارس", "جامعة", "كلية")),
-    ("صناعي", ("مصنع", "صناعي", "مستودعات", "لوجستي")),
+    ("سكني", ("سكني", "وحدات سكنية", "فلل", "ضاحية", "إسكان",
+              "residential", "housing", "villas", "homes", "community")),
+    ("تجاري", ("تجاري", "مول", "مكاتب", "معارض",
+               "commercial", "mall", "offices", "retail", "mixed-use", "mixed use")),
+    ("سياحي وفندقي", ("فندق", "فنادق", "منتجع", "سياحي", "ترفيه",
+                      "hotel", "resort", "tourism", "hospitality", "entertainment")),
+    ("بنية تحتية", ("بنية تحتية", "طرق", "جسور", "مياه", "صرف", "كهرباء",
+                    "infrastructure", "road", "bridge", "water", "sewage",
+                    "power", "metro", "rail", "airport", "port", "utilities")),
+    ("صحي", ("مستشفى", "مركز صحي", "طبي", "hospital", "medical", "clinic", "healthcare")),
+    ("تعليمي", ("مدرسة", "مدارس", "جامعة", "كلية", "school", "university", "college", "campus")),
+    ("صناعي", ("مصنع", "صناعي", "مستودعات", "لوجستي",
+               "factory", "industrial", "warehouse", "logistics", "refinery", "plant")),
 ]
 
+# القيمة التقديرية: عربي («1.2 مليار ريال») وإنجليزي («$2bn»، «SAR 5 billion»)
 _VALUE_RE = re.compile(r"(\d[\d,.]*)\s*(مليار|مليون|ألف)\s*(ريال|دولار)?")
+_VALUE_EN_RE = re.compile(
+    r"(?:(?:SAR|USD|SR|\$)\s*)?(\d[\d,.]*)\s*(billion|million|bn|mn|m|bln)\b"
+    r"(?:\s*(?:riyals?|dollars?|SAR|USD))?", re.I)
+# المطوّر/المالك: عربي، وإنجليزي («Roshn», «... Company/Group/Authority/Development»)
 _DEVELOPER_RE = re.compile(
     r"(?:شركة|مجموعة|مؤسسة|صندوق|هيئة|أمانة|وزارة)\s+[؀-ۿ][؀-ۿ\s]{2,45}")
+_DEVELOPER_EN_RE = re.compile(
+    r"\b([A-Z][A-Za-z&.\-]+(?:\s+[A-Z][A-Za-z&.\-]+){0,3}\s+"
+    r"(?:Company|Co\.?|Group|Authority|Development|Developments|Holding|Real Estate|Properties))\b")
+# مطوّرون ومُلّاك معروفون في السوق السعودي (يُلتقطون بالاسم مباشرةً)
+_KNOWN_DEVELOPERS = (
+    "ROSHN", "Roshn", "NEOM", "PIF", "Aramco", "Red Sea Global", "Qiddiya",
+    "Diriyah Gate", "Dar Al Arkan", "Jabal Omar", "Emaar", "SEDCO", "Retal",
+    "صندوق الاستثمارات العامة", "روشن", "أرامكو", "نيوم", "البحر الأحمر",
+    "دار الأركان", "رتال", "إعمار", "جبل عمر",
+)
 
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -290,7 +338,11 @@ def parse_content(content: str, base_url: str) -> list[dict]:
 
 
 def _is_construction(text: str) -> bool:
-    return any(k in text for k in _CONSTRUCTION_KW)
+    """خبر إنشائي/عقاري — يفحص الكلمات العربية حرفياً والإنجليزية بحدود كلمات
+    (كي لا يطابق «port» داخل «report»، أو «mall» داخل «small»)."""
+    if any(k in text for k in _CONSTRUCTION_KW_AR):
+        return True
+    return bool(_CONSTRUCTION_EN_RE.search(text))
 
 
 # ------------------------- الاستخلاص -------------------------
@@ -310,19 +362,37 @@ def _trim_developer(name: str) -> str:
 
 
 def _extract_heuristic(item: dict) -> dict:
-    """استخلاص بلا ذكاء اصطناعي: مطور/مدينة/قطاع/قيمة من الأنماط الشائعة."""
+    """استخلاص بلا ذكاء اصطناعي: مطور/مدينة/قطاع/قيمة من الأنماط الشائعة.
+    ثنائي اللغة — يعمل على الأخبار العربية والإنجليزية معاً."""
     text = f"{item['title']} {item.get('summary', '')}"
+    low = text.lower()
+    # المطوّر: الاسم الكامل من النمط العربي ثم الإنجليزي (أدق)، ثم اسم معروف احتياطاً
     dev = _DEVELOPER_RE.search(text)
-    city = next((c for c in _SAUDI_CITIES if c in text), "")
-    sector = next((name for name, kws in _SECTOR_KW if any(k in text for k in kws)), "")
+    if dev:
+        developer = _trim_developer(dev.group(0).strip())
+    else:
+        dev_en = _DEVELOPER_EN_RE.search(text)
+        developer = (dev_en.group(1).strip() if dev_en
+                     else next((d for d in _KNOWN_DEVELOPERS if d.lower() in low), ""))
+    # المدينة: عربي مباشرةً ثم إنجليزي (يُخزَّن اسمها العربي للتوحيد)
+    city = next((c for c in _SAUDI_CITIES_AR if c in text), "")
+    if not city:
+        city = next((ar for en, ar in _SAUDI_CITIES_EN.items() if en in low), "")
+    sector = next((name for name, kws in _SECTOR_KW
+                   if any((k in text) or (k in low) for k in kws)), "")
     val = _VALUE_RE.search(text)
+    est = " ".join(x for x in val.groups() if x) if val else ""
+    if not est:
+        ven = _VALUE_EN_RE.search(text)
+        if ven:
+            est = ven.group(0).strip()
     return {
         "title": item["title"][:200],
-        "developer": _trim_developer(dev.group(0).strip())[:80] if dev else "",
+        "developer": developer[:80],
         "city": city,
         "sector": sector,
         "stage": "إعلان",
-        "est_value": " ".join(x for x in val.groups() if x) if val else "",
+        "est_value": est,
         "summary": (item.get("summary") or "")[:400],
     }
 
@@ -433,14 +503,18 @@ def _relevance(title: str, summary: str) -> int:
 
 # ------------------------- الجمع -------------------------
 
-def ingest_items(source_name: str, items: list[dict]) -> int:
-    """ترشيح واستخلاص وتخزين دفعة أخبار — يعيد عدد الفرص الجديدة المضافة."""
-    candidates = [it for it in items
-                  if _is_construction(f"{it['title']} {it.get('summary', '')}")]
-    extracted = extract_leads(candidates)
+def ingest_items(source_name: str, items: list[dict]) -> tuple[int, int]:
+    """استخلاص وتخزين دفعة أخبار — يعيد (عدد المرشَّحة، عدد الفرص الجديدة المضافة).
+
+    لا تُرشَّح الأخبار مسبقاً هنا: الاستخلاص نفسه يقرر ما هو فرصة (النموذج حين
+    يتوفر، وإلا الترشيح الثنائي اللغة داخل extract_leads) — فالأخبار الإنجليزية
+    من منصات المشاريع لم تعد تُسقط قبل أن تُفحص."""
+    items = items[:MAX_ITEMS_PER_SOURCE]
+    extracted = extract_leads(items)
+    candidate_count = sum(1 for e in extracted if e)
     added, now = 0, now_iso()
     with get_db() as db:
-        for it, lead in zip(candidates, extracted):
+        for it, lead in zip(items, extracted):
             if not lead:
                 continue
             key = _lead_key(lead["title"], lead["developer"])
@@ -454,7 +528,7 @@ def ingest_items(source_name: str, items: list[dict]) -> int:
                               source_name, it.get("link", ""),
                               _relevance(lead["title"], lead["summary"]), now, now))
             added += cur.rowcount
-    return added
+    return candidate_count, added
 
 
 def collect_source(source: dict) -> dict:
@@ -462,8 +536,14 @@ def collect_source(source: dict) -> dict:
     try:
         content = _fetch_text(source["url"])
         items = parse_content(content, source["url"])
-        added = ingest_items(source["name"], items)
-        result = f"✅ {len(items)} خبراً — {added} فرصة جديدة"
+        matched, added = ingest_items(source["name"], items)
+        if not items:
+            result = "✅ لا عناصر — الرابط لا يُرجع خلاصة/عناوين قابلة للقراءة"
+        elif matched == 0:
+            result = (f"✅ {len(items)} عنصراً — لا عناوين مشاريع (قد تكون صفحة "
+                      "عامة أو تتطلب دخولاً؛ جرّب رابط خلاصة RSS للمشاريع)")
+        else:
+            result = f"✅ {len(items)} عنصراً — {added} فرصة جديدة (من {matched} مطابِقة)"
         ok = True
     except Exception as exc:
         added, result, ok = 0, f"⚠️ {str(exc)[:180]}", False

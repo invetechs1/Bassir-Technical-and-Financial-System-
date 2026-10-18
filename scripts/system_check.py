@@ -1414,13 +1414,36 @@ _rss = """<?xml version="1.0"?><rss><channel>
 </channel></rss>"""
 _items = _leads.parse_content(_rss, "https://x")
 check("تحليل خلاصة RSS", len(_items) == 3, str(len(_items)))
-_added = _leads.ingest_items("مصدر الفحص", _items)
-check("الترشيح: الخبران الإنشائيان يدخلان وخبر الأرباح يُستبعد", _added == 2, str(_added))
+_matched, _added = _leads.ingest_items("مصدر الفحص", _items)
+check("الترشيح: الخبران الإنشائيان يدخلان وخبر الأرباح يُستبعد",
+      _matched == 2 and _added == 2, str((_matched, _added)))
 check("إزالة التكرار: إعادة نفس الخلاصة لا تضيف شيئاً",
-      _leads.ingest_items("مصدر الفحص", _items) == 0)
+      _leads.ingest_items("مصدر الفحص", _items)[1] == 0)
 _html = '<html><body><a href="/n/1">أمانة الرياض تطرح مشروع تطوير حديقة الملك سلمان للفحص</a></body></html>'
 check("صفحات HTML: استخلاص عناوين الروابط",
       _leads.parse_content(_html, "https://site.sa")[0]["link"] == "https://site.sa/n/1")
+
+# ثنائية اللغة: أخبار منصات المشاريع الإنجليزية (مثل MEED) لم تعد تُسقط
+_en_rss = """<?xml version="1.0"?><rss><channel>
+<item><title>Roshn launches new residential development in Riyadh worth SAR 5 billion test</title>
+<link>https://en/1</link><description>mixed-use community project</description></item>
+<item><title>Saudi banks report higher Q3 profits test</title>
+<link>https://en/2</link><description>financial results earnings</description></item>
+<item><title>NEOM awards $2bn infrastructure contract for The Line test</title>
+<link>https://en/3</link><description>construction works</description></item>
+</channel></rss>"""
+_en_items = _leads.parse_content(_en_rss, "https://en")
+_en_matched, _en_added = _leads.ingest_items("مصدر إنجليزي للفحص", _en_items)
+check("ثنائية اللغة: الخبران الإنشائيان الإنجليزيان يدخلان وخبر الأرباح يُستبعد",
+      _en_matched == 2 and _en_added == 2, str((_en_matched, _en_added)))
+_h_en = _leads._extract_heuristic({"title": "Roshn launches residential project in Riyadh worth SAR 5 billion",
+                                   "summary": "mixed-use community"})
+check("ثنائية اللغة: الاستخلاص يلتقط المطور والمدينة والقطاع والقيمة من الإنجليزية",
+      _h_en["developer"].lower() == "roshn" and _h_en["city"] == "الرياض"
+      and _h_en["sector"] == "سكني" and "5" in _h_en["est_value"], str(_h_en))
+check("ثنائية اللغة: مُرشِّح الإنشاء يقبل الإنجليزية",
+      _leads._is_construction("NEOM awards infrastructure contract")
+      and not _leads._is_construction("quarterly earnings report summary"))
 
 # فشل مصدر (شبكة/تحليل) يُسجَّل على بطاقته ولا يكسر الجمع — الرابط عام صالح
 # ليتجاوز فحص SSRF عند الإنشاء، والعطل يُحاكى بمقاطعة الجلب
