@@ -128,12 +128,32 @@ CREATE TABLE IF NOT EXISTS lead_sources (
 LEAD_STATUSES = ["جديدة", "موكلة", "تمت الزيارة", "طُلب عرض", "فوز", "خسارة", "مستبعدة"]
 
 # مصادر افتراضية تُزرع لكل شركة أول مرة — تُعدَّل وتُعطَّل من الشاشة لا من الكود.
-# خلاصات RSS للصحف الاقتصادية السعودية؛ إن تغيّر رابط تُظهر الشاشة الخطأ ويُصحح فوراً.
+# بحث أخبار Google بصيغة RSS: خلاصة عامة تسمح بالزحف وتجمع الصحف السعودية كلها
+# (الاقتصادية، عكاظ، الرياض، Arab News، Zawya...) مُرشَّحة مسبقاً بكلمات المشاريع.
+_GNEWS = "https://news.google.com/rss/search?q={q}+when:30d&hl={hl}&gl=SA&ceid=SA:{lang}"
 DEFAULT_SOURCES = [
-    ("صحيفة الاقتصادية", "https://www.aleqt.com/rss"),
-    ("واس — وكالة الأنباء السعودية", "https://www.spa.gov.sa/rss.xml"),
-    ("الشرق الأوسط — اقتصاد", "https://aawsat.com/feed/economy"),
+    ("أخبار المشاريع — الرياض والمنطقة الوسطى",
+     _GNEWS.format(q="%D9%85%D8%B4%D8%B1%D9%88%D8%B9+%D8%A5%D9%86%D8%B4%D8%A7%D8%A1+%D8%A7%D9%84%D8%B1%D9%8A%D8%A7%D8%B6",
+                   hl="ar", lang="ar")),   # مشروع إنشاء الرياض
+    ("أخبار المشاريع — ترسية وتوقيع عقود",
+     _GNEWS.format(q="%D8%AA%D8%B1%D8%B3%D9%8A%D8%A9+%D8%B9%D9%82%D8%AF+%D9%85%D8%B4%D8%B1%D9%88%D8%B9+%D8%A7%D9%84%D8%B3%D8%B9%D9%88%D8%AF%D9%8A%D8%A9",
+                   hl="ar", lang="ar")),   # ترسية عقد مشروع السعودية
+    ("أخبار المشاريع — تطوير عقاري",
+     _GNEWS.format(q="%D8%AA%D8%B7%D9%88%D9%8A%D8%B1+%D8%B9%D9%82%D8%A7%D8%B1%D9%8A+%D9%85%D8%B4%D8%B1%D9%88%D8%B9+%D8%AC%D8%AF%D9%8A%D8%AF",
+                   hl="ar", lang="ar")),   # تطوير عقاري مشروع جديد
+    ("Saudi construction contracts (EN)",
+     _GNEWS.format(q="Saudi+construction+contract+awarded", hl="en-SA", lang="en")),
+    ("Saudi real estate developments (EN)",
+     _GNEWS.format(q="Saudi+developer+launches+project", hl="en-SA", lang="en")),
 ]
+# المصادر الافتراضية القديمة — ثبت تعطلها من المصدر (404/403/لا عناصر)، فتُعطَّل
+# مرة واحدة لكل شركة وتُزرع البدائل العاملة (يبقى المصدر ظاهراً ويمكن إعادة تفعيله).
+LEGACY_BROKEN_SOURCES = (
+    "https://www.aleqt.com/rss",
+    "https://www.spa.gov.sa/rss.xml",
+    "https://aawsat.com/feed/economy",
+)
+_SOURCES_VERSION = "2"
 
 # كلمات ترشيح الخبر الإنشائي/العقاري — عربية وإنجليزية (منصات المشاريع كـ MEED
 # إنجليزية؛ الترشيح أحادي اللغة كان يسقط كل أخبارها). يكفي ورود واحدة.
@@ -226,16 +246,34 @@ def init_leads_tables():
 
 
 def ensure_default_sources():
-    """زرع المصادر الافتراضية للشركة الحالية إن لم يكن لها مصادر بعد."""
+    """زرع المصادر الافتراضية للشركة الحالية إن لم يكن لها مصادر بعد، وترقية
+    المصادر الافتراضية القديمة المعطّلة إلى البدائل العاملة (مرة واحدة لكل شركة)."""
     with get_db() as db:
         n = db.execute("SELECT COUNT(*) AS n FROM lead_sources WHERE company_id = ?",
                        (cid(),)).fetchone()["n"]
-        if n:
-            return
-        for name, url in DEFAULT_SOURCES:
+        if not n:
+            for name, url in DEFAULT_SOURCES:
+                db.execute(
+                    "INSERT OR IGNORE INTO lead_sources (company_id, name, url) VALUES (?, ?, ?)",
+                    (cid(), name, url))
+    if get_settings().get("leads_sources_version") == _SOURCES_VERSION:
+        return
+    with get_db() as db:
+        marks = ",".join("?" * len(LEGACY_BROKEN_SOURCES))
+        legacy = db.execute(
+            f"SELECT COUNT(*) AS n FROM lead_sources WHERE company_id = ? AND url IN ({marks})",
+            (cid(), *LEGACY_BROKEN_SOURCES)).fetchone()["n"]
+        if legacy:
             db.execute(
-                "INSERT OR IGNORE INTO lead_sources (company_id, name, url) VALUES (?, ?, ?)",
-                (cid(), name, url))
+                f"UPDATE lead_sources SET enabled = 0, last_result = ? "
+                f"WHERE company_id = ? AND url IN ({marks})",
+                ("⏸ عُطّل تلقائياً — المصدر لا يُرجع أخباراً (404/403)؛ استُبدل ببدائل عاملة",
+                 cid(), *LEGACY_BROKEN_SOURCES))
+            for name, url in DEFAULT_SOURCES:
+                db.execute(
+                    "INSERT OR IGNORE INTO lead_sources (company_id, name, url) VALUES (?, ?, ?)",
+                    (cid(), name, url))
+    update_settings({"leads_sources_version": _SOURCES_VERSION})
 
 
 # ------------------------- الجلب والتحليل -------------------------

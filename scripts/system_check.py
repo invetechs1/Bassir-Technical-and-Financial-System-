@@ -1589,6 +1589,95 @@ check("XSS: لا حقول غير موثوقة خام في innerHTML (الأنم�
 check("XSS: روابط المصادر الخارجية تُمرَّر عبر safeUrl", "safeUrl(l.source_url)" in _appjs
       and "safeUrl(t3.details_url)" in _appjs and "safeUrl(p.details_url)" in _appjs)
 
+# ---------- عمليات الخادم: مصادر الفرص العاملة، النسخ الاحتياطي، تدوير المفتاح، طبيب الخادم ----------
+import importlib.util as _ilu
+import subprocess as _sp
+import tarfile as _tarfile
+from app import leads as _leads
+from app.database import get_db as _gdb, get_settings as _gs, update_settings as _us
+
+check("مصادر الفرص الافتراضية: لا روابط معطوبة قديمة",
+      not any(u in _leads.LEGACY_BROKEN_SOURCES for _, u in _leads.DEFAULT_SOURCES))
+check("مصادر الفرص الافتراضية: خلاصات RSS عامة عربية وإنجليزية",
+      len(_leads.DEFAULT_SOURCES) >= 4
+      and all(u.startswith("https://news.google.com/rss/") for _, u in _leads.DEFAULT_SOURCES)
+      and any("hl=ar" in u for _, u in _leads.DEFAULT_SOURCES)
+      and any("hl=en" in u for _, u in _leads.DEFAULT_SOURCES))
+# ترقية شركة قائمة بمصادرها القديمة: تُعطَّل المعطوبة وتُزرع البدائل مرة واحدة
+with _gdb() as _db:
+    _db.execute("DELETE FROM lead_sources WHERE company_id = 1")
+    for _u in _leads.LEGACY_BROKEN_SOURCES:
+        _db.execute("INSERT INTO lead_sources (company_id, name, url) VALUES (1, 'قديم', ?)", (_u,))
+_us({"leads_sources_version": ""}, company_id=1)
+_leads.ensure_default_sources()
+with _gdb() as _db:
+    _srcs = {r["url"]: r["enabled"] for r in _db.execute(
+        "SELECT url, enabled FROM lead_sources WHERE company_id = 1")}
+check("ترقية المصادر: القديمة المعطوبة تُعطَّل ولا تُحذف",
+      all(_srcs.get(u) == 0 for u in _leads.LEGACY_BROKEN_SOURCES))
+check("ترقية المصادر: البدائل العاملة تُزرع مفعّلة",
+      all(_srcs.get(u) == 1 for _, u in _leads.DEFAULT_SOURCES))
+with _gdb() as _db:
+    _db.execute("UPDATE lead_sources SET enabled = 1 WHERE company_id = 1 AND url = ?",
+                (_leads.LEGACY_BROKEN_SOURCES[0],))
+_leads.ensure_default_sources()
+with _gdb() as _db:
+    _re = _db.execute("SELECT enabled FROM lead_sources WHERE company_id = 1 AND url = ?",
+                      (_leads.LEGACY_BROKEN_SOURCES[0],)).fetchone()["enabled"]
+check("ترقية المصادر مرة واحدة: إعادة تفعيل المستخدم لمصدر تُحترم", _re == 1)
+
+def _load_script(name):
+    _spec = _ilu.spec_from_file_location(name, _P(__file__).resolve().parent / f"{name}.py")
+    _mod = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_mod)
+    return _mod
+
+from app.config import DATA_DIR as _DD
+_us({"smtp_pass": "smtp-secret-check"}, company_id=1)
+_bk = _load_script("backup_data")
+_bdest = _P(tempfile.mkdtemp(prefix="azoom-bk-"))
+_arch = _bk.make_backup(_DD, _bdest)
+with _tarfile.open(_arch) as _t:
+    _names = set(_t.getnames())
+check("النسخ الاحتياطي: الأرشيف يحوي القاعدة ومفتاح التشفير",
+      "data/azoom.db" in _names and "data/secret.key" in _names, str(sorted(_names))[:200])
+check("النسخ الاحتياطي: المؤقتات exports/ مستثناة والأرشيف بصلاحية 600",
+      not any(n.startswith("data/exports") for n in _names) and (_arch.stat().st_mode & 0o777) == 0o600)
+import sqlite3 as _sq
+with _tarfile.open(_arch) as _t:
+    _t.extract("data/azoom.db", _bdest, filter="data")
+_snap = _sq.connect(_bdest / "data" / "azoom.db")
+check("النسخ الاحتياطي: لقطة القاعدة سليمة وقابلة للقراءة",
+      _snap.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+      and _snap.execute("SELECT COUNT(*) FROM users").fetchone()[0] > 0)
+_snap.close()
+os.utime(_arch, (0, 0))
+check("النسخ الاحتياطي: النسخ الأقدم من مدة الاحتفاظ تُحذف",
+      _bk.prune(_bdest, 14) == 1 and not _arch.exists())
+shutil.rmtree(_bdest, ignore_errors=True)
+
+_rot = _load_script("rotate_secret_key")
+_old_key = (_DD / "secret.key").read_bytes()
+_done, _bad = _rot.rotate(_DD)
+check("تدوير المفتاح: مفتاح جديد والأسرار تُفك به كما هي",
+      (_DD / "secret.key").read_bytes() != _old_key and _done >= 1 and _bad == 0
+      and _gs(company_id=1).get("smtp_pass") == "smtp-secret-check")
+check("تدوير المفتاح: القديم يُحفظ جانباً بصلاحية 600",
+      any((f.stat().st_mode & 0o777) == 0o600 for f in _DD.glob("secret.key.retired-*")))
+
+_doc = _load_script("server_doctor")
+_doc.REPORT.clear()
+_doc.check_admin_password(); _doc.check_backup(36, str(_DD / "no-backups-here"))
+_doc.check_lead_sources(); _doc.check_ai(offline=True)
+_levels = {(i, l) for i, l, _, _ in _doc.REPORT}
+check("طبيب الخادم: يكشف كلمة المرور الافتراضية وغياب النسخ الاحتياطي كبنود حرجة",
+      ("3", "CRITICAL") in _levels and ("4", "CRITICAL") in _levels, str(_levels))
+check("طبيب الخادم: يكشف مصدر رصد قديم معطوب مفعّل",
+      ("7", "WARN") in _levels, str(_levels))
+_git_tracked = _sp.run(["git", "ls-files", "data/secret.key", "data/branding"],
+                       cwd=_P(__file__).resolve().parent.parent, capture_output=True, text=True)
+check("الأسرار خارج git: secret.key وشعارات المستأجرين غير مُتتبَّعة",
+      _git_tracked.returncode != 0 or not _git_tracked.stdout.strip(), _git_tracked.stdout[:120])
+
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)
 failed = [(n, d) for n, ok, d in RESULTS if not ok]

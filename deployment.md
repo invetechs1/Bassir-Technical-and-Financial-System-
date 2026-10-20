@@ -203,18 +203,68 @@ All state lives in `data/`:
 | `data/exports/` | Generated Word/Excel files |
 | `data/etimad_cookies.json` | Etimad session (created by the Nafath login script) |
 
-Backup = copy the `data/` directory. To reset to factory seeds, delete
-`data/azoom.db` and restart (seeds reload automatically: 640 price items,
-4 reference proposals, content library, company docs).
+| `data/secret.key` | Fernet key that decrypts every stored secret (SMTP, WhatsApp, Forsah) |
+| `data/branding/` | Each tenant's logo |
+
+`data/` is **not in git** — a server rebuild without a backup loses everything,
+and losing `secret.key` makes every encrypted secret unrecoverable.
+
+```bash
+# consistent snapshot (safe while the service runs), 14-day retention, copy off-server
+.venv/bin/python scripts/backup_data.py --dest /var/backups/azoom --remote user@host:/backups/azoom/
+# nightly (crontab -e):
+15 2 * * * cd /opt/azoom && .venv/bin/python scripts/backup_data.py --dest /var/backups/azoom --remote user@host:/backups/azoom/ >> /var/log/azoom-backup.log 2>&1
+```
+
+Restore: stop the service, `tar xzf azoom-data-<date>.tgz -C /opt/azoom`, start it.
+To reset to factory seeds, delete `data/azoom.db` and restart (seeds reload
+automatically: 640 price items, 4 reference proposals, content library, company docs).
+
+### Rotating the encryption key
+
+An old copy of `data/secret.key` was committed to the repository (now removed from
+tracking). If the server uses that key, rotate it — every secret is re-encrypted
+with a new random key, and the leaked one becomes worthless:
+
+```bash
+.venv/bin/python scripts/backup_data.py
+.venv/bin/python scripts/rotate_secret_key.py
+sudo systemctl restart azoom
+```
+
+### Admin password from the command line
+
+```bash
+.venv/bin/python scripts/set_admin_password.py          # azoom; asks twice, hidden, 12+ chars
+```
 
 ## Updating a running deployment
 
+One command — backup → pull `main` → install deps → full system check → restart → server doctor.
+It refuses to overwrite local edits, stops before restarting if any check fails, and
+keeps the server's own `data/secret.key` and tenant logos across the pull:
+
 ```bash
 cd /opt/azoom
-git pull origin main
-.venv/bin/pip install -q -r requirements.txt   # in case deps changed
-sudo systemctl restart azoom
+bash scripts/server_update.sh
+# first time only (the script is not on the server yet):
+git fetch origin main && git show origin/main:scripts/server_update.sh | bash
+# optional: SERVICE=azoom BACKUP_DEST=/var/backups/azoom BACKUP_REMOTE=user@host:/backups/azoom/
 ```
+
+> ⚠️ Do **not** use a plain `git pull` for the update that untracks `data/secret.key`:
+> git deletes files that stop being tracked. `server_update.sh` protects them.
+
+## Server doctor — what is still left on the action list
+
+```bash
+.venv/bin/python scripts/server_doctor.py     # read-only; exit 1 if anything is critical
+```
+
+Reports each item of the developer action list as ✅ / 🟡 / 🔴 with the exact fix:
+code behind `main`, default admin password, missing/old backup, secrets tracked in git,
+`ANTHROPIC_API_KEY` missing or `api.anthropic.com` blocked, failing lead sources,
+Forsah without the headless browser, low disk.
 
 Schema migrations are automatic (`CREATE TABLE IF NOT EXISTS` on startup);
 existing data is preserved.
@@ -245,10 +295,11 @@ the login was done on another machine. Fetching the public tenders list
 docker exec azoom-proposals python scripts/system_check.py
 ```
 
-Runs 322 checks: auth and brute-force limits, settings/secret handling, roles and
+Runs 348 checks: auth and brute-force limits, settings/secret handling, roles and
 tenant isolation, plan gates and lifecycle, proposal generation (template and Claude
 paths), Word/Excel exports (incl. 24 concurrent exports for two tenants), the agents
-flow, invoicing, notification channels, model updater, and the first-run password.
+flow, invoicing, notification channels, model updater, the first-run password, the
+leads agent (SSRF/XSS), backups, key rotation and the server doctor.
 
 By default it runs against a **temporary isolated database** (`AZOOM_DATA_DIR`) that is
 deleted afterwards — it never touches production data, never leaves test users or
