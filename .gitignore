@@ -13,3 +13,4 @@ dist/
 *.tar
 data/branding/
 data/secret.key
+backups/
