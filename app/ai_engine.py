@@ -18,6 +18,54 @@ from .database import get_settings, list_price_items, list_library
 from .proposal_builder import (apply_style_layer, compute_financials, detect_kind,
                                match_price_catalog)
 
+def _obj(props: dict) -> dict:
+    """كائن صارم: كل الحقول مطلوبة وبلا حقول إضافية (شرط المخرجات المهيكلة)."""
+    return {"type": "object", "properties": props, "required": list(props), "additionalProperties": False}
+
+
+_S = {"type": "string"}
+_N = {"type": "number"}
+_STRS = {"type": "array", "items": _S}
+
+# هيكل العرض المعتمد (نموذج برج مكين 100) — محتوى محدد من وثائق المشروع لكل قسم
+STRUCTURE_SCHEMA = _obj({
+    "scope_title": {"type": "string", "description": "عنوان الأعمال على الغلاف، مثل: أعمال الهيكل الإنشائي (العظم بالمواد)"},
+    "subtitle": {"type": "string", "description": "اسم المشروع والمدينة، مثل: مشروع برج مكين (100) الفندقي — الرياض"},
+    "pricing_mode": {"type": "string", "enum": ["lump_sum", "remeasured"],
+                     "description": "lump_sum إن طلبت الوثائق مبلغاً مقطوعاً، وإلا remeasured"},
+    "request_ref": {"type": "string", "description": "مرجع الطلب كما في الوثائق (طلب عرض السعر المؤرخ ...، رقم المنافسة ...) أو فارغ"},
+    "addressee": {"type": "string", "description": "الجهة المقدَّم إليها بصفتها، مثل: شركة ... — المقاول الرئيسي"},
+    "scope_intro": {"type": "string", "description": "فقرة قصيرة بأرقام المشروع الفعلية (المساحات، الأدوار، الأقبية...)"},
+    "included": {**_STRS, "description": "ما يشمله العرض، نقطة محددة لكل بند رئيسي بمواصفاته (الرتب، الموردين...)"},
+    "excluded": {**_STRS, "description": "ما هو خارج النطاق صراحةً"},
+    "method_intro": {"type": "string", "description": "محاور المنهجية والهدف (مثل دورة دور متكرر من 6 أيام)"},
+    "method_sections": {"type": "array", "items": _obj({
+        "title": _S, "paragraphs": _STRS, "steps": _STRS})},
+    "cycle_title": {"type": "string", "description": "عنوان جدول الدورة النموذجية إن وُجد، وإلا فارغ"},
+    "cycle_rows": {"type": "array", "items": _obj({"label": _S, "activity": _S})},
+    "duration_months": {"type": "number", "description": "المدة الإجمالية بالأشهر"},
+    "schedule_intro": _S,
+    "schedule_note": {"type": "string", "description": "البرنامج التفصيلي وأداته وتحديثه"},
+    "schedule_bars": {"type": "array", "description": "أنشطة المخطط الزمني بأشهر البداية والنهاية (0 = بداية المشروع، وتتداخل الأنشطة المتوازية)",
+                      "items": _obj({"task": _S, "start_month": _N, "end_month": _N})},
+    "staff": {"type": "array", "items": _obj({"role": _S, "count": _N, "note": _S})},
+    "labor_note": {"type": "string", "description": "العمالة المباشرة في الذروة وتخصصاتها"},
+    "equipment": {"type": "array", "items": _obj({"item": _S, "count": _S, "ownership": _S})},
+    "suppliers": {"type": "array", "items": _obj({"item": _S, "proposal": _S})},
+    "quality": {**_STRS, "description": "إجراءات جودة محددة بالاختبارات والمعايير"},
+    "safety": {**_STRS, "description": "إجراءات سلامة محددة لمخاطر هذا المشروع"},
+    "breakdown": {"type": "array", "description": "مجموعات التفصيل الاسترشادي للمبلغ: اسم المجموعة وأرقام بنود boq التابعة لها (تبدأ من 1)",
+                  "items": _obj({"name": _S, "item_numbers": {"type": "array", "items": {"type": "integer"}}})},
+    "separate_items": {"type": "array", "description": "بنود تُسعَّر منفصلة خارج القيمة الأساسية",
+                       "items": _obj({"name": _S, "unit": _S, "price": _N})},
+    "ve_intro": {"type": "string", "description": "شروط مقترحات الهندسة القيمية، أو فارغ إن لم توجد"},
+    "ve_items": {"type": "array", "description": "مقترحات هندسة قيمية واقعية اختيارية بوفرها التقديري",
+                 "items": _obj({"title": _S, "affected": _S, "description": _S, "saving": _N, "days": _S, "note": _S})},
+    "reservations": {"type": "array", "description": "تحفظات تجارية وفنية محددة بعنوان قصير",
+                     "items": _obj({"lead": _S, "text": _S})},
+    "attachments": _STRS,
+})
+
 PROPOSAL_SCHEMA = {
     "type": "object",
     "properties": {
@@ -79,6 +127,7 @@ PROPOSAL_SCHEMA = {
         },
         "duration_weeks": {"type": "number"},
         "assumptions": {"type": "array", "items": {"type": "string"}},
+        "structure": STRUCTURE_SCHEMA,
         "team": {
             "type": "array",
             "items": {
@@ -93,7 +142,7 @@ PROPOSAL_SCHEMA = {
         },
     },
     "required": ["summary", "scope", "technical_sections", "compliance_matrix",
-                 "boq", "plan", "duration_weeks", "assumptions", "team"],
+                 "boq", "plan", "duration_weeks", "assumptions", "team", "structure"],
     "additionalProperties": False,
 }
 
@@ -116,7 +165,15 @@ SYSTEM_PROMPT_TEMPLATE = """أنت خبير إعداد العروض الفنية
 3. مصفوفة الالتزام: استخلص المتطلبات الجوهرية من كراسة الشروط وحدد موضع تغطيتها في العرض.
 4. الخطة التنفيذية: مراحل واقعية بمدد أسبوعية ومخرجات محددة قابلة للقياس.
 5. استخدم نصوص المكتبة الفنية المرفقة كأساس للأقسام العامة مع تكييفها لسياق المشروع.
-6. لا تختلق أرقام تراخيص أو أسماء مشاريع سابقة أو بيانات غير موجودة في المدخلات."""
+6. لا تختلق أرقام تراخيص أو أسماء مشاريع سابقة أو بيانات غير موجودة في المدخلات.
+7. حقل structure هو العرض الذي يُسلَّم للعميل بهيكل تسعة أقسام (الشركة، النطاق، المنهجية،
+   البرنامج الزمني، الفريق والمعدات والموردون، الجودة والسلامة، المالي، الهندسة القيمية،
+   الافتراضات والتحفظات). اكتبه بأسلوب مقاول خبير: جمل قصيرة محددة بأرقام المشروع الفعلية
+   (الكميات، الرتب، المساحات، المدد، الموردين) لا عبارات إنشائية عامة. كل نقطة تحمل معلومة.
+   المنهجية أقسام فرعية لكل عنصر رئيسي في المشروع بخطوات مرقمة، والبرنامج الزمني أنشطة
+   متداخلة واقعية بالأشهر، والفريق والمعدات بأعدادها وملاحظاتها. الهندسة القيمية اختيارية:
+   اقترحها فقط حين توجد فرص حقيقية في هذا المشروع، وإلا اترك ve_items فارغة.
+   ما لا تعرفه من الوثائق اتركه فارغاً — لا تخترع أرقاماً."""
 
 
 def build_system_prompt(company_name: str) -> str:

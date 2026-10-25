@@ -416,5 +416,8 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
         "build_mode": "master_clone" if master_ref else "bank",
         "master_ref": master_ref,
         "boq_mode": boq_mode,   # project = بنود المشروع نفسها | reference/keywords = احتياط
+        # هيكل العرض المعتمد يُشتق عند التصدير من بيانات العرض؛ هنا نوع التسعير فقط
+        "structure": {"pricing_mode": "lump_sum" if re.search(
+            r"مبلغ\s*مقطوع|المبلغ\s*المقطوع|lump\s*-?\s*sum", files_text or "", re.I) else "remeasured"},
         "engine": "template",
     }

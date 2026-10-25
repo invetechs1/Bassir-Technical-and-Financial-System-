@@ -571,6 +571,26 @@
         <textarea data-key="company_services"></textarea>
       </div>
       <div class="panel">
+        <h3 data-i18n="proposal_profile_title">بيانات العرض الفني والمالي</h3>
+        <p class="muted" data-i18n="proposal_profile_hint">تظهر في قسم «نبذة عن الشركة والمؤهلات» وغلاف العرض وتذييله وقسم التحفظات في كل عرض.</p>
+        <div class="grid-3">
+          <div><label data-i18n="classification_label">التصنيف</label><input type="text" data-key="company_classification" placeholder="مقاول عام — الدرجة الأولى"></div>
+          <div><label data-i18n="signer_title_label">صفة الموقِّع</label><input type="text" data-key="signer_title" placeholder="المدير العام"></div>
+          <div><label data-i18n="website_label">الموقع الإلكتروني</label><input type="text" data-key="company_website" placeholder="example.com"></div>
+          <div><label data-i18n="tagline_label">شعار الشركة النصي (يظهر في الغلاف والتذييل)</label><input type="text" data-key="company_tagline"></div>
+          <div><label data-i18n="support_group_label">المجموعة الداعمة</label><input type="text" data-key="company_support_group"></div>
+        </div>
+        <label class="mt" data-i18n="company_intro_label">نبذة الشركة (جملتان أو ثلاث)</label>
+        <textarea data-key="company_intro"></textarea>
+        <label class="mt" data-i18n="references_label">سابقة الأعمال — سطر لكل مشروع: المشروع | العميل | نوع الأعمال</label>
+        <textarea data-key="company_references" rows="5"></textarea>
+        <label class="mt" data-i18n="docs_note_label">ملاحظة المستندات النظامية المرفقة</label>
+        <textarea data-key="company_docs_note"></textarea>
+        <label class="mt" data-i18n="reservations_label">التحفظات القياسية — سطر لكل تحفظ: العنوان: النص</label>
+        <textarea data-key="proposal_reservations" rows="4"></textarea>
+        <div class="mt"><button class="btn" onclick="saveSettings()" data-i18n="save_settings_btn">حفظ الإعدادات</button></div>
+      </div>
+      <div class="panel">
         <h3 data-i18n="pricing_model_title">نموذج التسعير</h3>
         <div class="grid-3">
           <div><label data-i18n="overhead_label">المصاريف الإدارية والعمومية %</label><input type="number" data-key="overhead_pct" step="0.5"></div>
