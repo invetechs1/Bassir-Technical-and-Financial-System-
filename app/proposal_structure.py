@@ -205,7 +205,13 @@ def _breakdown(loaded: list[dict], st: dict, subtotal: float) -> list[list]:
     if len(groups) < 2:
         return []
     total = sum(v for _, v in groups) or 1
-    rows = [[str(i), name, money(v), f"{v / total * 100:.1f}"] for i, (name, v) in enumerate(groups, 1)]
+    # المبالغ تُقاس على قيمة العرض نفسها (قد تختلف عن مجموع البنود بتقريب المبلغ المقطوع)
+    scaled = [round(v * subtotal / total) for _, v in groups]
+    if scaled:
+        big_i = max(range(len(scaled)), key=lambda i: scaled[i])
+        scaled[big_i] += round(subtotal) - sum(scaled)
+    rows = [[str(i), name, money(scaled[i - 1]), f"{v / total * 100:.1f}"]
+            for i, (name, v) in enumerate(groups, 1)]
     # فرق التقريب في النسب يُمتص في أكبر مجموعة فيصبح المجموع 100 تماماً
     pct = [float(r[3]) for r in rows]
     diff = round(100 - sum(pct), 1)
@@ -254,6 +260,27 @@ def build_structure(proposal: dict, settings: dict) -> dict:
     subtotal = float(fin.get("subtotal") or 0)
     vat = float(fin.get("vat") or 0)
     grand = float(fin.get("grand_total") or 0)
+    indicative = subtotal
+    if lump and subtotal:
+        # المبلغ المقطوع رقم مستدير ملزم، وأسعار الوحدات صحيحة استرشادية — كما في
+        # النموذج: الجدول المسعّر لتقييم أوامر التغيير فقط، والفرق يوضَّح بملاحظة
+        for l in loaded:
+            kids = l.get("children") or []
+            for k in kids:
+                k["unit_price"] = float(round(float(k.get("unit_price") or 0)))
+                k["total"] = round(k["unit_price"] * float(k.get("qty") or 0), 2)
+            if kids:
+                l["total"] = round(sum(k["total"] for k in kids), 2)
+                q = float(l.get("qty") or 0)
+                l["unit_price"] = round(l["total"] / q, 2) if q else 0.0
+            else:
+                l["unit_price"] = float(round(float(l.get("unit_price") or 0)))
+                l["total"] = round(l["unit_price"] * float(l.get("qty") or 0), 2)
+        indicative = round(sum(l["total"] for l in loaded), 2) if loaded else subtotal
+        step = 1000 if subtotal >= 100_000 else 100
+        subtotal = float(round(subtotal / step) * step)
+        vat = round(subtotal * vat_rate / 100, 2)
+        grand = round(subtotal + vat, 2)
 
     plan = data.get("plan") or []
     weeks = int(round(float(data.get("duration_weeks") or sum(float(p.get("duration_weeks") or 0)
@@ -501,17 +528,22 @@ def build_structure(proposal: dict, settings: dict) -> dict:
     if loaded:
         rows = []
         for i, l in enumerate(loaded, 1):
-            rows.append([l.get("code") or str(i), l.get("name", ""), l.get("unit", ""), qty_fmt(l.get("qty")),
+            rows.append([l.get("ref") or l.get("code") or str(i), l.get("name", ""), l.get("unit", ""), qty_fmt(l.get("qty")),
                          money(l.get("unit_price")), money(l.get("total"))])
             for j, c in enumerate(l.get("children") or [], 1):
-                rows.append([f"{l.get('code') or i}.{j}", f"↳ {c.get('name', '')}", c.get("unit", ""),
+                rows.append([f"{l.get('ref') or l.get('code') or i}.{j}", f"↳ {c.get('name', '')}", c.get("unit", ""),
                              qty_fmt(c.get("qty")), money(c.get("unit_price")), money(c.get("total"))])
         blocks = [{"type": "p", "text": "أسعار الوحدات شاملة كل ما يلزم لتنفيذ البند كما في وصفه: المواد والعمالة "
                                         "والمعدات والمصاريف العامة والربح" + (
                                             "، وتُستخدم لتقييم أوامر التغيير بالزيادة أو النقص فقط." if lump else ".")},
                   {"type": "table", "headers": ["البند", "الوصف", "الوحدة", "الكمية", "سعر الوحدة (ر.س)", "الإجمالي (ر.س)"],
-                   "rows": rows, "total": ["", "الإجمالي غير شامل الضريبة", "", "", "", money(subtotal)],
+                   "rows": rows, "total": ["", "الإجمالي الاسترشادي" if lump else "الإجمالي غير شامل الضريبة",
+                                           "", "", "", money(indicative)],
                    "widths": [1.6, 7.4, 1.5, 1.9, 2.3, 2.3], "num_cols": [3, 4, 5], "small": True}]
+        if lump and abs(indicative - subtotal) >= 1:
+            blocks.append({"type": "note", "text": (
+                f"الفرق بين الإجمالي الاسترشادي والمبلغ المقطوع {money(abs(indicative - subtotal))} ريال، "
+                "ناتج عن تقريب الأسعار. المبلغ المقطوع هو الملزم.")})
         sections.append({"num": f"7.{k + 1}", "key": "boq",
                          "title": _SECTION_TITLES["boq"], "blocks": blocks, "sub": True})
 

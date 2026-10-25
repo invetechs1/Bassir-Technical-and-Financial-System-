@@ -1652,9 +1652,17 @@ check("محتوى Claude: مبلغ مقطوع في الغلاف والخطاب �
               for b in _k2["schedule"]["blocks"]))
 _bd = next(b for b in _k2["financial"]["blocks"] if b["type"] == "table" and "النسبة %" in b["headers"])
 _bd_sum = sum(float(r[2].replace(",", "")) for r in _bd["rows"])
-check("التفصيل الاسترشادي: المبالغ تُحسب من الأسعار والنسب مجموعها 100",
-      abs(_bd_sum - _ai_fin["subtotal"]) < 1.0 and abs(sum(float(r[3]) for r in _bd["rows"]) - 100) < 0.05,
-      f"{_bd_sum} vs {_ai_fin['subtotal']}")
+_lump_disp = round(_ai_fin["subtotal"] / 100) * 100          # مبلغ مقطوع مستدير (أقل من 100 ألف: لأقرب 100)
+check("التفصيل الاسترشادي: مجموعه = المبلغ المقطوع المعروض والنسب مجموعها 100",
+      abs(_bd_sum - _lump_disp) < 1.0 and abs(sum(float(r[3]) for r in _bd["rows"]) - 100) < 0.05,
+      f"{_bd_sum} vs {_lump_disp}")
+_vb = next(b for b in _k2["financial"]["blocks"] if b["type"] == "valuebox")
+_boq_blocks = _k2["boq"]["blocks"]
+check("المبلغ المقطوع مستدير بلا هللات، وأسعار الوحدات صحيحة، وملاحظة الفرق عن الإجمالي الاسترشادي",
+      _vb["amount"] == f"{_lump_disp:,.0f}"
+      and all("." not in r[4] for r in next(b for b in _boq_blocks if b["type"] == "table")["rows"])
+      and any(b["type"] == "note" and "المبلغ المقطوع هو الملزم" in b["text"] for b in _boq_blocks),
+      _vb["amount"])
 
 # Word: الأقسام المرقمة والتذييل «صفحة X من Y» والمبلغ كتابةً — ولا بيانات عزوم للمستأجر
 from docx import Document as _D2
@@ -1692,6 +1700,34 @@ from app.proposal_builder import build_template_proposal as _btp
 check("محرك القوالب يلتقط «المبلغ المقطوع» من وثائق المشروع",
       _btp("مشروع", "عميل", "private", "يُقدَّم العرض بنظام المبلغ المقطوع")["structure"]["pricing_mode"] == "lump_sum"
       and _btp("مشروع", "عميل", "private", "جدول كميات")["structure"]["pricing_mode"] == "remeasured")
+
+# ---------- تسعير جدول الكميات: توافق الوحدات وعناوين الأقسام ومدة الكراسة ----------
+from app.boq_parser import parse_boq_from_text as _pbt, price_project_boq as _ppb, unit_family as _uf
+_hdr_boq = ("رقم البند\tالوصف\tالوحدة\tالكمية\n"
+            "1\tالأعمال الترابية\t\t\n"
+            "1.1\tحفر عام للقبو حتى منسوب التأسيس في أي نوع من التربة\tم³\t5200\n"
+            "2\tالخرسانة العادية والمسلحة\t\t\n"
+            "2.3\tخرسانة مسلحة للجدران الاستنادية للقبو بقوة 40\tم³\t410\n"
+            "3.2\tعزل مائي وحراري للسطح شامل طبقة الميول والبلاط\tم²\t850\n")
+_pi = _pbt(_hdr_boq)
+check("عناوين أقسام جدول الكميات (بلا وحدة ولا كمية) لا تُعد بنوداً",
+      [x["name"][:4] for x in _pi] == ["حفر ", "خرسا", "عزل "], str([x["name"][:15] for x in _pi]))
+check("رقم البند كما في جدول العميل محفوظ (1.1، 2.3...)", [x.get("ref") for x in _pi] == ["1.1", "2.3", "3.2"])
+_pp = _ppb(_pi)
+check("بند بالمتر المكعب لا يُسعَّر ببند بالعدد أو بالمقطوعية (لا «نافورة» بـ 90 ألف)",
+      all(float(x["unit_price"]) < 5000 for x in _pp) and all(
+          _uf(x["unit"]) in (None, "m3", "m2") for x in _pp), str([(x["name"][:12], x["unit_price"]) for x in _pp]))
+check("عائلات الوحدات: م³/م3 واحدة، وم² تختلف عن العدد", _uf("م³") == _uf("م3") == "m3"
+      and _uf("م2") == "m2" and _uf("عدد") == _uf("بالعدد") == "nr" and _uf("LS") == "ls")
+from app.proposal_builder import extract_duration_months as _edm, extract_request_ref as _err
+check("مدة التنفيذ تُقرأ من الكراسة (أشهر/أسابيع/أيام)",
+      _edm("مدة التنفيذ المطلوبة 10 أشهر") == 10 and _edm("مدة العقد: 36 أسبوعاً") == 8
+      and _edm("مدة التنفيذ ١٨٠ يوماً") == 6 and _edm("بلا مدة") == 0)
+_tp = _btp("مشروع", "عميل", "private", "رقم الطلب: X-1 بتاريخ 1/1/2027م\nمدة التنفيذ 12 شهراً\n" + _hdr_boq)
+check("الخطة تتوزع على مدة الكراسة ومرجع الطلب يصل للغلاف",
+      abs(_tp["duration_weeks"] - 52) <= 2 and _tp["structure"]["duration_months"] == 12
+      and _tp["structure"]["request_ref"] == "طلب تقديم العروض رقم X-1 بتاريخ 1/1/2027م",
+      f"{_tp['duration_weeks']} {_tp['structure']}")
 
 # ---------- عمليات الخادم: مصادر الفرص العاملة، النسخ الاحتياطي، تدوير المفتاح، طبيب الخادم ----------
 import importlib.util as _ilu

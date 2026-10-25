@@ -24,6 +24,25 @@ _UNITS = {
     "ساعة", "يوم", "شهر", "سنة", "وحدة", "نقطة", "لوحة", "مجموعة", "طقم",
     "رول", "كرتون", "كيس", "حبة", "زيارة", "رحلة", "عامل", "فني", "شخص",
 }
+# عائلات الوحدات: بند بالمتر المكعب لا يُسعَّر ببند بالعدد أو بالمقطوعية أبداً
+# (كان «خرسانة مسلحة للجدران» يطابق «نافورة خرسانية» بـ 90 ألف ريال للعدد)
+_UNIT_FAMILIES = {
+    "m3": ("م3", "م³", "م٣", "مترمكعب", "m3", "m³", "cum"),
+    "m2": ("م2", "م²", "م٢", "مترمربع", "m2", "m²", "sqm"),
+    "ml": ("م.ط", "مط", "مترطولي", "م", "متر", "م.ل", "ml", "lm", "rm"),
+    "nr": ("عدد", "بالعدد", "حبة", "نقطة", "لوحة", "طقم", "مجموعة", "nr", "no", "nos", "each", "ea", "pcs"),
+    "ls": ("مقطوعية", "مقطوعيه", "مقطوع", "بالمقطوع", "ls", "l.s", "lumpsum", "item"),
+    "t": ("طن", "ton", "t"), "kg": ("كجم", "كغم", "kg"),
+    "month": ("شهر", "month"), "day": ("يوم", "day"), "year": ("سنة", "year"),
+}
+_UNIT_LOOKUP = {v: fam for fam, vals in _UNIT_FAMILIES.items() for v in vals}
+
+
+def unit_family(unit: str) -> str | None:
+    u = re.sub(r"\s+", "", (unit or "").replace("ـ", "").translate(_AR_DIGITS)).lower()
+    return _UNIT_LOOKUP.get(u)
+
+
 _HEADER_WORDS = ("الوصف", "وصف البند", "البند", "الكمية", "الوحدة", "بيان الأعمال")
 _TOTAL_WORDS = ("الإجمالي", "الاجمالي", "المجموع", "الإجمالى", "إجمالي عام")
 
@@ -128,15 +147,23 @@ def parse_boq_from_text(text: str) -> list[dict]:
         if qty_idx is not None and desc_idx is not None:
             unit_idx = next((i for i, f in enumerate(labels) if f in
                              ("الوحدة", "وحدة", "الوحده", "unit")), None)
-            columns = (desc_idx, unit_idx, qty_idx, len(fields))
+            ref_idx = next((i for i, f in enumerate(labels) if i != desc_idx and f in
+                            ("رقم البند", "البند رقم", "رقم", "م", "الرقم", "item no", "item no.",
+                             "no", "no.", "ref")), None)
+            columns = (desc_idx, unit_idx, qty_idx, len(fields), ref_idx)
             explicit_table = True
             continue
         if columns is not None:
-            di, ui, qi, width = columns
+            di, ui, qi, width, ri = columns
             if di >= len(fields):
                 continue
             name = fields[di]
             if not name or _is_total_label(name) or re.fullmatch(r"[-: ]+", name):
+                continue
+            # عنوان قسم («الأعمال الترابية») لا بند: بلا وحدة وبلا كمية معاً
+            unit_cell = fields[ui].strip() if ui is not None and ui < len(fields) else ""
+            qty_cell = fields[qi].strip() if qi < len(fields) else ""
+            if ui is not None and not unit_cell and not qty_cell:
                 continue
             qty = _num(fields[qi]) if qi < len(fields) else None
             # Space-separated extraction cannot represent an empty cell. A row
@@ -145,6 +172,8 @@ def parse_boq_from_text(text: str) -> list[dict]:
                 qty = None
             item = {"name": name, "unit": fields[ui] if ui is not None and ui < len(fields) and fields[ui] else "وحدة",
                     "qty": qty if qty is not None else 0.0}
+            if ri is not None and ri < len(fields) and fields[ri].strip():
+                item["ref"] = _norm(fields[ri])
             if qty is None:
                 item["quantity_issue"] = "كمية غير واضحة — تحتاج مراجعة يدوية"
             elif qty == 0:
@@ -209,21 +238,32 @@ def _tokens(text: str) -> set[str]:
     return tokens
 
 
-def _best_match(name: str, candidates: list, key=lambda c: c.get("name", "")):
-    """أقرب مرشح بتقاطع المفردات — يشترط تقاطع مفردتين فأكثر."""
+def _best_match(name: str, candidates: list, key=lambda c: c.get("name", ""), unit: str = ""):
+    """أقرب مرشح بتقاطع المفردات — يشترط تقاطع مفردتين فأكثر ووحدة متوافقة.
+
+    الترتيب بتشابه متوازن (التقاطع ÷ √(طول الوصفين)) فلا يفوز وصف طويل لبند آخر
+    لمجرد احتوائه «خرسانة مسلحة»، والوحدة المعروفة المختلفة تُسقط المرشح كلياً."""
     target = _tokens(name)
     if not target:
         return None, 0.0
+    fam = unit_family(unit)
     best, best_score = None, 0.0
     for cand in candidates:
-        overlap = len(target & _tokens(key(cand)))
-        score = overlap / max(len(target), 1)
-        if overlap >= 2 and score > best_score:
+        if fam:
+            cfam = unit_family(cand.get("unit", ""))
+            if cfam and cfam != fam:
+                continue
+        cand_tokens = _tokens(key(cand))
+        overlap = len(target & cand_tokens)
+        if overlap < 2:
+            continue
+        score = overlap / math.sqrt(len(target) * len(cand_tokens))
+        if score > best_score:
             best, best_score = cand, score
     return best, best_score
 
 
-def _market_price(name: str) -> dict | None:
+def _market_price(name: str, unit: str = "") -> dict | None:
     """أقرب سعر سوق من المستودع — البحث بأهم مفردات الوصف ثم المفاضلة بالتشابه."""
     from .database import search_market_prices
     seen, candidates = set(), []
@@ -232,7 +272,7 @@ def _market_price(name: str) -> dict | None:
             if row["id"] not in seen:
                 seen.add(row["id"])
                 candidates.append(row)
-    best, _ = _best_match(name, candidates)
+    best, _ = _best_match(name, candidates, unit=unit)
     return best
 
 
@@ -246,25 +286,28 @@ def price_project_boq(items: list[dict], similar_refs: list[dict] | None = None)
         for l in ref.get("data", {}).get("boq", []):
             if float(l.get("unit_price") or 0) > 0:
                 past_lines.append({"name": l.get("name", ""), "unit_price": l["unit_price"],
-                                   "ref_no": ref_no})
+                                   "unit": l.get("unit", ""), "ref_no": ref_no})
     out = []
     for it in items:
         line = {"code": "", "name": it["name"], "unit": it.get("unit") or "وحدة",
                 "qty": float(it.get("qty", 1)), "unit_price": 0.0, "source": ""}
         if it.get("quantity_issue"):
             line["quantity_issue"] = it["quantity_issue"]
-        cat, _ = _best_match(it["name"], catalog)
+        if it.get("ref"):
+            line["ref"] = it["ref"]       # رقم البند كما في جدول العميل (1.1، 2.3...)
+        unit = line["unit"]
+        cat, _ = _best_match(it["name"], catalog, unit=unit)
         if cat:
             line.update(code=cat["code"], unit_price=float(cat["unit_price"]),
                         source="قاعدة الأسعار")
         else:
-            past, _ = _best_match(it["name"], past_lines)
+            past, _ = _best_match(it["name"], past_lines, unit=unit)
             if past:
                 line.update(unit_price=float(past["unit_price"]),
                             source=f"بند مطابق من عرضكم السابق ({past['ref_no']})" if past["ref_no"]
                                    else "بند مطابق من عرض سابق")
             else:
-                mk = _market_price(it["name"])
+                mk = _market_price(it["name"], unit)
                 if mk:
                     line.update(unit_price=float(mk["unit_price"]), source="سعر سوق من المستودع")
                 else:
@@ -282,7 +325,7 @@ def enforce_project_boq(ai_boq: list[dict], items: list[dict],
     for line in base:
         if line["unit_price"]:
             continue
-        ai_line, _ = _best_match(line["name"], ai_boq or [])
+        ai_line, _ = _best_match(line["name"], ai_boq or [], unit=line.get("unit", ""))
         if ai_line and float(ai_line.get("unit_price") or 0) > 0:
             line.update(unit_price=float(ai_line["unit_price"]),
                         source="تقدير سوقي (ذكاء اصطناعي) — راجعه")
