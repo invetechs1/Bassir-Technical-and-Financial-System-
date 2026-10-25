@@ -1589,6 +1589,110 @@ check("XSS: لا حقول غير موثوقة خام في innerHTML (الأنم�
 check("XSS: روابط المصادر الخارجية تُمرَّر عبر safeUrl", "safeUrl(l.source_url)" in _appjs
       and "safeUrl(t3.details_url)" in _appjs and "safeUrl(p.details_url)" in _appjs)
 
+# ---------- هيكل العرض المعتمد (نموذج برج مكين 100) وتصميم Word الجديد ----------
+from app.arabic_numbers import amount_in_words as _aiw
+from app.proposal_structure import build_structure as _bs
+check("تفقيط المبلغ مطابق للنموذج حرفياً",
+      _aiw(44735000) == "أربعة وأربعون مليوناً وسبعمائة وخمسة وثلاثون ألف ريال سعودي فقط"
+      and _aiw(3000) == "ثلاثة آلاف ريال سعودي فقط" and _aiw(11500) == "أحد عشر ألفاً وخمسمائة ريال سعودي فقط"
+      and _aiw(1250.5).endswith("وخمسون هللة فقط"), _aiw(44735000))
+c.post("/api/session/company/1")
+_gen = c.post("/api/proposals/generate", data={"title": "مشروع إنشاء مبنى إداري للفحص", "client": "جهة الفحص"})
+_azp = c.get(f"/api/proposals/{_gen.json()['id']}").json()
+from app.database import get_settings as _gset
+_azs = {**_gset(company_id=1), "_company_id": 1}
+_st = _bs(_azp, _azs)
+_keys = [x["key"] for x in _st["sections"]]
+check("هيكل العرض: الأقسام بالترتيب المعتمد",
+      _keys[:7] == ["company", "scope", "method", "schedule", "team", "qhse", "financial"]
+      and _keys[-1] == "terms" and "boq" in _keys, str(_keys))
+check("هيكل العرض: ترقيم متسلسل بلا فجوات (1..N والملحق 7.x)",
+      [x["num"] for x in _st["sections"] if x["key"] != "boq"] == [str(i) for i in range(1, len(_keys))],
+      str([x["num"] for x in _st["sections"]]))
+_info = dict(_st["cover"]["info"])
+check("الغلاف: رقم العرض وقيمته بالضريبة وبدونها ومدة التنفيذ والسريان",
+      _info.get("رقم العرض") == _azp["ref_no"] and "شاملة الضريبة" in _info.get("قيمة العرض", "")
+      and _info.get("مدة التنفيذ") and "يوماً" in _info.get("سريان العرض", ""), str(_info)[:200])
+_blocks = {x["key"]: x["blocks"] for x in _st["sections"]}
+check("قسم الشركة: نبذة + جدول بيانات + سابقة الأعمال من الإعدادات",
+      any(b["type"] == "kv" for b in _blocks["company"])
+      and any(b["type"] == "table" and "ديرية سكوير — الحزمة 2" in str(b["rows"]) for b in _blocks["company"]))
+check("البرنامج الزمني: مخطط شهري من مراحل الخطة",
+      any(b["type"] == "gantt" and b["bars"] and b["months"] >= 1 for b in _blocks["schedule"]))
+_fin_tables = [b for b in _blocks["financial"] if b["type"] == "table"]
+check("العرض المالي: صندوق القيمة + نموذج التسعير + المبلغ كتابةً",
+      any(b["type"] == "valuebox" for b in _blocks["financial"]) and _fin_tables
+      and any(b["type"] == "rich" and "فقط" in str(b["runs"]) for b in _blocks["financial"]))
+
+# محتوى Claude المهيكل يتقدم: نطاق/استثناءات/هندسة قيمية/مخطط متداخل/تفصيل بالمجموعات
+_ai_boq = [{"code": f"3.{i}", "name": f"بند فحص {i}", "unit": "م³", "qty": 10, "unit_price": 100 * i} for i in range(1, 7)]
+from app.proposal_builder import compute_financials as _cf
+_ai_fin = _cf(_ai_boq, _azs)
+_ai_prop = {"title": "مشروع فحص الهيكل", "client": "عميل الفحص", "ref_no": "AZM-T-1", "created_at": "2026-10-25",
+            "data": {"boq": _ai_boq, "financial": _ai_fin, "plan": [], "duration_weeks": 26,
+                     "assumptions": ["افتراض فحص"], "team": [], "technical_sections": [],
+                     "structure": {"pricing_mode": "lump_sum", "scope_title": "أعمال الهيكل الإنشائي",
+                                   "excluded": ["الحفر مستبعد صراحة"], "duration_months": 6,
+                                   "schedule_bars": [{"task": "اللبشة", "start_month": 0, "end_month": 2},
+                                                     {"task": "البرج", "start_month": 1.5, "end_month": 6}],
+                                   "breakdown": [{"name": "السفلي", "item_numbers": [1, 2, 3]},
+                                                 {"name": "العلوي", "item_numbers": [4, 5, 6]}],
+                                   "ve_items": [{"title": "وصلات ميكانيكية", "affected": "3.1", "description": "د",
+                                                 "saving": 5000, "days": "−5 أيام", "note": ""}],
+                                   "reservations": [{"lead": "المدة", "text": "تبدأ من تسليم الموقع"}]}}}
+_st2 = _bs(_ai_prop, _azs)
+_k2 = {x["key"]: x for x in _st2["sections"]}
+check("محتوى Claude: الاستثناءات والهندسة القيمية والتحفظات تظهر كما كُتبت",
+      "الحفر مستبعد صراحة" in str(_k2["scope"]["blocks"]) and "ve" in _k2
+      and _k2["ve"]["num"] == "8" and _k2["terms"]["num"] == "9"
+      and "تبدأ من تسليم الموقع" in str(_k2["terms"]["blocks"]))
+check("محتوى Claude: مبلغ مقطوع في الغلاف والخطاب وأنشطة المخطط متداخلة",
+      "المبلغ المقطوع" in _st2["cover"]["mode_line"] and "مقطوع" in str(_st2["letter"]["paragraphs"])
+      and any(b["type"] == "gantt" and len(b["bars"]) == 2 and b["bars"][1][1] < b["bars"][0][2]
+              for b in _k2["schedule"]["blocks"]))
+_bd = next(b for b in _k2["financial"]["blocks"] if b["type"] == "table" and "النسبة %" in b["headers"])
+_bd_sum = sum(float(r[2].replace(",", "")) for r in _bd["rows"])
+check("التفصيل الاسترشادي: المبالغ تُحسب من الأسعار والنسب مجموعها 100",
+      abs(_bd_sum - _ai_fin["subtotal"]) < 1.0 and abs(sum(float(r[3]) for r in _bd["rows"]) - 100) < 0.05,
+      f"{_bd_sum} vs {_ai_fin['subtotal']}")
+
+# Word: الأقسام المرقمة والتذييل «صفحة X من Y» والمبلغ كتابةً — ولا بيانات عزوم للمستأجر
+from docx import Document as _D2
+import app.export_docx as _edx
+_buf = io.BytesIO()
+_edx.export_proposal_docx(_ai_prop, {**_azs, "_brand_color": "1E6B3C"}, _buf)
+_dd = _D2(io.BytesIO(_buf.getvalue()))
+_txt = "\n".join(p.text for p in _dd.paragraphs)
+for _t in _dd.tables:
+    for _row in _t.rows:
+        for _cell in _row.cells:
+            _txt += "\n" + _cell.text
+check("Word الجديد: أقسام النموذج التسعة كلها",
+      all(t in _txt for t in ("نبذة عن الشركة والمؤهلات", "فهم نطاق الأعمال", "منهجية التنفيذ",
+                              "البرنامج الزمني المبدئي", "الفريق والمعدات والموردون", "ضبط الجودة والسلامة",
+                              "العرض المالي", "مقترحات الهندسة القيمية", "الافتراضات والتحفظات والإقرار")))
+check("Word الجديد: خطاب التقديم والإقرار والمبلغ كتابةً وجدول الكميات",
+      "الموضوع: العرض الفني والمالي" in _txt and "الإقرار:" in _txt and "المبلغ كتابةً:" in _txt and "فقط،" in _txt
+      and "جدول الكميات المسعّر" in _txt and "بند فحص 6" in _txt)
+_ftx = "".join(_zf.ZipFile(io.BytesIO(_buf.getvalue())).read(n).decode("utf-8")
+               for n in _zf.ZipFile(io.BytesIO(_buf.getvalue())).namelist() if n.startswith("word/footer"))
+check("Word الجديد: تذييل «صفحة X من Y» بحقول حية", "NUMPAGES" in _ftx and "PAGE" in _ftx)
+_r = c5.get(f"/api/proposals/{_p5['id']}/export/docx")
+_dt = _D2(io.BytesIO(_r.content))
+_tt = "\n".join(p.text for p in _dt.paragraphs) + "\n".join(
+    cell.text for t in _dt.tables for row in t.rows for cell in row.cells)
+check("Word المستأجر: لا سابقة أعمال عزوم ولا شعارها النصي ولا تحفظاتها",
+      _r.status_code == 200 and "ديرية سكوير" not in _tt and "Built to Deliver" not in _tt
+      and "حديد التسليح أو الأسمنت" not in _tt)
+_r = c.put("/api/settings", json={"company_classification": "مقاول عام — الدرجة الأولى",
+                                  "company_references": "مشروع أ | عميل أ | هيكل"})
+check("إعدادات بيانات العرض قابلة للحفظ", _r.status_code == 200
+      and _r.json().get("company_references") == "مشروع أ | عميل أ | هيكل", _r.text[:120])
+from app.proposal_builder import build_template_proposal as _btp
+check("محرك القوالب يلتقط «المبلغ المقطوع» من وثائق المشروع",
+      _btp("مشروع", "عميل", "private", "يُقدَّم العرض بنظام المبلغ المقطوع")["structure"]["pricing_mode"] == "lump_sum"
+      and _btp("مشروع", "عميل", "private", "جدول كميات")["structure"]["pricing_mode"] == "remeasured")
+
 # ---------- عمليات الخادم: مصادر الفرص العاملة، النسخ الاحتياطي، تدوير المفتاح، طبيب الخادم ----------
 import importlib.util as _ilu
 import subprocess as _sp

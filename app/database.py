@@ -399,6 +399,8 @@ AZOOM_SPECIFIC_SETTINGS = {
     "company_iban", "company_chamber_no", "company_phone", "company_email",
     "etimad_national_id", "forsah_email", "forsah_password",
     "company_founded", "company_legal_form", "company_services", "payment_terms",
+    "company_intro", "company_classification", "company_support_group", "company_references",
+    "company_tagline", "company_website", "proposal_reservations",
 }
 
 
