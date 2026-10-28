@@ -115,10 +115,13 @@ def match_price_catalog(boq: list[dict]) -> list[dict]:
     """مطابقة بنود جدول الكميات مع قاعدة الأسعار (بالكود ثم بتشابه الاسم)."""
     catalog = list_price_items()
     by_code = {item["code"]: item for item in catalog}
+    catalog = [c for c in catalog if c.get("auto_match", 1) != 0]
     for line in boq:
         matched = by_code.get(line.get("code", ""))
         if not matched:
-            matched = _best_name_match(line.get("name", ""), catalog)
+            # نفس مطابق جدول الكميات: وحدة متوافقة وتشابه متوازن (لا «نافورة» لبند خرسانة)
+            from .boq_parser import _best_match
+            matched, _ = _best_match(line.get("name", ""), catalog, unit=line.get("unit", ""))
         if matched:
             line["code"] = matched["code"]
             line["unit"] = line.get("unit") or matched["unit"]
@@ -130,30 +133,11 @@ def match_price_catalog(boq: list[dict]) -> list[dict]:
     return boq
 
 
-def _tokens(text: str) -> set[str]:
-    return {t for t in re.split(r"[\s،,/|()-]+", text) if len(t) > 2}
-
-
-def _best_name_match(name: str, catalog: list[dict]) -> dict | None:
-    target = _tokens(name)
-    if not target:
-        return None
-    best, best_score = None, 0.0
-    for item in catalog:
-        overlap = len(target & _tokens(item["name"]))
-        score = overlap / max(len(target), 1)
-        if overlap >= 2 and score > best_score:
-            best, best_score = item, score
-    return best
-
-
 # ---------------------------------------------------------------------------
 # محرك القوالب — يعمل بدون مفتاح API ويُنتج عرضاً كاملاً قابلاً للتحرير
 # ---------------------------------------------------------------------------
 
 _KEYWORD_MAP = [
-    (["نظام", "برمج", "تطبيق", "بوابة", "إلكترون", "رقمن", "منصة"],
-     ["IT-001", "IT-003", "IT-004", "IT-006", "IT-007", "HR-010", "HR-011", "HR-012", "HR-001"]),
     (["إنشاء", "مبنى", "خرسان", "بناء", "تشييد", "مبان"],
      ["GN-001", "CV-001", "CV-002", "CV-003", "CV-004", "CV-005", "CV-006", "CV-007",
       "EM-001", "EM-002", "EM-003", "EM-006", "HR-001", "HR-002", "HR-005", "GN-003", "GN-004", "GN-005"]),
@@ -206,6 +190,39 @@ def detect_kind(text: str) -> str:
         return detect_project_kind(text)[0]
     except Exception:
         return "إنشاءات وتشطيبات"
+
+
+_AR_NUM = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+_WORD_NUMS = {"شهر": 1, "شهرين": 2, "شهران": 2, "ثلاثة": 3, "أربعة": 4, "خمسة": 5, "ستة": 6, "سبعة": 7,
+              "ثمانية": 8, "تسعة": 9, "عشرة": 10, "اثني عشر": 12, "اثنا عشر": 12}
+
+
+def extract_duration_months(text: str) -> int:
+    """مدة التنفيذ المطلوبة في الكراسة بالأشهر («مدة التنفيذ 10 أشهر»، «12 شهراً»،
+    «36 أسبوعاً»، «180 يوماً») — 0 إن لم تُذكر."""
+    t = (text or "").translate(_AR_NUM)
+    m = re.search(r"(?:مدة\s+(?:التنفيذ|العقد|المشروع|الأعمال)|المدة\s+(?:المطلوبة|الزمنية))[^\n\d]{0,40}?"
+                  r"(\d{1,4})\s*(شهر|أشهر|شهور|شهراً|شهرا|أسبوع|أسابيع|أسبوعاً|يوم|أيام|يوماً)", t)
+    if not m:
+        return 0
+    n, unit = int(m.group(1)), m.group(2)
+    if unit.startswith("أسبوع") or unit == "أسابيع":
+        return max(1, round(n / 4.345))
+    if unit.startswith("يوم") or unit == "أيام":
+        return max(1, round(n / 30.4))
+    return n
+
+
+def extract_request_ref(text: str) -> str:
+    """مرجع الطلب كما في الكراسة («رقم الطلب: X بتاريخ Y» / «رقم المنافسة: X»)."""
+    t = text or ""
+    m = re.search(r"(رقم\s+(?:الطلب|المنافسة|الكراسة|المناقصة))\s*[:：]\s*([^\n]{3,60})", t)
+    if not m:
+        return ""
+    label = {"رقم الطلب": "طلب تقديم العروض رقم", "رقم المنافسة": "المنافسة رقم",
+             "رقم الكراسة": "الكراسة رقم", "رقم المناقصة": "المناقصة رقم"}.get(
+        re.sub(r"\s+", " ", m.group(1)), m.group(1))
+    return f"{label} {m.group(2).strip().rstrip('.،')}"
 
 
 def build_template_proposal(title: str, client: str, entity_type: str, files_text: str,
@@ -371,6 +388,14 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
          "deliverables": ["وثائق As-Built", "محضر استلام نهائي", "تقرير إغلاق المشروع"]},
     ]
 
+    # المدة المطلوبة في الكراسة تحكم الخطة: تُوزَّع المراحل بنسبها على المدة نفسها
+    required_months = extract_duration_months(files_text)
+    if required_months:
+        total = sum(p["duration_weeks"] for p in plan) or 1
+        target = required_months * 4.345
+        for ph in plan:
+            ph["duration_weeks"] = max(1, round(ph["duration_weeks"] * target / total))
+
     # وكيل بناء العروض طبق الأصل: إن وُجد عرض كامل سابق مناسب استُنسخت أقسامه
     # كاملةً بترتيبها وروحها وأُقلمت للمشروع (العميل والسنة والأقسام الديناميكية
     # فقط) — فتخرج العروض موحدةً لأنها حرفياً من عروض الشركة الحقيقية.
@@ -418,6 +443,7 @@ def build_template_proposal(title: str, client: str, entity_type: str, files_tex
         "boq_mode": boq_mode,   # project = بنود المشروع نفسها | reference/keywords = احتياط
         # هيكل العرض المعتمد يُشتق عند التصدير من بيانات العرض؛ هنا نوع التسعير فقط
         "structure": {"pricing_mode": "lump_sum" if re.search(
-            r"مبلغ\s*مقطوع|المبلغ\s*المقطوع|lump\s*-?\s*sum", files_text or "", re.I) else "remeasured"},
+            r"مبلغ\s*مقطوع|المبلغ\s*المقطوع|lump\s*-?\s*sum", files_text or "", re.I) else "remeasured",
+                      "duration_months": required_months, "request_ref": extract_request_ref(files_text)},
         "engine": "template",
     }

@@ -1247,7 +1247,8 @@ shutil.rmtree(_env["AZOOM_DATA_DIR"], ignore_errors=True)
 # ---------- وكيل بناء العروض طبق الأصل (الاستنساخ الكامل) ----------
 from app.master_builder import list_masters as _lm, pick_master as _pm, load_master_sections as _lms
 _masters = _lm()
-check("قوالب العروض الكاملة متاحة (عرضا عزوم الحقيقيان)", len(_masters) >= 2,
+# قالب الصيانة المزروع حُذف في تنظيف 2026-10-28 (76% منه حروف مبعثرة) — يبقى قالب الإنشاءات المنظف
+check("قوالب العروض الكاملة متاحة (قالب عزوم المنظف)", len(_masters) >= 1,
       str([m["filename"][:30] for m in _masters]))
 _mm = _pm("صيانة وتشغيل أنظمة تكييف وتبريد", "صيانة وتشغيل")
 # قالب الصيانة المزروع ممزق النص من استخراج PDF — العقد الجديد: يُتخطى
@@ -1261,7 +1262,7 @@ check("التوليد بوضع الاستنساخ طبق الأصل",
       r.status_code == 200 and _mc["data"].get("build_mode") == "master_clone"
       and _mc["data"].get("master_ref") == _mm["filename"], str(_mc["data"].get("build_mode")))
 _msecs = [x for x in _mc["data"]["technical_sections"] if x.get("source") == "master"]
-check("الأقسام مستنسخة كاملة بترتيب القالب", len(_msecs) >= 15, str(len(_msecs)))
+check("الأقسام مستنسخة كاملة بترتيب القالب", len(_msecs) >= 10, str(len(_msecs)))
 _orig_bodies = {x["body"][:120] for x in _lms(_mm["id"])}
 _sample_hits = sum(1 for x in _msecs if x["body"][:120] in _orig_bodies)
 check("النص طبق الأصل حرفياً (عينات المطلع)", _sample_hits >= 12, str(_sample_hits))
@@ -1279,7 +1280,7 @@ check("إصلاح العنوان المُدوَّر من استخراج PDF («�
       _frt("هج والمنهجيةالن") == "النهج والمنهجية"
       and _frt("نطاق العمل") == "نطاق العمل")
 _qm = c.get(f"/api/proposals/{_mc['id']}/quality").json()
-check("جودة العرض المستنسخ (صوت الشركة)", _qm["score"] >= 80 and _qm["bank_sections"] >= 15,
+check("جودة العرض المستنسخ (صوت الشركة)", _qm["score"] >= 80 and _qm["bank_sections"] >= 10,
       str(_qm["score"]))
 r = c.post("/api/agents/analyze", data={"title": "صيانة وتشغيل تكييف", "client": "جهة", "entity_type": "private"})
 check("الوكيل الفني يعلن الاستنساخ في التحليل",
@@ -1362,7 +1363,9 @@ check("صمام الذكاء الاصطناعي: البنود المختلقة �
       and not any("مختلق" in l["name"] for l in _enf))
 check("تقدير النموذج يُقبل سعراً فقط للبند الذي لم تسعّره القاعدة",
       _enf[2]["unit_price"] == 33 and "ذكاء اصطناعي" in _enf[2]["source"]
-      and _enf[0]["source"] == "قاعدة الأسعار" and _enf[0]["unit_price"] != 500,
+      and _enf[1]["source"] == "قاعدة الأسعار" and _enf[0]["unit_price"] != 500
+      # «إزالة البلاط» لم يعد يُسعَّر بسعر توريد البلاط (مطابقة كانت خاطئة) — يبقى للمراجعة
+      and (_enf[0]["unit_price"] == 0 or _enf[0]["source"] == "قاعدة الأسعار"),
       str([(l["unit_price"], l["source"][:20]) for l in _enf]))
 
 # الاحتياط القديم يعمل فقط حين لا جدول في الملفات — ويُعلن في التحليل
@@ -1652,9 +1655,17 @@ check("محتوى Claude: مبلغ مقطوع في الغلاف والخطاب �
               for b in _k2["schedule"]["blocks"]))
 _bd = next(b for b in _k2["financial"]["blocks"] if b["type"] == "table" and "النسبة %" in b["headers"])
 _bd_sum = sum(float(r[2].replace(",", "")) for r in _bd["rows"])
-check("التفصيل الاسترشادي: المبالغ تُحسب من الأسعار والنسب مجموعها 100",
-      abs(_bd_sum - _ai_fin["subtotal"]) < 1.0 and abs(sum(float(r[3]) for r in _bd["rows"]) - 100) < 0.05,
-      f"{_bd_sum} vs {_ai_fin['subtotal']}")
+_lump_disp = round(_ai_fin["subtotal"] / 100) * 100          # مبلغ مقطوع مستدير (أقل من 100 ألف: لأقرب 100)
+check("التفصيل الاسترشادي: مجموعه = المبلغ المقطوع المعروض والنسب مجموعها 100",
+      abs(_bd_sum - _lump_disp) < 1.0 and abs(sum(float(r[3]) for r in _bd["rows"]) - 100) < 0.05,
+      f"{_bd_sum} vs {_lump_disp}")
+_vb = next(b for b in _k2["financial"]["blocks"] if b["type"] == "valuebox")
+_boq_blocks = _k2["boq"]["blocks"]
+check("المبلغ المقطوع مستدير بلا هللات، وأسعار الوحدات صحيحة، وملاحظة الفرق عن الإجمالي الاسترشادي",
+      _vb["amount"] == f"{_lump_disp:,.0f}"
+      and all("." not in r[4] for r in next(b for b in _boq_blocks if b["type"] == "table")["rows"])
+      and any(b["type"] == "note" and "المبلغ المقطوع هو الملزم" in b["text"] for b in _boq_blocks),
+      _vb["amount"])
 
 # Word: الأقسام المرقمة والتذييل «صفحة X من Y» والمبلغ كتابةً — ولا بيانات عزوم للمستأجر
 from docx import Document as _D2
@@ -1692,6 +1703,112 @@ from app.proposal_builder import build_template_proposal as _btp
 check("محرك القوالب يلتقط «المبلغ المقطوع» من وثائق المشروع",
       _btp("مشروع", "عميل", "private", "يُقدَّم العرض بنظام المبلغ المقطوع")["structure"]["pricing_mode"] == "lump_sum"
       and _btp("مشروع", "عميل", "private", "جدول كميات")["structure"]["pricing_mode"] == "remeasured")
+
+# ---------- تسعير جدول الكميات: توافق الوحدات وعناوين الأقسام ومدة الكراسة ----------
+from app.boq_parser import parse_boq_from_text as _pbt, price_project_boq as _ppb, unit_family as _uf
+_hdr_boq = ("رقم البند\tالوصف\tالوحدة\tالكمية\n"
+            "1\tالأعمال الترابية\t\t\n"
+            "1.1\tحفر عام للقبو حتى منسوب التأسيس في أي نوع من التربة\tم³\t5200\n"
+            "2\tالخرسانة العادية والمسلحة\t\t\n"
+            "2.3\tخرسانة مسلحة للجدران الاستنادية للقبو بقوة 40\tم³\t410\n"
+            "3.2\tعزل مائي وحراري للسطح شامل طبقة الميول والبلاط\tم²\t850\n")
+_pi = _pbt(_hdr_boq)
+check("عناوين أقسام جدول الكميات (بلا وحدة ولا كمية) لا تُعد بنوداً",
+      [x["name"][:4] for x in _pi] == ["حفر ", "خرسا", "عزل "], str([x["name"][:15] for x in _pi]))
+check("رقم البند كما في جدول العميل محفوظ (1.1، 2.3...)", [x.get("ref") for x in _pi] == ["1.1", "2.3", "3.2"])
+_pp = _ppb(_pi)
+check("بند بالمتر المكعب لا يُسعَّر ببند بالعدد أو بالمقطوعية (لا «نافورة» بـ 90 ألف)",
+      all(float(x["unit_price"]) < 5000 for x in _pp) and all(
+          _uf(x["unit"]) in (None, "m3", "m2") for x in _pp), str([(x["name"][:12], x["unit_price"]) for x in _pp]))
+check("عائلات الوحدات: م³/م3 واحدة، وم² تختلف عن العدد", _uf("م³") == _uf("م3") == "m3"
+      and _uf("م2") == "m2" and _uf("عدد") == _uf("بالعدد") == "nr" and _uf("LS") == "ls")
+from app.proposal_builder import extract_duration_months as _edm, extract_request_ref as _err
+check("مدة التنفيذ تُقرأ من الكراسة (أشهر/أسابيع/أيام)",
+      _edm("مدة التنفيذ المطلوبة 10 أشهر") == 10 and _edm("مدة العقد: 36 أسبوعاً") == 8
+      and _edm("مدة التنفيذ ١٨٠ يوماً") == 6 and _edm("بلا مدة") == 0)
+_tp = _btp("مشروع", "عميل", "private", "رقم الطلب: X-1 بتاريخ 1/1/2027م\nمدة التنفيذ 12 شهراً\n" + _hdr_boq)
+check("الخطة تتوزع على مدة الكراسة ومرجع الطلب يصل للغلاف",
+      abs(_tp["duration_weeks"] - 52) <= 2 and _tp["structure"]["duration_months"] == 12
+      and _tp["structure"]["request_ref"] == "طلب تقديم العروض رقم X-1 بتاريخ 1/1/2027م",
+      f"{_tp['duration_weeks']} {_tp['structure']}")
+
+# ---------- مستوى العروض الاحترافية: ملف الشركة، مكين 100 R1، تحليل الأسعار، PDF، التنظيف ----------
+from app.company_profile import get_profile as _gp, list_media as _lmd, init_profile_tables as _ipt
+_ipt()
+_azp1 = _gp(1)
+check("ملف عزوم التعريفي مزروع (31 مشروعاً سعودياً على الأقل + الرؤية والخدمات)",
+      len(_azp1.get("projects") or []) >= 31 and _azp1.get("vision") and len(_azp1.get("services") or []) >= 8)
+check("صور مشاريع عزوم مزروعة (20+ صورة)", len(_lmd(1)) >= 20)
+check("ملف المستأجر فارغ — لا يرث بيانات عزوم ولا صورها", _gp(_cid5) == {} and _lmd(_cid5) == [])
+from app.database import get_db as _gdb2
+with _gdb2() as _db:
+    _mk = _db.execute("SELECT data FROM proposals WHERE company_id = 1 AND ref_no = 'AZM-MKN100-RUH-2610-R1'").fetchone()
+_mkd = _json.loads(_mk["data"]) if _mk else {}
+check("مكين 100 R1 في الأرشيف بقيمته الفعلية 32,500,000 وبنوده الـ 53",
+      _mk is not None and _mkd["financial"]["subtotal"] == 32500000 and len(_mkd["boq"]) == 53
+      and _mkd.get("master") and _mkd.get("prices_are_sell"))
+with _gdb2() as _db:
+    _azr = _db.execute("SELECT COUNT(*) AS n FROM price_items WHERE company_id = 1 AND code LIKE 'AZR-%'").fetchone()["n"]
+    _gone = _db.execute("SELECT COUNT(*) AS n FROM price_items WHERE company_id = 1 AND code IN ('IT-001','IT-003','HR-010')").fetchone()["n"]
+    _flag = _db.execute("SELECT COUNT(*) AS n FROM price_items WHERE company_id = 1 AND auto_match = 0").fetchone()["n"]
+check("أسعار عزوم الفعلية (تكلفة مباشرة) مضافة لقاعدة الأسعار", _azr >= 40, str(_azr))
+check("التنظيف: بنود البرمجيات محذوفة والبنود الخاصة عالية القيمة لا تُسعِّر آلياً", _gone == 0 and _flag >= 100,
+      f"{_gone} {_flag}")
+from app.database import get_settings as _gs3
+check("التنظيف يُطبَّق مرة واحدة لكل إصدار", _gs3(company_id=1).get("data_cleanup_version") == "2026-10-28")
+with _gdb2() as _db:
+    _mt = _db.execute("SELECT COUNT(*) AS n FROM tech_documents WHERE filename LIKE '%صيانة وتشغيل HVAC%'").fetchone()["n"]
+check("نص الصيانة الممزق (76% حروف مبعثرة) خارج بنك الفقرات", _mt == 0)
+from app.boq_parser import _best_match as _bm2
+check("مقاسات مختلفة لا تتطابق (قطر 100 ≠ قطر 25)",
+      _bm2("توريد وتركيب مواسير حديد مجلفن قطر 100 ملم", [{"name": "مواسير قطر 25 ملم", "unit": "م.ط"}], unit="م.ط")[0] is None)
+from app.rate_analysis import analyze as _ra
+_raft = _ra("لبشة مسلحة 450 كجم/سم² أسمنت مقاوم شاملة طبقتي عزل 4 مم", "م³")
+check("تحليل سعر الوحدة يطابق ورقة عزوم (لبشة 1,012.7 ريال/م³ تكلفة مباشرة)",
+      _raft and abs(_raft["direct"] - 1012.7) < 1 and _ra("حفر عام", "م³") is None)
+_pp2 = _ppb(_pbt("رقم البند\tالوصف\tالوحدة\tالكمية\n1\tخرسانة مسلحة للأعمدة بقوة 35\tم³\t230\n"))
+check("بنود الخرسانة تُسعَّر بتحليل السعر لا بأقرب وصف", _pp2[0]["source"] == "تحليل سعر الوحدة"
+      and 1000 < _pp2[0]["unit_price"] < 2500 and "حديد" in _pp2[0].get("price_note", ""))
+from app.proposal_pdf import build_html as _bh
+_mkp = {"title": "مكين", "client": "شركة تشييد حياة للمقاولات (THC)", "ref_no": "AZM-MKN100-RUH-2610-R1",
+        "created_at": "2026-10-27", "data": _mkd}
+_azs1 = {**_gs3(company_id=1), "_company_id": 1, "_brand_color": "1E6B3C"}
+_ht = _bh(_mkp, _azs1, "technical")
+_hf = _bh(_mkp, _azs1, "financial")
+check("العرض الفني HTML: الملخص التنفيذي والخبرات وفهم المشروع والمنهجية والبرنامج والمخاطر",
+      all(x in _ht for x in ("الملخص التنفيذي", "سجل المشاريع المنفذة", "فهم المشروع ودراسة المستندات",
+                              "منهجية التنفيذ", "S-Curve", "إدارة المخاطر", "شكراً لكم")))
+check("العرض المالي HTML: نموذج التسعير وأساس التسعير والهندسة القيمية والملحق بأقسامه",
+      all(x in _hf for x in ("32,500,000", "37,375,000", "أساس التسعير", "مقترحات الهندسة القيمية",
+                              "قائمة متطلبات تقديم العرض", "القسم 4", "خارج النطاق")))
+check("لا بيانات داخلية (التكلفة مقابل السعر) في ملفات العميل",
+      "36,099,029" not in _hf and "التكلفة المباشرة" not in _hf)
+_pt = c5.get(f"/api/proposals/{_p5['id']}/preview?kind=technical")
+check("معاينة المستأجر: بلا بيانات عزوم ولا صورها", _pt.status_code == 200
+      and "ساحة الدرعية" not in _pt.text and "Built to Deliver" not in _pt.text
+      and "default-src 'none'" in _pt.headers.get("content-security-policy", ""))
+_pf = c5.get(f"/api/proposals/{_p5['id']}/preview?kind=financial")
+check("معاينة العرض المالي للمستأجر تعمل", _pf.status_code == 200 and "نموذج التسعير" in _pf.text)
+check("ملف الشركة: GET للأعضاء وPUT للأدمن", c5.get("/api/company-profile").status_code == 200
+      and c5.put("/api/company-profile", json={"profile": {"about": ["نبذة فحص"]}}).status_code == 200
+      and _gp(_cid5).get("about") == ["نبذة فحص"])
+from PIL import Image as _PImg
+_pb = io.BytesIO(); _PImg.new("RGB", (900, 600), (40, 120, 80)).save(_pb, format="PNG")
+_up = c5.post("/api/company-profile/media", files={"photo": ("site.png", _pb.getvalue(), "image/png")},
+              data={"caption": "موقع فحص", "kind": "site"})
+_bad = c5.post("/api/company-profile/media", files={"photo": ("x.png", b"<svg onload=alert(1)>", "image/png")})
+check("صور الشركة: الصورة الحقيقية تُقبل (JPEG مُعاد ترميزه) والمزيّفة تُرفض", _up.status_code == 200
+      and _up.json()["file"].endswith(".jpg") and _bad.status_code == 415, f"{_up.status_code} {_bad.status_code}")
+try:
+    from app.proposal_pdf import _chromium_pdf as _cpdf
+    _pdf_ok = _cpdf("<html><body>x</body></html>")[:4] == b"%PDF"
+except Exception:
+    _pdf_ok = None
+if _pdf_ok is not None:
+    _rp = c.get("/api/proposals/" + str(c.get("/api/proposals").json()[0]["id"]) + "/export/pdf?kind=financial")
+    check("تصدير PDF (Chromium): ملف صالح", _rp.status_code == 200 and _rp.content[:4] == b"%PDF", str(_rp.status_code))
+else:
+    print("ℹ️ لا متصفح Chromium في هذه البيئة — فحص PDF الفعلي متخطّى (المعاينة HTML فُحصت)")
 
 # ---------- عمليات الخادم: مصادر الفرص العاملة، النسخ الاحتياطي، تدوير المفتاح، طبيب الخادم ----------
 import importlib.util as _ilu

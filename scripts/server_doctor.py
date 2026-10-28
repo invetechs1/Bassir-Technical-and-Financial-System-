@@ -176,6 +176,22 @@ def check_forsah():
             ".venv/bin/python -m playwright install --with-deps chromium")
 
 
+def check_pdf_engine():
+    """العرضان الفني والمالي PDF يُطبعان بـ Chromium — بدونه تعمل المعاينة وWord فقط."""
+    try:
+        from app.proposal_pdf import _chromium_pdf
+        ok = _chromium_pdf("<html><body>ok</body></html>")[:4] == b"%PDF"
+    except Exception as exc:
+        ok, err = False, str(exc)[:80]
+    else:
+        err = ""
+    if ok:
+        add("PDF", OK, "محرك PDF (Chromium) جاهز — العرضان الفني والمالي بالتصميم الاحترافي")
+    else:
+        add("PDF", WARN, f"محرك PDF غير مثبت — تصدير PDF معطّل ({err})",
+            ".venv/bin/python -m playwright install --with-deps chromium")
+
+
 def check_disk():
     free_gb = shutil.disk_usage(DATA_DIR).free / 1024 ** 3
     if free_gb < 2:
@@ -192,7 +208,7 @@ def main() -> int:
     for fn in (lambda: check_code(args.offline), check_admin_password,
                lambda: check_backup(args.max_backup_age, args.backup_dir),
                check_secrets_in_repo, lambda: check_ai(args.offline),
-               check_lead_sources, check_forsah, check_disk):
+               check_lead_sources, check_forsah, check_pdf_engine, check_disk):
         try:
             fn()
         except Exception as exc:
