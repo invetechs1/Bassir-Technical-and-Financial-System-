@@ -50,6 +50,8 @@ def startup():
     agents.init_agent_tables()
     from .leads import init_leads_tables
     init_leads_tables()
+    from .company_profile import init_profile_tables
+    init_profile_tables()
     _convert_legacy_logos()
     _cleanup_stale_exports()
     if os.environ.get("AZOOM_DISABLE_BACKGROUND") != "1":
@@ -1415,6 +1417,93 @@ def export_docx(pid: int):
     return _download(content,
                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                      f"{proposal['ref_no']}.docx")
+
+
+@app.get("/api/proposals/{pid}/export/pdf")
+def export_pdf(pid: int, kind: str = "technical"):
+    """العرض الفني أو المالي PDF بتصميم العروض الاحترافية (Chromium)."""
+    if kind not in ("technical", "financial"):
+        raise HTTPException(400, "kind: technical أو financial")
+    proposal = db.get_proposal(pid)
+    if not proposal:
+        raise HTTPException(404, "العرض غير موجود")
+    from .proposal_pdf import render_pdf
+    try:
+        content = render_pdf(proposal, _branded_settings(), kind)
+    except Exception as exc:  # المتصفح غير مثبت على الخادم
+        raise HTTPException(503, "تعذّر إنشاء PDF — ثبّت المتصفح على الخادم: "
+                                 "playwright install --with-deps chromium" + f" ({str(exc)[:120]})")
+    label = "Technical" if kind == "technical" else "Financial"
+    return _download(content, "application/pdf", f"{proposal['ref_no']}-{label}.pdf")
+
+
+@app.get("/api/proposals/{pid}/preview")
+def preview_proposal(pid: int, kind: str = "technical"):
+    """معاينة HTML للعرض في المتصفح (نفس تصميم PDF) — تعمل حتى بلا متصفح على الخادم."""
+    if kind not in ("technical", "financial"):
+        raise HTTPException(400, "kind: technical أو financial")
+    proposal = db.get_proposal(pid)
+    if not proposal:
+        raise HTTPException(404, "العرض غير موجود")
+    from .proposal_pdf import build_html
+    return Response(build_html(proposal, _branded_settings(), kind), media_type="text/html; charset=utf-8",
+                    headers={"Cache-Control": "no-store",
+                             "Content-Security-Policy": "default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'"})
+
+
+# ---------------------------- ملف الشركة التعريفي ----------------------------
+
+@app.get("/api/company-profile")
+def get_company_profile(request: Request):
+    from .company_profile import get_profile, list_media
+    return {"profile": get_profile(request.state.company_id),
+            "media": list_media(request.state.company_id, with_data=False)}
+
+
+@app.put("/api/company-profile")
+def put_company_profile(request: Request, body: dict):
+    _require_admin(request)
+    from .company_profile import save_profile
+    try:
+        save_profile(request.state.company_id, body.get("profile") if "profile" in body else body)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    db.log_audit("company_profile", request.state.company_id, "update", "ملف الشركة التعريفي")
+    return {"ok": True}
+
+
+@app.post("/api/company-profile/media")
+def upload_company_media(request: Request, photo: UploadFile = File(...), caption: str = Form(""),
+                         kind: str = Form("project"), project_id: str = Form("")):
+    _require_admin(request)
+    from .company_profile import add_media
+    raw = photo.file.read(8 * 1024 * 1024 + 1)
+    if len(raw) > 8 * 1024 * 1024:
+        raise HTTPException(413, "الصورة أكبر من 8 ميجابايت")
+    try:
+        pid = int(project_id) if project_id.strip() else None
+        return add_media(request.state.company_id, photo.filename or "photo", raw, caption, kind, pid)
+    except ValueError as exc:
+        raise HTTPException(415, str(exc))
+
+
+@app.get("/api/company-profile/media/{media_id}")
+def get_company_media(request: Request, media_id: int):
+    from .company_profile import list_media, media_dir
+    m = next((x for x in list_media(request.state.company_id, with_data=False) if x["id"] == media_id), None)
+    if not m:
+        raise HTTPException(404, "الصورة غير موجودة")
+    return Response((media_dir(request.state.company_id) / m["file"]).read_bytes(), media_type="image/jpeg",
+                    headers={"Cache-Control": "private, max-age=3600"})
+
+
+@app.delete("/api/company-profile/media/{media_id}")
+def remove_company_media(request: Request, media_id: int):
+    _require_admin(request)
+    from .company_profile import delete_media
+    if not delete_media(request.state.company_id, media_id):
+        raise HTTPException(404, "الصورة غير موجودة")
+    return {"ok": True}
 
 
 @app.get("/api/proposals/{pid}/export/xlsx")

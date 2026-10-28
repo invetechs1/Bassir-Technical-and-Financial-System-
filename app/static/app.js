@@ -567,6 +567,42 @@ async function changeStatus() {
 }
 
 function exportDocx() { window.location = `/api/proposals/${currentProposal.id}/export/docx`; }
+function exportPdf(kind) {
+  toast(t("msg_pdf_building"));
+  window.location = `/api/proposals/${currentProposal.id}/export/pdf?kind=${kind}`;
+}
+function previewProposal() { window.open(`/api/proposals/${currentProposal.id}/preview?kind=technical`, "_blank"); }
+
+/* ---------- ملف الشركة التعريفي ---------- */
+async function loadCompanyProfile() {
+  if (!$("#cpJson")) return;
+  try {
+    const r = await api("/api/company-profile");
+    $("#cpJson").value = JSON.stringify(r.profile || {}, null, 2);
+    $("#cpMedia").innerHTML = (r.media || []).map((m) =>
+      `<figure style="margin:0;width:150px"><img src="/api/company-profile/media/${m.id}" style="width:150px;height:96px;object-fit:cover;border-radius:6px">
+        <figcaption class="muted" style="font-size:11px">${escH(m.caption || m.file)} · ${escH(m.kind)}
+        <button class="btn ghost sm" onclick="deleteCompanyPhoto(${m.id})">✕</button></figcaption></figure>`).join("");
+  } catch (err) { /* غير الأدمن لا يرى المحرر */ }
+}
+async function saveCompanyProfile() {
+  let profile;
+  try { profile = JSON.parse($("#cpJson").value || "{}"); } catch (e) { return toast(t("msg_cp_bad_json"), true); }
+  try { await api("/api/company-profile", { method: "PUT", json: { profile } }); toast(t("msg_settings_saved")); }
+  catch (err) { toast(err.message, true); }
+}
+async function uploadCompanyPhoto() {
+  const f = $("#cpPhoto").files[0];
+  if (!f) return;
+  const fd = new FormData();
+  fd.append("photo", f); fd.append("caption", $("#cpCaption").value || ""); fd.append("kind", $("#cpKind").value);
+  try { await api("/api/company-profile/media", { method: "POST", body: fd }); $("#cpPhoto").value = ""; loadCompanyProfile(); }
+  catch (err) { toast(err.message, true); }
+}
+async function deleteCompanyPhoto(id) {
+  try { await api(`/api/company-profile/media/${id}`, { method: "DELETE" }); loadCompanyProfile(); }
+  catch (err) { toast(err.message, true); }
+}
 function exportXlsx() { window.location = `/api/proposals/${currentProposal.id}/export/xlsx`; }
 
 /* ---------- قاعدة الأسعار ---------- */
@@ -1525,6 +1561,7 @@ async function loadAnalytics() {
 const SECRET_KEYS = ["forsah_password", "smtp_pass", "whatsapp_token"];
 
 async function loadSettings() {
+  loadCompanyProfile();
   const s = await api("/api/settings");
   $$("[data-key]").forEach((el) => {
     const key = el.dataset.key;

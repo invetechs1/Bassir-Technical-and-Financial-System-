@@ -186,7 +186,10 @@
             <option value="lost" data-i18n="st_lost">غير فائز</option>
           </select>
           <button class="btn ghost" onclick="runQualityAgent()" data-i18n="qa_btn">🛡️ وكيل الجودة والمراجعة</button>
-          <button class="btn" onclick="exportDocx()" data-i18n="export_word_btn">⬇️ تصدير Word</button>
+          <button class="btn" onclick="exportPdf('technical')" data-i18n="export_pdf_tech_btn">📘 العرض الفني PDF</button>
+          <button class="btn" onclick="exportPdf('financial')" data-i18n="export_pdf_fin_btn">📗 العرض المالي PDF</button>
+          <button class="btn ghost" onclick="previewProposal()" data-i18n="preview_btn">👁️ معاينة</button>
+          <button class="btn ghost" onclick="exportDocx()" data-i18n="export_word_btn">⬇️ تصدير Word</button>
           <button class="btn ghost" onclick="exportXlsx()" data-i18n="export_excel_btn">⬇️ جدول الكميات Excel</button>
         </div>
       </div>
@@ -589,6 +592,19 @@
         <label class="mt" data-i18n="reservations_label">التحفظات القياسية — سطر لكل تحفظ: العنوان: النص</label>
         <textarea data-key="proposal_reservations" rows="4"></textarea>
         <div class="mt"><button class="btn" onclick="saveSettings()" data-i18n="save_settings_btn">حفظ الإعدادات</button></div>
+      </div>
+      <div class="panel" id="companyProfilePanel">
+        <h3 data-i18n="cp_title">ملف الشركة التعريفي وصور المشاريع</h3>
+        <p class="muted" data-i18n="cp_hint">مصدر صفحات «عن الشركة» و«الخبرات» في العرض الفني: النبذة، الرؤية والرسالة، القيم، الإنجازات، الخدمات، سجل المشاريع بتفاصيلها، العملاء والمعدات (JSON). الصور تظهر في الغلاف وبطاقات المشاريع.</p>
+        <textarea id="cpJson" rows="12" style="font-family:monospace;direction:ltr;text-align:left"></textarea>
+        <div class="mt"><button class="btn" onclick="saveCompanyProfile()" data-i18n="cp_save">حفظ ملف الشركة</button></div>
+        <div class="grid-3 mt">
+          <div><label data-i18n="cp_photo">صورة</label><input type="file" id="cpPhoto" accept="image/png,image/jpeg,image/webp"></div>
+          <div><label data-i18n="cp_caption">وصف الصورة</label><input type="text" id="cpCaption"></div>
+          <div><label data-i18n="cp_kind">نوعها</label><select id="cpKind"><option value="project">مشروع</option><option value="site">موقع</option><option value="team">فريق</option><option value="equipment">معدات</option><option value="hero">غلاف</option><option value="logos">شعارات العملاء</option></select></div>
+        </div>
+        <div class="mt"><button class="btn ghost" onclick="uploadCompanyPhoto()" data-i18n="cp_upload">رفع الصورة</button></div>
+        <div id="cpMedia" class="mt" style="display:flex;flex-wrap:wrap;gap:8px"></div>
       </div>
       <div class="panel">
         <h3 data-i18n="pricing_model_title">نموذج التسعير</h3>

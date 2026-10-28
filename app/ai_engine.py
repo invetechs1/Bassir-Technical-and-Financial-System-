@@ -64,6 +64,39 @@ STRUCTURE_SCHEMA = _obj({
     "reservations": {"type": "array", "description": "تحفظات تجارية وفنية محددة بعنوان قصير",
                      "items": _obj({"lead": _S, "text": _S})},
     "attachments": _STRS,
+    # --- مستوى العروض الاحترافية (نموذج مكين 100 R1)
+    "location": {"type": "string", "description": "المدينة والحي ورقم المخطط والقطع إن وُجدت"},
+    "owner": {"type": "string", "description": "المالك / المطوّر إن ذُكر"},
+    "attention": {"type": "string", "description": "عناية: الإدارة المعنية إن ذُكرت"},
+    "contract_type": _S,
+    "letter_paragraphs": {**_STRS, "description": "فقرات خطاب التقديم: ما دُرس من وثائق، ما يشمله العرض، الهندسة القيمية، الختام — بلا تحية ولا توقيع"},
+    "letter_kpis": {"type": "array", "items": _obj({"value": _S, "label": _S, "en": _S})},
+    "exec_summary": {"type": "string", "description": "ملخص تنفيذي بأرقام المشروع الفعلية في 3-4 أسطر"},
+    "kpis": {"type": "array", "description": "4 مؤشرات كمية للمشروع (كميات رئيسية، المدة...)", "items": _obj({"value": _S, "label": _S, "en": _S})},
+    "why_us": {"type": "array", "description": "6 أسباب محددة لاختيار الشركة لهذا المشروع بالذات من خبراتها الفعلية", "items": _obj({"title": _S, "text": _S})},
+    "pillars": {"type": "array", "description": "3 محاور للحل الفني المقترح", "items": _obj({"tag": _S, "title": _S, "text": _S})},
+    "documents_studied": {"type": "string", "description": "ما درسه الفريق: الطلب، اللوحات وعددها وإصدارها، التقارير..."},
+    "project_facts": {"type": "array", "description": "4 حقائق رقمية للمشروع (مساحة، أدوار، سماكات، مناسيب...)", "items": _obj({"value": _S, "label": _S, "en": _S})},
+    "parties_rows": {"type": "array", "description": "جدول فهم المشروع: الأطراف، المكونات، المسطحات، الأساسات، الرتب، التسليح، البلاطات...", "items": _obj({"label": _S, "value": _S})},
+    "tech_notes": {"type": "array", "description": "ملاحظات فنية مؤثرة على التنفيذ والتسعير (المياه الجوفية، ضيق الموقع...)", "items": _obj({"title": _S, "text": _S})},
+    "scope_rows": {"type": "array", "description": "جدول النطاق: بند ← ما يشمله العرض بالمواصفات", "items": _obj({"item": _S, "text": _S})},
+    "method_phases": {"type": "array", "description": "6 مراحل تنفيذ مختصرة بعنوان عربي وإنجليزي", "items": _obj({"title": _S, "en": _S})},
+    "milestones": {"type": "array", "items": _obj({"label": _S, "value": _S})},
+    "s_curve": {"type": "array", "description": "نسبة الإنجاز التراكمية نهاية كل شهر (آخرها 100)", "items": _N},
+    "org_chart": _obj({"lead": _obj({"title": _S, "sub": _S}),
+                       "rows": {"type": "array", "items": {"type": "array", "items": _obj({"title": _S, "sub": _S})}},
+                       "base": _obj({"title": _S, "sub": _S})}),
+    "staff_note": _S,
+    "risks": {"type": "array", "description": "سجل مخاطر المشروع: الخطر، الأثر (مرتفع/متوسط/منخفض)، إجراء المعالجة", "items": _obj({"risk": _S, "impact": _S, "mitigation": _S})},
+    "lump_note": {"type": "string", "description": "سطر تحت قيمة العرض، مثل: ثابت ونهائي غير خاضع لإعادة القياس"},
+    "cost_basis_intro": _S,
+    "cost_kpis": {"type": "array", "description": "مؤشرات أساس التسعير (خرسانة م³، حديد طن، شدات م²، معدل الحديد...) إن أمكن حسابها", "items": _obj({"value": _S, "label": _S, "en": _S})},
+    "cost_basis_rows": {"type": "array", "description": "أساس تسعير كل مكوّن (الحديد، الخرسانة، الشدات، العزل، التجهيزات العامة...)", "items": _obj({"component": _S, "basis": _S})},
+    "cost_basis_note": _S,
+    "acceptance": {"type": "string", "description": "فقرة القبول بشروط الطلب"},
+    "declaration": _S,
+    "checklist": {"type": "array", "description": "متطلبات تقديم العرض الواردة في الطلب وموضع كل منها في العرض", "items": _obj({"req": _S, "where": _S, "status": _S})},
+    "boq_note": _S,
 })
 
 PROPOSAL_SCHEMA = {
@@ -146,6 +179,14 @@ PROPOSAL_SCHEMA = {
     "additionalProperties": False,
 }
 
+_V2_KEYS = ("location", "owner", "attention", "contract_type", "letter_paragraphs", "letter_kpis", "exec_summary",
+            "kpis", "why_us", "pillars", "documents_studied", "project_facts", "parties_rows", "tech_notes",
+            "scope_rows", "method_phases", "milestones", "s_curve", "org_chart", "staff_note", "risks", "lump_note",
+            "cost_basis_intro", "cost_kpis", "cost_basis_rows", "cost_basis_note", "acceptance", "declaration",
+            "checklist", "boq_note")
+_BASIC_STRUCTURE = _obj({k: v for k, v in STRUCTURE_SCHEMA["properties"].items() if k not in _V2_KEYS})
+PROPOSAL_SCHEMA_BASIC = {**PROPOSAL_SCHEMA, "properties": {**PROPOSAL_SCHEMA["properties"], "structure": _BASIC_STRUCTURE}}
+
 # اسم الشركة يُحقن لكل مستأجر — لا هوية ثابتة في التعليمات (كانت «عزوم» لكل الشركات)
 SYSTEM_PROMPT_TEMPLATE = """أنت خبير إعداد العروض الفنية والمالية في السوق السعودي لدى {company}، متمكن من نظام المنافسات
 والمشتريات الحكومية السعودي ومتطلبات منصة اعتماد، وتكتب بعربية فصيحة مهنية تليق بالجهات الحكومية.
@@ -176,8 +217,27 @@ SYSTEM_PROMPT_TEMPLATE = """أنت خبير إعداد العروض الفنية
    ما لا تعرفه من الوثائق اتركه فارغاً — لا تخترع أرقاماً."""
 
 
+def _exemplar() -> str:
+    """العرض المرجعي المعتمد (مكين 100 R1) مثالاً على المستوى المطلوب في حقل structure —
+    الصياغة والتفصيل والأرقام، لا المحتوى (لكل مشروع وثائقه)."""
+    try:
+        from pathlib import Path
+        f = Path(__file__).resolve().parent / "seed_data" / "master_proposals" / "makeen100_r1.json"
+        st = json.loads(f.read_text(encoding="utf-8"))["data"]["structure"]
+        return json.dumps(st, ensure_ascii=False)
+    except Exception:
+        return ""
+
+
 def build_system_prompt(company_name: str) -> str:
-    return SYSTEM_PROMPT_TEMPLATE.format(company=(company_name or "").strip() or "الشركة")
+    base = SYSTEM_PROMPT_TEMPLATE.format(company=(company_name or "").strip() or "الشركة")
+    # العرض المرجعي ملك عزوم — لا يُرسل في تعليمات أي مستأجر آخر (عزل البيانات)
+    from .tenancy import cid
+    ex = _exemplar() if cid() == 1 else ""
+    if ex:
+        base += ("\n\n## مثال على المستوى المطلوب في حقل structure — عرض معتمد فعلي (برج مكين 100، هيكل إنشائي)\n"
+                 "قلّد مستوى التحديد والأرقام والصياغة المختصرة فقط؛ لا تنسخ محتواه — كل مشروع من وثائقه هو:\n" + ex)
+    return base
 
 
 def ai_available() -> bool:
@@ -262,16 +322,26 @@ def generate_proposal_ai(title: str, client_name: str, entity_type: str, files_t
 أنتج العرض الكامل الآن وفق المخطط المطلوب، مستفيداً من أسعار العروض السابقة
 المشابهة كلما طابق بندٌ منها بنداً في نطاق المشروع الجديد."""
 
-    with client.messages.stream(
-        model=_active_model(),
-        max_tokens=64000,
-        thinking={"type": "adaptive"},
-        system=[{"type": "text", "text": build_system_prompt(settings.get("company_name")),
-                 "cache_control": {"type": "ephemeral"}}],
-        output_config={"format": {"type": "json_schema", "schema": PROPOSAL_SCHEMA}},
-        messages=[{"role": "user", "content": user_content}],
-    ) as stream:
-        message = stream.get_final_message()
+    def _call(schema):
+        with client.messages.stream(
+            model=_active_model(),
+            max_tokens=64000,
+            thinking={"type": "adaptive"},
+            system=[{"type": "text", "text": build_system_prompt(settings.get("company_name")),
+                     "cache_control": {"type": "ephemeral"}}],
+            output_config={"format": {"type": "json_schema", "schema": schema}},
+            messages=[{"role": "user", "content": user_content}],
+        ) as stream:
+            return stream.get_final_message()
+
+    try:
+        message = _call(PROPOSAL_SCHEMA)
+    except anthropic.BadRequestError as exc:
+        # مخطط العروض الاحترافية كبير؛ إن رفضته المنصة لحجمه نعود للمخطط الأساسي
+        # (هيكل الأقسام التسعة) بدل فشل التوليد — والصفحات الغنية تُشتق من البيانات
+        if "schema" not in str(exc).lower():
+            raise
+        message = _call(PROPOSAL_SCHEMA_BASIC)
 
     if message.stop_reason == "refusal":
         raise RuntimeError("تعذر توليد العرض — تم رفض الطلب من مرشحات الأمان. جرّب تعديل صياغة الوثائق.")

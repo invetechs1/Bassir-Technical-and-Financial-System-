@@ -255,6 +255,37 @@ git fetch origin main && git show origin/main:scripts/server_update.sh | bash
 > ⚠️ Do **not** use a plain `git pull` for the update that untracks `data/secret.key`:
 > git deletes files that stop being tracked. `server_update.sh` protects them.
 
+## Professional PDF proposals (technical + financial)
+
+Each proposal exports as two PDFs modelled on AZOOM's approved Makeen 100 R1 submission
+(dark cover, executive summary with KPIs, company profile and project cards with photos,
+project understanding, scope, method, Gantt + S-curve, organisation chart, QHSE & risk
+register — then pricing form, cost basis, value engineering, qualifications, submission
+checklist and the priced BoQ by division):
+
+- `GET /api/proposals/{id}/export/pdf?kind=technical|financial` — printed by headless Chromium
+  (fonts are bundled in `app/static/fonts`, IBM Plex Sans Arabic + Montserrat, SIL OFL).
+- `GET /api/proposals/{id}/preview?kind=…` — the same design as HTML (works without Chromium).
+
+Chromium is required on the server for the PDF button (the Docker image already has it):
+
+```bash
+.venv/bin/python -m playwright install --with-deps chromium
+```
+
+The company profile (about, vision, values, achievements, services, 46 projects, clients,
+equipment) and 24 project photos are seeded for AZOOM from `app/seed_data/azoom_profile.json`
+and `app/seed_data/azoom_media/` into `data/media/1/`; edit them under Settings → Company Profile.
+
+## One-off data cleanup (runs automatically on the next start)
+
+`app/data_cleanup.py` (version `2026-10-28`) deletes 121 non-priceable catalog rows
+(fragments, mojibake, duplicates, software items), fixes 152 (units/categories/names), marks
+129 project-specific or high-value rows `auto_match = 0` (kept, never auto-priced), and
+removes the garbled maintenance style source from the paragraph bank. It touches only seeded
+codes of company 1 and runs once (`data_cleanup_version` setting). Take a backup first —
+`server_update.sh` does this automatically.
+
 ## Server doctor — what is still left on the action list
 
 ```bash
@@ -295,7 +326,7 @@ the login was done on another machine. Fetching the public tenders list
 docker exec azoom-proposals python scripts/system_check.py
 ```
 
-Runs 348 checks: auth and brute-force limits, settings/secret handling, roles and
+Runs 390 checks: auth and brute-force limits, settings/secret handling, roles and
 tenant isolation, plan gates and lifecycle, proposal generation (template and Claude
 paths), Word/Excel exports (incl. 24 concurrent exports for two tenants), the agents
 flow, invoicing, notification channels, model updater, the first-run password, the

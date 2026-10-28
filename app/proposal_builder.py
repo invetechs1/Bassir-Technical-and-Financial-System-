@@ -115,6 +115,7 @@ def match_price_catalog(boq: list[dict]) -> list[dict]:
     """مطابقة بنود جدول الكميات مع قاعدة الأسعار (بالكود ثم بتشابه الاسم)."""
     catalog = list_price_items()
     by_code = {item["code"]: item for item in catalog}
+    catalog = [c for c in catalog if c.get("auto_match", 1) != 0]
     for line in boq:
         matched = by_code.get(line.get("code", ""))
         if not matched:
@@ -137,8 +138,6 @@ def match_price_catalog(boq: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 _KEYWORD_MAP = [
-    (["نظام", "برمج", "تطبيق", "بوابة", "إلكترون", "رقمن", "منصة"],
-     ["IT-001", "IT-003", "IT-004", "IT-006", "IT-007", "HR-010", "HR-011", "HR-012", "HR-001"]),
     (["إنشاء", "مبنى", "خرسان", "بناء", "تشييد", "مبان"],
      ["GN-001", "CV-001", "CV-002", "CV-003", "CV-004", "CV-005", "CV-006", "CV-007",
       "EM-001", "EM-002", "EM-003", "EM-006", "HR-001", "HR-002", "HR-005", "GN-003", "GN-004", "GN-005"]),

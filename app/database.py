@@ -303,6 +303,8 @@ def init_db():
         _ensure_column(db, "companies", "contact_phone", "TEXT DEFAULT ''")
         # سعر شهري متفاوض عليه لكل شركة (المؤسسي مثلاً) — NULL = سعر الخطة القياسي
         _ensure_column(db, "companies", "custom_price", "REAL")
+        # بنود صحيحة لكنها خاصة بمشروع/عالية القيمة: تبقى للمرجعية ولا تُسعِّر آلياً
+        _ensure_column(db, "price_items", "auto_match", "INTEGER NOT NULL DEFAULT 1")
         for key, value in DEFAULT_SETTINGS.items():
             db.execute(
                 "INSERT OR IGNORE INTO settings (company_id, key, value) VALUES (1, ?, ?)",

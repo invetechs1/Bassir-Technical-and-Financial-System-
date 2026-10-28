@@ -1,0 +1,152 @@
+[
+  {
+    "file": "team-safety-briefing-qassim.jpg",
+    "caption_ar": "فريق عزوم في مشروع إسكان فلل الحرس الوطني — القصيم",
+    "project_id": 6,
+    "kind": "team"
+  },
+  {
+    "file": "najd-heart-toolbox-talk.jpg",
+    "caption_ar": "اجتماع التوعية قبل بدء العمل — قلب نجد",
+    "project_id": 3,
+    "kind": "team"
+  },
+  {
+    "file": "najd-heart-site-supervision.jpg",
+    "caption_ar": "الإشراف في الموقع — قلب نجد",
+    "project_id": 3,
+    "kind": "site"
+  },
+  {
+    "file": "holiday-inn-malaz-facade.jpg",
+    "caption_ar": "واجهة فندق هوليداي إن ليلاً — حي الملز، الرياض",
+    "project_id": 1,
+    "kind": "project"
+  },
+  {
+    "file": "holiday-inn-cafe-lounge.jpg",
+    "caption_ar": "مقهى وصالة الفندق — هوليداي إن الملز",
+    "project_id": 1,
+    "kind": "project"
+  },
+  {
+    "file": "othaim-hotel-arar-facade.jpg",
+    "caption_ar": "واجهة الفندق — فندق ذا أو جراند، العثيم مول عرعر",
+    "project_id": 2,
+    "kind": "project"
+  },
+  {
+    "file": "othaim-hotel-parapet-works.jpg",
+    "caption_ar": "تسليح الجدار الساتر — فندق العثيم مول، عرعر",
+    "project_id": 2,
+    "kind": "site"
+  },
+  {
+    "file": "ritz-carlton-villas-structure.jpg",
+    "caption_ar": "الأعمال الإنشائية — فلل الريتز كارلتون، بوابة الدرعية",
+    "project_id": 4,
+    "kind": "site"
+  },
+  {
+    "file": "al-waseel-farm-site.jpg",
+    "caption_ar": "موقع مزرعة الوصيل — تطوير منطقة الضيافة",
+    "project_id": 5,
+    "kind": "site"
+  },
+  {
+    "file": "mawaddah-rebar-delivery.jpg",
+    "caption_ar": "توريد حديد التسليح للموقع — وقف جمعية المودة، جدة",
+    "project_id": 9,
+    "kind": "site"
+  },
+  {
+    "file": "diriyah-square-basement.jpg",
+    "caption_ar": "خرسانة القبو الكبير — ساحة الدرعية",
+    "project_id": 10,
+    "kind": "site"
+  },
+  {
+    "file": "seven-alkharj-concrete.jpg",
+    "caption_ar": "الأعمال الخرسانية والسقالات — مشروع سفن، الخرج",
+    "project_id": 11,
+    "kind": "site"
+  },
+  {
+    "file": "medical-warehouses-riyadh.jpg",
+    "caption_ar": "مستودعات إدارة الشؤون الطبية — الرياض",
+    "project_id": 12,
+    "kind": "site"
+  },
+  {
+    "file": "airport-waterproofing-team.jpg",
+    "caption_ar": "فريق عزوم — مشروع عزل مطارات حائل وينبع والطائف والباحة",
+    "project_id": 18,
+    "kind": "team"
+  },
+  {
+    "file": "abha-airport-milling.jpg",
+    "caption_ar": "ماكينة الكشط — سفلتة مطار أبها",
+    "project_id": 19,
+    "kind": "equipment"
+  },
+  {
+    "file": "abha-equipment-mobilisation.jpg",
+    "caption_ar": "نقل المعدات إلى الموقع — سفلتة مطار أبها",
+    "project_id": 19,
+    "kind": "equipment"
+  },
+  {
+    "file": "kkia-cargo-duct-banks.jpg",
+    "caption_ar": "الغرف الكهربائية وقنوات الكابلات — توسعة الشحن، مطار الملك خالد",
+    "project_id": 21,
+    "kind": "site"
+  },
+  {
+    "file": "aziziya-asphalt-paving.jpg",
+    "caption_ar": "كشط وسفلتة شوارع حي العزيزية — الرياض",
+    "project_id": 22,
+    "kind": "site"
+  },
+  {
+    "file": "national-guard-road-resurfacing.jpg",
+    "caption_ar": "كشط وسفلتة طرق الحرس الوطني",
+    "project_id": 23,
+    "kind": "site"
+  },
+  {
+    "file": "roads-asphalt-hero.jpg",
+    "caption_ar": "أعمال الطرق والأسفلت",
+    "project_id": null,
+    "kind": "hero"
+  },
+  {
+    "file": "equipment-loader.jpg",
+    "caption_ar": "معداتنا — أسطول المعدات الثقيلة",
+    "project_id": null,
+    "kind": "equipment"
+  },
+  {
+    "file": "heritage-byblos-consolidation.jpg",
+    "caption_ar": "جبيل (بيبلوس) – موقع تراث عالمي: صون الهياكل الأثرية",
+    "project_id": 37,
+    "kind": "project"
+  },
+  {
+    "file": "heritage-palmyra-museum.jpg",
+    "caption_ar": "متحف الفنون الشعبية – تدمر، سوريا",
+    "project_id": 46,
+    "kind": "project"
+  },
+  {
+    "file": "heritage-palmyra-columns.jpg",
+    "caption_ar": "ترميم وصون التراث",
+    "project_id": null,
+    "kind": "hero"
+  },
+  {
+    "file": "clients-logos.jpg",
+    "caption_ar": "عملاؤنا وشركاؤنا",
+    "project_id": null,
+    "kind": "logos"
+  }
+]

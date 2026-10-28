@@ -225,7 +225,7 @@ def _tokens(text: str) -> set[str]:
     text = re.sub(r"[\u064b-\u065f\u0670]", "", _norm(text)).lower()
     text = text.translate(str.maketrans("أإآى", "اااي"))
     tokens = set()
-    for token in re.split(r"[\s،,/|()×xX*-]+", text):
+    for token in re.split(r"[\s،؛;,/|()×xX*-]+", text):
         if token.startswith("وال"):
             token = token[1:]
         if token.startswith("ال") and len(token) > 4:
@@ -233,9 +233,14 @@ def _tokens(text: str) -> set[str]:
         # Conservative aliases; avoid stripping roots or technical specifications.
         token = {"للمواقع": "موقع", "للموقع": "موقع", "مواقع": "موقع",
                  "ونظافة": "نظافة", "وتركيب": "تركيب", "وتوريد": "توريد"}.get(token, token)
-        if len(token) > 2:
+        # الأرقام تبقى (قطر 25 ≠ قطر 100): كانت تُسقط فتتطابق المقاسات المختلفة
+        if len(token) > 2 or (token.isdigit() and len(token) >= 2):
             tokens.add(token)
     return tokens
+
+
+def _numbers(tokens: set[str]) -> set[str]:
+    return {t for t in tokens if t.replace(".", "").isdigit()}
 
 
 def _best_match(name: str, candidates: list, key=lambda c: c.get("name", ""), unit: str = ""):
@@ -253,7 +258,13 @@ def _best_match(name: str, candidates: list, key=lambda c: c.get("name", ""), un
             cfam = unit_family(cand.get("unit", ""))
             if cfam and cfam != fam:
                 continue
+        if cand.get("auto_match", 1) == 0 or cand.get("exclude_from_pricing"):
+            continue
         cand_tokens = _tokens(key(cand))
+        # مقاسات مختلفة (25 مم مقابل 100 مم، 500 ك.ف.أ مقابل 1000) = بندان مختلفان
+        tn, cn = _numbers(target), _numbers(cand_tokens)
+        if tn and cn and not (tn & cn):
+            continue
         overlap = len(target & cand_tokens)
         if overlap < 2:
             continue
@@ -281,12 +292,31 @@ def price_project_boq(items: list[dict], similar_refs: list[dict] | None = None)
     from .database import list_price_items
     catalog = list_price_items()
     past_lines = []
+    try:
+        from .database import get_settings as _gs
+        _s = _gs()
+        sell_factor = (1 + (float(_s.get("overhead_pct", 12)) + float(_s.get("risk_pct", 3))) / 100) * (
+            1 + float(_s.get("profit_pct", 15)) / 100)
+    except Exception:
+        sell_factor = 1.3
     for ref in similar_refs or []:
         ref_no = ref.get("ref_no", "")
-        for l in ref.get("data", {}).get("boq", []):
-            if float(l.get("unit_price") or 0) > 0:
-                past_lines.append({"name": l.get("name", ""), "unit_price": l["unit_price"],
-                                   "unit": l.get("unit", ""), "ref_no": ref_no})
+        rdata = ref.get("data", {})
+        for l in rdata.get("boq", []):
+            price = float(l.get("unit_price") or 0)
+            # مقطوعيات بمئات الآلاف (مطار كامل) لا تسعّر بنداً آخر آلياً، والبنود
+            # المستبعدة من التسعير (شظايا الأرشيف) تُتجاهل
+            if price <= 0 or price >= 250_000 or l.get("exclude_from_pricing") or l.get("excluded"):
+                continue
+            if rdata.get("prices_are_sell"):       # أسعار بيع (عرض معتمد) ← تكلفة مباشرة
+                price = round(price / sell_factor, 2)
+            past_lines.append({"name": l.get("name", ""), "unit_price": price,
+                               "unit": l.get("unit", ""), "ref_no": ref_no})
+    try:
+        from .database import get_settings
+        rate_settings = get_settings()
+    except Exception:
+        rate_settings = {}
     out = []
     for it in items:
         line = {"code": "", "name": it["name"], "unit": it.get("unit") or "وحدة",
@@ -296,8 +326,19 @@ def price_project_boq(items: list[dict], similar_refs: list[dict] | None = None)
         if it.get("ref"):
             line["ref"] = it["ref"]       # رقم البند كما في جدول العميل (1.1، 2.3...)
         unit = line["unit"]
-        cat, _ = _best_match(it["name"], catalog, unit=unit)
-        if cat:
+        # الأعمال الخرسانية تُسعَّر بتحليل سعر الوحدة (خرسانة + حديد + شدات + صب)
+        # كما يفعل مهندس التسعير — لا بأقرب وصف في القاعدة
+        ra = None
+        try:
+            from .rate_analysis import analyze
+            ra = analyze(it["name"], unit, rate_settings)
+        except Exception:
+            ra = None
+        cat, _ = (None, 0.0) if ra else _best_match(it["name"], catalog, unit=unit)
+        if ra:
+            line.update(unit_price=float(ra["direct"]), source="تحليل سعر الوحدة",
+                        price_note=ra["note"])
+        elif cat:
             line.update(code=cat["code"], unit_price=float(cat["unit_price"]),
                         source="قاعدة الأسعار")
         else:
