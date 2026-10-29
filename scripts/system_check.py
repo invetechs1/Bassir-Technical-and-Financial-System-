@@ -1894,10 +1894,15 @@ check("طبيب الخادم: يكشف كلمة المرور الافتراضي�
       ("3", "CRITICAL") in _levels and ("4", "CRITICAL") in _levels, str(_levels))
 check("طبيب الخادم: يكشف مصدر رصد قديم معطوب مفعّل",
       ("7", "WARN") in _levels, str(_levels))
-_git_tracked = _sp.run(["git", "ls-files", "data/secret.key", "data/branding"],
-                       cwd=_P(__file__).resolve().parent.parent, capture_output=True, text=True)
-check("الأسرار خارج git: secret.key وشعارات المستأجرين غير مُتتبَّعة",
-      _git_tracked.returncode != 0 or not _git_tracked.stdout.strip(), _git_tracked.stdout[:120])
+try:
+    # فحص مستودع لا بيئة تشغيل — حاويات الإنتاج لا تحوي git عمداً (ولا .git أصلاً
+    # في صورة Docker)، فغيابه هنا لا يعني تسرّب أسرار بل أن الفحص غير قابل للتطبيق
+    _git_tracked = _sp.run(["git", "ls-files", "data/secret.key", "data/branding"],
+                           cwd=_P(__file__).resolve().parent.parent, capture_output=True, text=True)
+    check("الأسرار خارج git: secret.key وشعارات المستأجرين غير مُتتبَّعة",
+          _git_tracked.returncode != 0 or not _git_tracked.stdout.strip(), _git_tracked.stdout[:120])
+except FileNotFoundError:
+    print("ℹ️ git غير متوفر في هذه البيئة — فحص تتبّع الأسرار في المستودع متخطّى")
 
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)
