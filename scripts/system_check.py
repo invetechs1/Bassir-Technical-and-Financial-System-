@@ -1756,6 +1756,40 @@ check("التنظيف: بنود البرمجيات محذوفة والبنود �
       f"{_gone} {_flag}")
 from app.database import get_settings as _gs3
 check("التنظيف يُطبَّق مرة واحدة لكل إصدار", _gs3(company_id=1).get("data_cleanup_version") == "2026-10-28")
+# تصحيحات العروض المرجعية: تُطبَّق على قاعدة قائمة ببيانات قديمة (نُحاكيها بإفساد عرض ثم إعادة المزامنة)
+from app.data_cleanup import sync_reference_fixes as _srf
+from app.database import update_settings as _us3
+
+
+def _ref_by(title_part):
+    with _gdb2() as _db:
+        _r = _db.execute("SELECT id, data FROM proposals WHERE company_id = 1 AND title LIKE ?",
+                         (f"%{title_part}%",)).fetchone()
+    return _r["id"], _json.loads(_r["data"])
+
+
+_c2id, _c2 = _ref_by("المجموعة الثانية")
+for _l in _c2["boq"]:
+    _l.pop("exclude_from_pricing", None)
+with _gdb2() as _db:
+    _db.execute("UPDATE proposals SET data = ? WHERE id = ?", (_json.dumps(_c2, ensure_ascii=False), _c2id))
+_us3({"reference_fix_version": ""}, company_id=1)
+check("تصحيحات المراجع تُطبَّق على القواعد القائمة مرة واحدة", _srf() >= 5 and _srf() == 0)
+_c2id, _c2 = _ref_by("المجموعة الثانية")
+check("مقطوعيات مطارات المجموعة الثانية خارج التسعير الآلي (13 من 18 مطاراً في المصدر)",
+      _c2["boq"] and all(_l.get("exclude_from_pricing") for _l in _c2["boq"]) and "13 مطاراً" in _c2["financial"]["note"])
+_, _emb = _ref_by("سفارة")
+_embx = [_l for _l in _emb["boq"] if _l.get("exclude_from_pricing")]
+check("شظايا سفارة مصر (رموز أبواب، أقطار، «كالبند السابق») خارج التسعير والنباتات بوصف كامل",
+      len(_embx) >= 100 and all(len(_l["name"]) < 25 or _l["name"].startswith(("كالبند", "قطر")) for _l in _embx)
+      and any(_l["name"].startswith("توريد وزراعة النخيل") for _l in _emb["boq"]))
+_, _hl = _ref_by("مطار حائل")
+_, _rac = _ref_by("(RAC)")
+_, _nj = _ref_by("قلب نجد")
+check("حائل: فواصل التمدد م.ط لا مقطوعية بكمية 144 — وRAC بترقيم القاعدة 001–016",
+      not any(_l["unit"] == "مقطوعية" and float(_l["qty"]) > 1 for _l in _hl["boq"])
+      and [_l["code"] for _l in _rac["boq"] if _l["code"]] == [f"RAC-{_i:03d}" for _i in range(1, 17)])
+check("نطاق قلب نجد بتسميات عربية نظيفة", _nj["scope"] and not any(" / " in _s or "القسم" in _s for _s in _nj["scope"]))
 with _gdb2() as _db:
     _mt = _db.execute("SELECT COUNT(*) AS n FROM tech_documents WHERE filename LIKE '%صيانة وتشغيل HVAC%'").fetchone()["n"]
 check("نص الصيانة الممزق (76% حروف مبعثرة) خارج بنك الفقرات", _mt == 0)

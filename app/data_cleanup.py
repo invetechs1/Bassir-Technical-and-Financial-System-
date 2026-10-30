@@ -11,11 +11,13 @@
 لا يُمس أي بند أضافته الشركة بنفسها (الحذف والتعديل بالكود فقط وللشركة 1).
 """
 import csv
+import json
 from pathlib import Path
 
 from .database import get_db, get_settings, now_iso, update_settings
 
 CLEANUP_VERSION = "2026-10-28"
+REFERENCE_FIX_VERSION = "2026-10-30"
 SEED = Path(__file__).resolve().parent / "seed_data"
 _STYLE_DOCS = ("العرض الفني النموذجي — إنشاءات وتشطيبات 2024", "العرض الفني النموذجي — عزوم 2024",
                "العرض الفني النموذجي — صيانة وتشغيل HVAC")
@@ -88,6 +90,38 @@ def run_cleanup() -> dict:
             stats["style_docs"] += 1
     update_settings({"data_cleanup_version": CLEANUP_VERSION}, company_id=1)
     return stats
+
+
+def sync_reference_fixes() -> int:
+    """تصحيحات العروض المرجعية (2026-10-30) للقواعد القائمة — مرة واحدة لكل إصدار.
+
+    مقطوعيات مطارات المجموعة الثانية خارج التسعير الآلي (13 من 18 مطاراً فقط في المصدر)،
+    شظايا سفارة مصر (رموز أبواب/نوافذ، أقطار، «كالبند السابق») خارج التسعير، أسماء النباتات
+    بوصفها الكامل، وحدة فواصل التمدد في حائل م.ط، ترقيم RAC تسلسلي، وتسميات نطاق قلب نجد
+    بالعربية. يُحدَّث جدول البنود والنطاق والملاحظة المالية فقط ولعروض الشركة 1 المرجعية.
+    """
+    if get_settings(company_id=1).get("reference_fix_version") == REFERENCE_FIX_VERSION:
+        return 0
+    f = SEED / "reference_proposals.json"
+    refs = {r["title"]: r for r in json.loads(f.read_text(encoding="utf-8"))} if f.exists() else {}
+    n = 0
+    with get_db() as db:
+        for row in db.execute("SELECT id, title, data FROM proposals WHERE company_id = 1").fetchall():
+            ref = refs.get(row["title"])
+            if not ref:
+                continue
+            data = json.loads(row["data"] or "{}")
+            if not data.get("reference"):
+                continue
+            data["boq"] = ref.get("boq", [])
+            data["scope"] = ref.get("scope", [])
+            if ref.get("financial_actual"):
+                data["financial"] = ref["financial_actual"]
+            db.execute("UPDATE proposals SET data = ?, updated_at = ? WHERE id = ?",
+                       (json.dumps(data, ensure_ascii=False), now_iso(), row["id"]))
+            n += 1
+    update_settings({"reference_fix_version": REFERENCE_FIX_VERSION}, company_id=1)
+    return n
 
 
 def _has(db, table: str) -> bool:

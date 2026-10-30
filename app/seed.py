@@ -323,6 +323,8 @@ def seed_if_empty():
     run_cleanup()                  # قبل زرع مصادر الأسلوب: يحذف القديم ليُزرع المنظف
     _seed_style_source()
     load_reference_proposals()
+    from .data_cleanup import sync_reference_fixes
+    sync_reference_fixes()         # تصحيح العروض المرجعية في القواعد القائمة
     _sync_reference_sectors()
     load_master_proposals()        # الإقلاع يعمل في سياق الشركة 1 (عزوم)
     load_azoom_actual_rates()
