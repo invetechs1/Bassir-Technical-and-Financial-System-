@@ -326,7 +326,7 @@ the login was done on another machine. Fetching the public tenders list
 docker exec azoom-proposals python scripts/system_check.py
 ```
 
-Runs 390 checks: auth and brute-force limits, settings/secret handling, roles and
+Runs 395 checks: auth and brute-force limits, settings/secret handling, roles and
 tenant isolation, plan gates and lifecycle, proposal generation (template and Claude
 paths), Word/Excel exports (incl. 24 concurrent exports for two tenants), the agents
 flow, invoicing, notification channels, model updater, the first-run password, the
