@@ -726,7 +726,7 @@ async function fetchEtimad() {
   $("#etSpinner").classList.add("on");
   try {
     const r = await api("/api/etimad/fetch?pages=3", { method: "POST" });
-    if (r.ok) toast(`${t("msg_fetch_ok")} ${r.scanned} ${t("msg_fetch_ok_mid")} ${r.added} ${t("msg_fetch_ok_end")}`);
+    if (r.ok) toast(r.message && getLang() === "ar" ? `✅ ${r.message}` : `${t("msg_fetch_ok")} ${r.scanned} ${t("msg_fetch_ok_mid")} ${r.added} ${t("msg_fetch_ok_end")}`);
     else toast(r.error, true);
     loadEtimad();
   } catch (err) {

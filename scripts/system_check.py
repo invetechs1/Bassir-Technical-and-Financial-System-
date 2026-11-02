@@ -1938,6 +1938,62 @@ try:
 except FileNotFoundError:
     print("ℹ️ git غير متوفر في هذه البيئة — فحص تتبّع الأسرار في المستودع متخطّى")
 
+# ---------- اعتماد: جلب أحدث المنافسات المفتوحة (محاكاة واجهة الزوار الحقيقية) ----------
+# الواجهة بلا فلاتر تعيد كل المنافسات (~288 ألفاً) والأقدم أولاً — كان الجلب يقرأ أول 150
+# نفسها كل مرة فيُرجع «0 جديدة». المحاكاة: 288,000 منافسة تصاعدية، الأحدث في الصفحات الأخيرة
+import datetime as _dt3
+import app.etimad as _et
+from app import tenancy as _ten
+from app.database import get_db as _gdb4
+_TOTAL = 288_000
+_today = _dt3.date.today()
+
+
+def _fake_get(url, timeout=30):
+    _q = dict(urllib.parse.parse_qsl(url.split("?", 1)[1]))
+    _ps, _pn = int(_q["PageSize"]), int(_q["PageNumber"])
+    _rows3 = []
+    for _i in range((_pn - 1) * _ps, min(_pn * _ps, _TOTAL)):
+        _age = (_TOTAL - _i) // 500                       # الأقدم أولاً: الأيام منذ النشر
+        _pub = _today - _dt3.timedelta(days=_age)
+        _rows3.append({"tenderIdString": f"T{_i}", "tenderName": f"إنشاء مبنى إداري وأعمال خرسانية {_i}",
+                       "agencyName": "وزارة الفحص", "submitionDate": _pub.isoformat() + "T08:00:00",
+                       "lastOfferPresentationDate": (_pub + _dt3.timedelta(days=20)).isoformat() + "T12:00:00"})
+    return {"data": _rows3, "totalCount": _TOTAL}
+
+
+import urllib.parse
+_orig_get = _et._http_get
+_et._http_get = _fake_get
+try:
+    _r1 = _et.fetch_tenders(pages=2)
+    _r2 = _et.fetch_tenders(pages=2)
+    check("اعتماد: يكتشف أن الأحدث في آخر الصفحات ويجلب منافسات مفتوحة جديدة",
+          _r1["ok"] and _r1["order"] == "newest_last" and _r1["added"] >= 50, str(_r1)[:200])
+    check("اعتماد: المنتهية مواعيدها لا تُضاف، والتكرار يُحصى «موجودة مسبقاً» مع رسالة تشرح النتيجة",
+          _r2["added"] == 0 and _r2["existing"] == _r1["added"] and "موجودة مسبقاً" in _r2["message"], str(_r2)[:200])
+    with _gdb4() as _db:
+        _old = _db.execute("SELECT COUNT(*) AS n FROM etimad_tenders WHERE company_id = 1 AND deadline < ?",
+                           (_today.isoformat(),)).fetchone()["n"]
+    check("اعتماد: لا منافسة منتهية في القائمة", _old == 0, str(_old))
+    # شركة أخرى تجلب نفس المنافسات — كانت تُتجاهل بصمت لأن رقم المنافسة فريد على مستوى النظام
+    _tok = _ten._company_id.set(_cid5)
+    try:
+        _r3 = _et.fetch_tenders(pages=2)
+    finally:
+        _ten._company_id.reset(_tok)
+    check("اعتماد: كل شركة تجلب نفس المنافسات لقائمتها (التفرد لكل شركة)", _r3["added"] == _r1["added"], str(_r3)[:150])
+    # الترتيب الأحدث أولاً: يقرأ من البداية
+    _et._http_get = lambda url, timeout=30: {"data": list(reversed(_fake_get(url.replace(
+        "PageNumber=1", f"PageNumber={_TOTAL // 50}"))["data"])), "totalCount": _TOTAL}
+    _r4 = _et.fetch_tenders(pages=1)
+    check("اعتماد: ترتيب الأحدث أولاً يُقرأ من البداية", _r4["ok"] and _r4["order"] == "newest_first", str(_r4)[:150])
+    _et._http_get = lambda url, timeout=30: {"Data": None}
+    _r5 = _et.fetch_tenders(pages=1)
+    check("اعتماد: استجابة بلا منافسات تُشرح للمستخدم لا «0 جديدة» صامتة", not _r5["ok"] and "شكل الاستجابة" in _r5["error"])
+finally:
+    _et._http_get = _orig_get
+
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)
 failed = [(n, d) for n, ok, d in RESULTS if not ok]
