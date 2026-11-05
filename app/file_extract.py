@@ -11,6 +11,7 @@ from io import BytesIO
 from pathlib import Path
 
 MAX_CHARS_PER_FILE = 60_000
+MAX_XLSX_CHARS = 400_000
 OCR_MARKER = "[استخراج ضوئي OCR]"
 
 
@@ -34,8 +35,10 @@ def extract_text(filename: str, content: bytes) -> str:
     except Exception as exc:  # ملف تالف أو محمي — نُبلغ بدل أن نفشل
         return f"[تعذر استخراج النص من {filename}: {exc}]"
     text = text.strip()
-    if len(text) > MAX_CHARS_PER_FILE:
-        text = text[:MAX_CHARS_PER_FILE] + "\n...[تم اقتطاع بقية الملف]"
+    # جداول الكميات في Excel تُقرأ كاملة (2000 بند ≈ 250 ألف حرف) — الاقتطاع يُسقط بنوداً
+    limit = MAX_XLSX_CHARS if ext in (".xlsx", ".xlsm", ".csv") else MAX_CHARS_PER_FILE
+    if len(text) > limit:
+        text = text[:limit] + "\n...[تم اقتطاع بقية الملف]"
     return text
 
 
@@ -101,7 +104,9 @@ def _extract_xlsx(content: bytes) -> str:
     for ws in wb.worksheets:
         parts.append(f"## ورقة: {ws.title}")
         for row in ws.iter_rows(values_only=True):
-            cells = [str(c) if c is not None else "" for c in row]
+            # سطر جديد داخل الخلية (وصف ممتد) يبقى في صفه — كان يقسم البند على سطرين
+            # فينفصل «Diameter 20mm | mtr | 64» عن وصفه
+            cells = [re.sub(r"\s*[\r\n]+\s*", " ", str(c)).strip() if c is not None else "" for c in row]
             if any(cells):
                 parts.append(" | ".join(cells))
     return "\n".join(parts)

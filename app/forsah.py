@@ -242,6 +242,29 @@ def _clean_text(html_fragment: str) -> str:
     return re.sub(r"\s+", " ", _TAG_STRIP.sub(" ", html_fragment)).strip()
 
 
+_HEAD_RE = re.compile(r"<(h[1-6]|[a-z]+\b[^>]*class=[\"'][^\"']*title[^\"']*[\"'])[^>]*>(.*?)</", re.S | re.I)
+_STATUS_LEAD = re.compile(r"^(?:(?:متاحة|متاح|مغلقة|مغلق|جديدة|جديد|منتهية|قريباً|مفتوحة)\s+)+(?:\d+\s+)?")
+_SIZE_TAIL = re.compile(r"\s+(?:صغيرة|متوسطة|كبيرة|كبيرة جداً|ضخمة)\s*(?:\d+\s*(?:يوم|يو|أيام|ايام|ي)?\.?)?\s*$")
+_CITY_TAIL = re.compile(r"\s+(?:الرياض|جدة|مكة المكرمة|المدينة المنورة|الدمام|الخبر|الظهران|تبوك|أبها|"
+                        r"الطائف|حائل|القصيم|بريدة|جازان|نجران|الجوف|عرعر|ينبع|الأحساء|الجبيل|سدير)\s*$")
+
+
+def _card_title(inner: str) -> str:
+    """عنوان بطاقة الفرصة — البطاقة كلها رابط واحد فكان نصها الكامل يصير العنوان:
+    «متاحة 201 المجمع الصناعي مقاولات عامة … الرياض كبيرة 10 يو». نأخذ عنوان البطاقة
+    (h1-h6 أو عنصر class=*title*) إن وُجد، وإلا نحذف الحالة والحجم والمدة والمدينة."""
+    for _tag, text in _HEAD_RE.findall(inner or ""):
+        t = _clean_text(text)
+        if len(t) >= 6:
+            return t
+    t = _clean_text(inner)
+    t = _STATUS_LEAD.sub("", t)
+    for _ in range(2):
+        t = _SIZE_TAIL.sub("", t)
+        t = _CITY_TAIL.sub("", t)
+    return t.strip(" -—،,")
+
+
 def _category_links(html: str, base_url: str) -> dict:
     """روابط التصنيفات الستة كما يكتبها الموقع نفسه."""
     found = {}
@@ -264,7 +287,7 @@ def _extract_projects(html: str, base_url: str) -> list[dict]:
     for href, inner in _A_RE.findall(html):
         if not _PROJECT_HREF.search(href):
             continue
-        title = _clean_text(inner)
+        title = _card_title(inner)
         if len(title) < 10 or title in ("عرض التفاصيل", "التفاصيل", "المزيد"):
             # الرابط زر وليس عنواناً — نحاول العنوان من السياق المحيط
             idx = html.find(href)

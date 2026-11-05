@@ -390,7 +390,20 @@ function renderFin(d) {
   const boq = d.boq || [];
   const f = d.financial || {};
   const cur = t("currency");
-  $("#tab-fin").innerHTML = `
+  // بوابة الجودة: بند بلا سعر = العرض مسودة لا تُقدَّم (كان يخرج «عرض بـ 742 ريالاً»)
+  const unpriced = boq.filter((l) => !l.excluded && !(+l.unit_price) && !String(l.quantity_issue || "").startsWith("سعر وحدة فقط"));
+  const refShare = (() => {
+    const tot = boq.reduce((a, l) => a + (+l.qty || 0) * (+l.unit_price || 0), 0);
+    const ref = boq.filter((l) => String(l.source || "").startsWith("سعر مرجعي")).reduce((a, l) => a + (+l.qty || 0) * (+l.unit_price || 0), 0);
+    return tot ? Math.round(ref / tot * 100) : 0;
+  })();
+  const gate = unpriced.length
+    ? `<div class="panel" style="border:2px solid var(--danger,#c0392b);background:rgba(192,57,43,.06)">
+        <h3>⛔ ${t("draft_gate_title")}: ${unpriced.length} ${t("draft_gate_of")} ${boq.length}</h3>
+        <p class="muted">${t("draft_gate_hint")}</p>
+        <p class="muted">${unpriced.slice(0, 8).map((l) => "• " + escH(((l.ref || "") + " " + l.name).slice(0, 80))).join("<br>")}${unpriced.length > 8 ? "<br>…" : ""}</p></div>`
+    : refShare >= 30 ? `<div class="panel" style="border:1px solid var(--warn,#c98a00)"><p>⚠️ ${refShare}% ${t("ref_share_hint")}</p></div>` : "";
+  $("#tab-fin").innerHTML = gate + `
     <div class="panel">
       <h3>${t("boq_title")} <span class="muted">${t("boq_hint")}</span></h3>
       <div class="t-wrap"><table>
