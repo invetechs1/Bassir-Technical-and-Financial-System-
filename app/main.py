@@ -1316,6 +1316,8 @@ def _build_proposal_data(title: str, client: str, entity_type: str, files_text: 
         {"id": m["id"], "ref_no": m["ref_no"], "title": m["title"], "score": m["score"]}
         for m in matches
     ]
+    from .boq_parser import pricing_quality
+    data["pricing_quality"] = pricing_quality(data.get("boq") or [])
     return data, matches
 
 

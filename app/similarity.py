@@ -43,7 +43,7 @@ def _fingerprint(proposal: dict) -> tuple[set[str], set[str]]:
 
 
 def find_similar(query_text: str, top_n: int = 3, exclude_id: int | None = None,
-                 sector: str = "") -> list[dict]:
+                 sector: str = "", proposals: list[dict] | None = None) -> list[dict]:
     """أفضل العروض المؤرشفة المطابقة لنص المشروع الجديد، بدرجة 0-100.
 
     عند تحديد قطاع المشروع (حكومي/خاص/صندوق الاستثمارات/مطارات) تُقدَّم عروض
@@ -52,7 +52,7 @@ def find_similar(query_text: str, top_n: int = 3, exclude_id: int | None = None,
     if not q:
         return []
     results = []
-    for p in list_proposals_full():
+    for p in (proposals if proposals is not None else list_proposals_full()):
         if exclude_id and p["id"] == exclude_id:
             continue
         high, detail = _fingerprint(p)

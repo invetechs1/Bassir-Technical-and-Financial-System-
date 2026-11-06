@@ -19,13 +19,20 @@ from pathlib import Path
 MODEL_FILE = Path(__file__).resolve().parent / "seed_data" / "rate_model.json"
 
 # القواعد والسملات والميد: ليست في ورقة مكين؛ قيم هندسية متحفظة لنفس المعادلة
-_FOOTING = {"key": "footing", "ar": "قواعد وسملات", "keywords": ["قواعد", "سملات", "ميد", "footing", "foundation", "pile cap"],
+_FOOTING = {"key": "footing", "ar": "قواعد وسملات", "keywords": ["قواعد", "سملات", "footing", "foundation", "pile cap"],
             "grade": "C40", "steel_kg_m3": 100, "steel_fixing_t": 560, "formwork_m2_m3": 1.6, "formwork_rate_m2": 55.0,
             "placing_m3": 55, "extras_m3": 0, "extras_note": "قيم هندسية مرجعية — راجعها بحسب المخططات"}
 # ترتيب الفحص: الأخص أولاً («بلاطات لاحقة الشد» قبل «بلاطات»، «جدران الخزانات» قبل «جدران»)
 _ORDER = ["lightweight_fill", "blinding", "raft", "retaining_wall", "tank_wall", "pt_slab", "stair", "ramp",
           "footing", "beam", "column", "rc_slab", "wall"]
 _CONCRETE_HINT = re.compile(r"خرسان|concrete|\bRC\b|مسلح|لبشة|C\d{2}|كجم\s*/\s*سم|نيوتن|N/mm", re.I)
+# كلمات إنجليزية إضافية لكل عنصر (جداول الكميات الإنجليزية) — تُطابق بحدود الكلمة
+_EN_KEYWORDS = {
+    "blinding": ["plain concrete", "lean concrete", "خرسانة عادية"],
+    "beam": ["grade beam", "tie beam", "ميد", "ground beam"],
+    "tank_wall": ["inspection chamber", "manhole", "septic"],
+    "rc_slab": ["slab on grade", "parapet"],
+}
 
 
 @lru_cache(maxsize=1)
@@ -34,8 +41,11 @@ def load_model() -> dict:
         model = json.loads(MODEL_FILE.read_text(encoding="utf-8"))
     except Exception:
         return {}
-    types = {e["key"]: e for e in model.get("element_types", [])}
+    types = {e["key"]: dict(e) for e in model.get("element_types", [])}
     types.setdefault("footing", _FOOTING)
+    for key, extra in _EN_KEYWORDS.items():
+        if key in types:
+            types[key]["keywords"] = list(types[key].get("keywords", [])) + extra
     model["_types"] = types
     return model
 
@@ -44,6 +54,12 @@ def _grade(text: str, default: str) -> str:
     """الرتبة من الوصف: «بقوة 450 كجم/سم²» ← C45، «C35» ← C35، «35 نيوتن» ← C35."""
     t = text.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
     m = re.search(r"\bC\s?(\d{2})\b", t, re.I)
+    if m:
+        return f"C{m.group(1)}"
+    m = re.search(r"\bgrade\s*(\d{2})\s*/\s*\d{2}\b", t, re.I)      # «Grade 30/20» البريطانية
+    if m:
+        return f"C{m.group(1)}"
+    m = re.search(r"(\d{2})\s*(?:mpa|n/mm)", t, re.I)
     if m:
         return f"C{m.group(1)}"
     m = re.search(r"(?:بقوة|قوة|رتبة|إجهاد)\D{0,12}(\d{2,3})", t)
@@ -83,25 +99,36 @@ def element_type(name: str) -> dict | None:
     low = name.lower()
     for key in _ORDER:
         e = types.get(key)
-        if e and any(k.lower() in low for k in e.get("keywords", [])):
+        if e and any(_kw(k, low) for k in e.get("keywords", [])):
             return e
     return None
 
 
-def analyze(name: str, unit: str, settings: dict | None = None) -> dict | None:
-    """تكلفة مباشرة لمتر مكعب من عنصر خرساني مع تفصيلها — None لغير الخرسانة."""
+def _kw(keyword: str, low: str) -> bool:
+    """الكلمات اللاتينية بحدود الكلمة («PT» لا تطابق «septic»)، والعربية بالاحتواء."""
+    k = keyword.lower()
+    if re.search(r"[a-z]", k):
+        return bool(re.search(rf"(?<![a-z]){re.escape(k)}s?(?![a-z])", low))
+    return k in low
+
+
+def analyze(name: str, unit: str, settings: dict | None = None, context: str = "") -> dict | None:
+    """تكلفة مباشرة لمتر مكعب من عنصر خرساني مع تفصيلها — None لغير الخرسانة.
+
+    context: العنوان الأب في جدول العميل («Reinforced Concrete (Grade 30/20)...») —
+    منه تُقرأ الرتبة إن لم تُذكر في سطر البند نفسه."""
     from .boq_parser import unit_family
-    if unit_family(unit) != "m3" or not _CONCRETE_HINT.search(name or ""):
+    if unit_family(unit) != "m3" or not _CONCRETE_HINT.search(f"{name} {context}"):
         return None
     model = load_model()
-    e = element_type(name)
+    e = element_type(name) or (element_type(context) if context else None)
     if not model or not e:
         return None
     s = settings or {}
     if e.get("all_in_m3"):
         direct = float(e["all_in_m3"])
         return {"direct": direct, "element": e["ar"], "grade": "", "note": f"{e['ar']}: سعر شامل {direct:,.0f} ريال/م³"}
-    grade = _grade(name, e.get("grade") or "C40")
+    grade = _grade(name, "") or (_grade(context, "") if context else "") or (e.get("grade") or "C40")
     if (e.get("grade") or "").startswith(grade + "_"):
         grade = e["grade"]              # نفس الرتبة بخلطة خاصة (C50_SRC للجدران الاستنادية والخزانات)
     for vkey, v in (e.get("variants") or {}).items():

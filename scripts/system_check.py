@@ -1356,13 +1356,17 @@ for _qa_label, _qa_text, _qa_qty in [
 
 # صمام أمان مسار الذكاء الاصطناعي: مهما أخرج النموذج تبقى بنود المشروع
 _ai_fake = [{"name": "بند مختلق من مشروع آخر لا علاقة له", "unit": "م3", "qty": 999, "unit_price": 500},
-            {"name": "دهان الواجهة الخارجية بدهان أكريليك خاص", "unit": "م2", "qty": 111, "unit_price": 33}]
+            {"name": "دهان الواجهة الخارجية بدهان أكريليك خاص", "unit": "م2", "qty": 111, "unit_price": 33},
+            {"name": "صيانة شبكة الصرف الصحي للمبنى بالكامل", "unit": "مقطوعية", "qty": 1, "unit_price": 9000}]
 _enf = _epb(_ai_fake, _items)
 check("صمام الذكاء الاصطناعي: البنود المختلقة تُطرح وبنود المشروع تبقى بكمياتها",
       [l["name"] for l in _enf] == _names_in and _enf[2]["qty"] == 2400
       and not any("مختلق" in l["name"] for l in _enf))
+# الدهان الخارجي يُسعَّر من دفتر الأسعار المرجعية فيُرفض تقدير النموذج له (33)، وصيانة
+# الصرف لا سعر لها في أي مصدر فيُقبل تقدير النموذج لها وحدها
 check("تقدير النموذج يُقبل سعراً فقط للبند الذي لم تسعّره القاعدة",
-      _enf[2]["unit_price"] == 33 and "ذكاء اصطناعي" in _enf[2]["source"]
+      _enf[4]["unit_price"] == 9000 and "ذكاء اصطناعي" in _enf[4]["source"]
+      and _enf[2]["unit_price"] != 33 and _enf[2]["source"].startswith("سعر مرجعي")
       and _enf[1]["source"] == "قاعدة الأسعار" and _enf[0]["unit_price"] != 500
       # «إزالة البلاط» لم يعد يُسعَّر بسعر توريد البلاط (مطابقة كانت خاطئة) — يبقى للمراجعة
       and (_enf[0]["unit_price"] == 0 or _enf[0]["source"] == "قاعدة الأسعار"),
@@ -1756,6 +1760,40 @@ check("التنظيف: بنود البرمجيات محذوفة والبنود �
       f"{_gone} {_flag}")
 from app.database import get_settings as _gs3
 check("التنظيف يُطبَّق مرة واحدة لكل إصدار", _gs3(company_id=1).get("data_cleanup_version") == "2026-10-28")
+# تصحيحات العروض المرجعية: تُطبَّق على قاعدة قائمة ببيانات قديمة (نُحاكيها بإفساد عرض ثم إعادة المزامنة)
+from app.data_cleanup import sync_reference_fixes as _srf
+from app.database import update_settings as _us3
+
+
+def _ref_by(title_part):
+    with _gdb2() as _db:
+        _r = _db.execute("SELECT id, data FROM proposals WHERE company_id = 1 AND title LIKE ?",
+                         (f"%{title_part}%",)).fetchone()
+    return _r["id"], _json.loads(_r["data"])
+
+
+_c2id, _c2 = _ref_by("المجموعة الثانية")
+for _l in _c2["boq"]:
+    _l.pop("exclude_from_pricing", None)
+with _gdb2() as _db:
+    _db.execute("UPDATE proposals SET data = ? WHERE id = ?", (_json.dumps(_c2, ensure_ascii=False), _c2id))
+_us3({"reference_fix_version": ""}, company_id=1)
+check("تصحيحات المراجع تُطبَّق على القواعد القائمة مرة واحدة", _srf() >= 5 and _srf() == 0)
+_c2id, _c2 = _ref_by("المجموعة الثانية")
+check("مقطوعيات مطارات المجموعة الثانية خارج التسعير الآلي (13 من 18 مطاراً في المصدر)",
+      _c2["boq"] and all(_l.get("exclude_from_pricing") for _l in _c2["boq"]) and "13 مطاراً" in _c2["financial"]["note"])
+_, _emb = _ref_by("سفارة")
+_embx = [_l for _l in _emb["boq"] if _l.get("exclude_from_pricing")]
+check("شظايا سفارة مصر (رموز أبواب، أقطار، «كالبند السابق») خارج التسعير والنباتات بوصف كامل",
+      len(_embx) >= 100 and all(len(_l["name"]) < 25 or _l["name"].startswith(("كالبند", "قطر")) for _l in _embx)
+      and any(_l["name"].startswith("توريد وزراعة النخيل") for _l in _emb["boq"]))
+_, _hl = _ref_by("مطار حائل")
+_, _rac = _ref_by("(RAC)")
+_, _nj = _ref_by("قلب نجد")
+check("حائل: فواصل التمدد م.ط لا مقطوعية بكمية 144 — وRAC بترقيم القاعدة 001–016",
+      not any(_l["unit"] == "مقطوعية" and float(_l["qty"]) > 1 for _l in _hl["boq"])
+      and [_l["code"] for _l in _rac["boq"] if _l["code"]] == [f"RAC-{_i:03d}" for _i in range(1, 17)])
+check("نطاق قلب نجد بتسميات عربية نظيفة", _nj["scope"] and not any(" / " in _s or "القسم" in _s for _s in _nj["scope"]))
 with _gdb2() as _db:
     _mt = _db.execute("SELECT COUNT(*) AS n FROM tech_documents WHERE filename LIKE '%صيانة وتشغيل HVAC%'").fetchone()["n"]
 check("نص الصيانة الممزق (76% حروف مبعثرة) خارج بنك الفقرات", _mt == 0)
@@ -1903,6 +1941,144 @@ try:
           _git_tracked.returncode != 0 or not _git_tracked.stdout.strip(), _git_tracked.stdout[:120])
 except FileNotFoundError:
     print("ℹ️ git غير متوفر في هذه البيئة — فحص تتبّع الأسرار في المستودع متخطّى")
+
+# ---------- اعتماد: جلب أحدث المنافسات المفتوحة (محاكاة واجهة الزوار الحقيقية) ----------
+# الواجهة بلا فلاتر تعيد كل المنافسات (~288 ألفاً) والأقدم أولاً — كان الجلب يقرأ أول 150
+# نفسها كل مرة فيُرجع «0 جديدة». المحاكاة: 288,000 منافسة تصاعدية، الأحدث في الصفحات الأخيرة
+import datetime as _dt3
+import app.etimad as _et
+from app import tenancy as _ten
+from app.database import get_db as _gdb4
+_TOTAL = 288_000
+_today = _dt3.date.today()
+
+
+def _fake_get(url, timeout=30):
+    _q = dict(urllib.parse.parse_qsl(url.split("?", 1)[1]))
+    _ps, _pn = int(_q["PageSize"]), int(_q["PageNumber"])
+    _rows3 = []
+    for _i in range((_pn - 1) * _ps, min(_pn * _ps, _TOTAL)):
+        _age = (_TOTAL - _i) // 500                       # الأقدم أولاً: الأيام منذ النشر
+        _pub = _today - _dt3.timedelta(days=_age)
+        _rows3.append({"tenderIdString": f"T{_i}", "tenderName": f"إنشاء مبنى إداري وأعمال خرسانية {_i}",
+                       "agencyName": "وزارة الفحص", "submitionDate": _pub.isoformat() + "T08:00:00",
+                       "lastOfferPresentationDate": (_pub + _dt3.timedelta(days=20)).isoformat() + "T12:00:00"})
+    return {"data": _rows3, "totalCount": _TOTAL}
+
+
+import urllib.parse
+_orig_get = _et._http_get
+_et._http_get = _fake_get
+try:
+    _r1 = _et.fetch_tenders(pages=2)
+    _r2 = _et.fetch_tenders(pages=2)
+    check("اعتماد: يكتشف أن الأحدث في آخر الصفحات ويجلب منافسات مفتوحة جديدة",
+          _r1["ok"] and _r1["order"] == "newest_last" and _r1["added"] >= 50, str(_r1)[:200])
+    check("اعتماد: المنتهية مواعيدها لا تُضاف، والتكرار يُحصى «موجودة مسبقاً» مع رسالة تشرح النتيجة",
+          _r2["added"] == 0 and _r2["existing"] == _r1["added"] and "موجودة مسبقاً" in _r2["message"], str(_r2)[:200])
+    with _gdb4() as _db:
+        _old = _db.execute("SELECT COUNT(*) AS n FROM etimad_tenders WHERE company_id = 1 AND deadline < ?",
+                           (_today.isoformat(),)).fetchone()["n"]
+    check("اعتماد: لا منافسة منتهية في القائمة", _old == 0, str(_old))
+    # شركة أخرى تجلب نفس المنافسات — كانت تُتجاهل بصمت لأن رقم المنافسة فريد على مستوى النظام
+    _tok = _ten._company_id.set(_cid5)
+    try:
+        _r3 = _et.fetch_tenders(pages=2)
+    finally:
+        _ten._company_id.reset(_tok)
+    check("اعتماد: كل شركة تجلب نفس المنافسات لقائمتها (التفرد لكل شركة)", _r3["added"] == _r1["added"], str(_r3)[:150])
+    # الترتيب الأحدث أولاً: يقرأ من البداية
+    _et._http_get = lambda url, timeout=30: {"data": list(reversed(_fake_get(url.replace(
+        "PageNumber=1", f"PageNumber={_TOTAL // 50}"))["data"])), "totalCount": _TOTAL}
+    _r4 = _et.fetch_tenders(pages=1)
+    check("اعتماد: ترتيب الأحدث أولاً يُقرأ من البداية", _r4["ok"] and _r4["order"] == "newest_first", str(_r4)[:150])
+    _et._http_get = lambda url, timeout=30: {"Data": None}
+    _r5 = _et.fetch_tenders(pages=1)
+    check("اعتماد: استجابة بلا منافسات تُشرح للمستخدم لا «0 جديدة» صامتة", not _r5["ok"] and "شكل الاستجابة" in _r5["error"])
+finally:
+    _et._http_get = _orig_get
+
+# ---------- جدول كميات إنجليزي حقيقي البنية + عزل نصوص المستودع + دفتر الأسعار + بوابة المسودة ----------
+# الحادثة: مشروع من منصة فرصة جدوله إنجليزي («Item No. | Description | Unit | Qty.») فلم
+# تُعرف ترويسته (Qty. بنقطة) فالتُقطت أرقام فهرس عرض قديم من المستودع المعرفي بنوداً،
+# وخرج عرض بـ 742 ريالاً. المحاكاة ببنية ملف العميل (صفوف وصف ممتدة وبنود فرعية a-/b-).
+from app.boq_parser import parse_boq_from_text as _pbt3, price_project_boq as _ppb3, pricing_quality as _pq3
+from app.boq_parser import standard_rate as _sr3
+_en_boq = """===== الملف: BOQ.xlsx =====
+## ورقة: BOQ
+PROJECT : FACTORY |  |  |  |  | 
+Item No. | Description | Unit | Qty. | Unit Rate | Amount
+CIVIL WORK |  |  |  |  | 
+1 | Division 02 : Site Work |  |  |  | 
+1-1-1 | Engineering excavation in all types of soil | m3 | 1200 |  | 
+ | including rock from ground level to required depth |  |  |  | 
+ | disposal to heaps off site. |  |  |  | 
+ | Reinforced Concrete (Grade 30/20) |  |  |  | 
+ | including Formwork and Steel |  |  |  | 
+ | Reinforcement : |  |  |  | 
+2-2-6 | Reinforced concrete for columns. | m3 | 85 |  | 
+5-1-1 | Torch applied bituminous membrane sheets 4mm |  |  |  | 
+ | thick for water proofing, overlap not less than 10 cm |  |  |  | 
+a- | For floor including 50 mm screed layer | m2 | 4230 |  | 
+7.1 | DISTRIBUTION BOARDS |  |  |  | 
+ | Supply, Install, Testing and Commissioning of Main Distribution Boards |  |  |  | 
+7.1.1 | MDP | nos | 1 |  | 
+7.6.3 | CONVENTIONAL FIRE ALARM CONTROL PANEL | nos | 2 |  | 
+8.2.3 | Supply, install test and commission UPVC PN10 class 4 DIAMETER 6" | mtr. | 32 |  | 
+10-2 | UL/FM listed fire pump set with controllers, diesel tank and valves | set | 1 |  | 
+1.6 | Supply and apply thermoplastic paint for parking lines | L.S | Rate Only |  | 
+13-1 | Mobilization, site facilities, temporary utilities | L.S | 1 |  | 
+===== من المستودع المعرفي: عرض قديم.pdf (عرض شركة منافسة) =====
+16 الهيكل التنظيمي فريق العمل 7
+59 مصفوفة المهام والمسؤوليات 22
+يلتزم المقاول بمراجعة جميع المخططات الانشائية والمعمارية 1.01
+"""
+_en = _pbt3(_en_boq)
+_en_by = {i.get("ref"): i for i in _en}
+check("جدول إنجليزي: ترويسة «Item No. | Description | Unit | Qty.» تُعرف ونصوص المستودع لا تصير بنوداً",
+      len(_en) == 9 and not any("الهيكل التنظيمي" in i["name"] or "يلتزم المقاول" in i["name"] for i in _en),
+      str([(i.get("ref"), i["name"][:25]) for i in _en]))
+check("الوصف الممتد على عدة صفوف يُضم لبنده، والبند الفرعي يحمل عنوانه الأب",
+      "disposal to heaps off site." in _en_by["1-1-1"]["name"]
+      and "Torch applied" in _en_by["a-"].get("context", "") and "Distribution Boards" in _en_by["7.1.1"].get("context", "")
+      and "Grade 30/20" in _en_by["2-2-6"].get("context", ""))
+check("«Rate Only» بلا كمية يُعلَّم ولا يُقرأ كمية", _en_by["1.6"]["qty"] == 0
+      and "Rate only" in _en_by["1.6"].get("quantity_issue", ""))
+check("نص كراسة/فهرس بلا ترويسة ولا وحدات لا يُلتقط بنوداً",
+      _pbt3("16 الهيكل التنظيمي فريق العمل 7\n59 مصفوفة المهام والمسؤوليات 22\n"
+            "3 يلتزم المقاول بتقديم جدول زمني تفصيلي 14\n4 يلتزم المقاول بالتأمين على المشروع 9\n") == [])
+_enp = {l.get("ref"): l for l in _ppb3(_en)}
+check("الخرسانة الإنجليزية بتحليل السعر ورتبتها من العنوان الأب (Grade 30/20 ← C30)",
+      _enp["2-2-6"]["source"] == "تحليل سعر الوحدة" and "C30" in _enp["2-2-6"].get("price_note", ""))
+check("دفتر الأسعار المرجعية يسعّر البنود الإنجليزية الشائعة ويعلّمها للمراجعة",
+      all(_enp[k]["unit_price"] > 0 and _enp[k]["source"].startswith("سعر مرجعي") for k in ("1-1-1", "a-", "7.1.1", "8.2.3")),
+      str({k: (_enp[k]["unit_price"], _enp[k]["source"][:12]) for k in _enp}))
+check("لا مطابقات زائفة: لوحة الإنذار ليست «Access Control Panel» والمضخات ليست «باب رول» (controllers)",
+      _enp["7.6.3"]["unit_price"] < 10000 and _enp["10-2"]["unit_price"] > 100000)
+_mob = _enp["13-1"]
+check("التجهيزات العامة والتعبئة = 3% من قيمة بقية البنود",
+      abs(_mob["unit_price"] - 0.03 * sum(l["qty"] * l["unit_price"] for k, l in _enp.items() if k != "13-1")) < 1)
+check("المقاسات تمنع المطابقة: UPVC 6 بوصة لا يأخذ سعر ماسورة 110 مم",
+      _sr3('UPVC PN10 DIAMETER 6"', "mtr")["key"] == "upvc_6" and _enp["8.2.3"].get("code", "") != "EMB-15-19")
+_pq_ok = _pq3(list(_enp.values()))
+_bad = [dict(l, unit_price=0, source="بلا سعر") if l.get("ref") == "7.1.1" else l for l in _enp.values()]
+_pq_bad = _pq3(_bad)
+check("بوابة الجودة: بند بلا سعر ← مسودة غير جاهزة (و«سعر فقط» لا يُعد ناقصاً)",
+      _pq_ok["ready"] and not _pq_bad["ready"] and _pq_bad["unpriced"] == 1 and "MDP" in _pq_bad["unpriced_items"][0])
+_draft_prop = {"title": "فحص المسودة", "client": "عميل", "ref_no": "AZM-T-1", "created_at": "2026-11-05",
+               "data": {"boq": _bad, "financial": {}}}
+_html_bad = _bh(_draft_prop, {**_gs3(company_id=1), "_company_id": 1}, "financial")
+_html_ok = _bh({**_draft_prop, "data": {"boq": list(_enp.values()), "financial": {}}},
+               {**_gs3(company_id=1), "_company_id": 1}, "financial")
+check("المالي يُطبع «مسودة · DRAFT» مع قائمة البنود الناقصة، والكامل بلا علامة",
+      "draftmark" in _html_bad and "بلا سعر" in _html_bad and "MDP" in _html_bad and 'class="draftmark"' not in _html_ok)
+check("أقسام جدول العميل تظهر في الملحق والبند الفرعي يُقرأ مع عنوانه",
+      "Division 02 : Site Work" in _html_ok and "MDP — DISTRIBUTION BOARDS" in _html_ok)
+from app.forsah import _card_title as _ct
+check("عنوان فرصة «فرصة»: لا حالة ولا رقم ولا مدينة ولا حجم/مدة في العنوان",
+      _ct("<div><span>متاحة</span> <span>201</span> <p>المجمع الصناعي</p> <span>الرياض</span> <span>كبيرة</span> <span>10 يو</span></div>")
+      == "المجمع الصناعي"
+      and _ct('<a><span>متاحة</span><h3>إنشاء مصنع حوطة سدير</h3><span>الرياض</span></a>') == "إنشاء مصنع حوطة سدير")
 
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)

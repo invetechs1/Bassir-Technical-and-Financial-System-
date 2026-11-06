@@ -1,0 +1,1312 @@
+{
+ "_doc": "دفتر أسعار مرجعية للسوق السعودي 2026 — تكلفة مباشرة (توريد وتركيب) قبل المصاريف والربح. يُستخدم بعد أسعار الشركة وعروضها السابقة فقط، وكل سعر منه يُعلَّم «سعر مرجعي — راجعه». confidence: b = متوسط سوق معتاد، c = تقدير إجمالي يعتمد على المخططات (مقطوعيات/أنظمة).",
+ "version": "2026-11",
+ "rates": [
+  {
+   "key": "general_requirements",
+   "ar": "التجهيزات العامة والتعبئة (نسبة من قيمة الأعمال)",
+   "unit": "ls",
+   "rate": 0,
+   "pct": 3.0,
+   "all": [
+    "mobili[sz]|general requirement|site facilit|temporary utilit|preliminar|التعبئة|تجهيز الموقع|المتطلبات العامة|التجهيزات العامة"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "fire_pump_set",
+   "ar": "مجموعة مضخات حريق UL/FM (كهربائية + ديزل + جوكي)",
+   "unit": "nr",
+   "rate": 390000,
+   "all": [
+    "fire pump|مضخات حريق|مضخة حريق"
+   ],
+   "none": [],
+   "confidence": "c"
+  },
+  {
+   "key": "excavation_rock",
+   "ar": "حفر في جميع أنواع التربة شامل الصخر",
+   "unit": "m3",
+   "rate": 38,
+   "all": [
+    "excavat|حفر",
+    "rock|صخر"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "excavation",
+   "ar": "حفر في جميع أنواع التربة",
+   "unit": "m3",
+   "rate": 28,
+   "all": [
+    "excavat|حفر"
+   ],
+   "none": [
+    "trench|خندق"
+   ],
+   "confidence": "b"
+  },
+  {
+   "key": "backfill_sand",
+   "ar": "ردم برمل نظيف مدكوك",
+   "unit": "m3",
+   "rate": 48,
+   "all": [
+    "fill|ردم",
+    "sand|رمل"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "backfill",
+   "ar": "ردم بتربة مختارة مدكوكة",
+   "unit": "m3",
+   "rate": 42,
+   "all": [
+    "backfill|filling|ردم"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "anti_termite",
+   "ar": "معالجة ضد النمل الأبيض",
+   "unit": "m2",
+   "rate": 9,
+   "all": [
+    "termit|نمل"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "blinding_m2",
+   "ar": "خرسانة عادية 100مم تحت البلاطة",
+   "unit": "m2",
+   "rate": 36,
+   "all": [
+    "plain concrete|خرسانة عادية|blinding|نظافة"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "sog_200",
+   "ar": "بلاطة أرضية خرسانة مسلحة 200مم ظاهرة",
+   "unit": "m2",
+   "rate": 205,
+   "all": [
+    "slab on grade|بلاطة أرضية|slab-on-grade",
+    "200|20\\s*سم"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "sog_150",
+   "ar": "بلاطة أرضية خرسانة مسلحة 150مم",
+   "unit": "m2",
+   "rate": 165,
+   "all": [
+    "slab on grade|بلاطة أرضية"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "membrane_floor",
+   "ar": "لفائف بيتومين 4مم بالحرارة للأرضيات مع سكريد 50مم",
+   "unit": "m2",
+   "rate": 82,
+   "all": [
+    "membrane|لفائف|ممبرين",
+    "floor|أرضي|screed|سكريد"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "membrane_wall",
+   "ar": "لفائف بيتومين 4مم للجدران مع لوح حماية",
+   "unit": "m2",
+   "rate": 62,
+   "all": [
+    "membrane|لفائف|bituminous.*hardboard|hardboard",
+    "wall|جدار|حوائط"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "membrane",
+   "ar": "لفائف بيتومين 4مم بالحرارة",
+   "unit": "m2",
+   "rate": 58,
+   "all": [
+    "torch|membrane|لفائف"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "bitumen_paint",
+   "ar": "دهان بيتوميني 3 طبقات للأسطح الملامسة للتربة",
+   "unit": "m2",
+   "rate": 18,
+   "all": [
+    "bitum|بيتومين",
+    "paint|coat|emulsion|دهان"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "steel_structure_m2",
+   "ar": "تصميم وتوريد وتركيب هيكل معدني (لكل م² مسطح)",
+   "unit": "m2",
+   "rate": 310,
+   "all": [
+    "structural steel|steel structure|pre.?engineered|peb|هيكل معدني|منشآت معدنية"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "steel_structure_t",
+   "ar": "هيكل معدني مصنع ومركب",
+   "unit": "t",
+   "rate": 8800,
+   "all": [
+    "structural steel|steel structure|هيكل معدني"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "pir_roof",
+   "ar": "ألواح سقف PIR معزولة 80مم",
+   "unit": "m2",
+   "rate": 175,
+   "all": [
+    "pir|sandwich|ساندوتش",
+    "roof|سقف|celling|ceiling"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "pir_wall",
+   "ar": "ألواح جدران PIR معزولة 50مم",
+   "unit": "m2",
+   "rate": 145,
+   "all": [
+    "pir|sandwich|ساندوتش"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "cat_ladder",
+   "ar": "سلم قطة/سلم وصول معدني",
+   "unit": "nr",
+   "rate": 3800,
+   "all": [
+    "cat ladder|access ladder|سلم قطة|سلم معدني"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "handrail",
+   "ar": "درابزين حديد مجلفن مدهون",
+   "unit": "ml",
+   "rate": 260,
+   "all": [
+    "handrail|درابزين"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "curb",
+   "ar": "بردورات خرسانية مسبقة الصب",
+   "unit": "ml",
+   "rate": 48,
+   "all": [
+    "curb|kerb|بردور"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "interlock",
+   "ar": "بلاط انترلوك 60مم مع قاعدة خرسانية",
+   "unit": "m2",
+   "rate": 125,
+   "all": [
+    "interlock|انترلوك|إنترلوك"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "grass",
+   "ar": "زراعة نجيل مع أشجار",
+   "unit": "m2",
+   "rate": 38,
+   "all": [
+    "grass|نجيل|ثيل|عشب"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "asphalt",
+   "ar": "رصف أسفلتي (طبقتان + أساس)",
+   "unit": "m2",
+   "rate": 88,
+   "all": [
+    "asphalt|أسفلت|اسفلت"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "wheel_stopper",
+   "ar": "مصدات عجلات خرسانية",
+   "unit": "nr",
+   "rate": 130,
+   "all": [
+    "wheel stop|مصد"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "thermo_paint",
+   "ar": "دهان خطوط ثيرموبلاستك",
+   "unit": "ml",
+   "rate": 9,
+   "all": [
+    "thermoplastic|ثيرمو"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "fence_modon",
+   "ar": "سور خارجي (مواصفات مدن)",
+   "unit": "ml",
+   "rate": 720,
+   "all": [
+    "fence|سور",
+    "perimeter|modon|مدن|خارجي|property"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "sliding_gate",
+   "ar": "بوابة حديد منزلقة كهربائية",
+   "unit": "nr",
+   "rate": 28000,
+   "all": [
+    "gate|بوابة",
+    "sliding|electric|automatic|منزلق|كهرب"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "block_insulated",
+   "ar": "بلوك معزول 200مم",
+   "unit": "m2",
+   "rate": 82,
+   "all": [
+    "block|chb|بلوك",
+    "insulat|معزول|thermal"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "block_200",
+   "ar": "بلوك 200مم",
+   "unit": "m2",
+   "rate": 70,
+   "all": [
+    "block|chb|بلوك|walls?",
+    "200"
+   ],
+   "none": [
+    "insulat|معزول"
+   ],
+   "confidence": "b"
+  },
+  {
+   "key": "block_100",
+   "ar": "بلوك 100مم",
+   "unit": "m2",
+   "rate": 52,
+   "all": [
+    "block|chb|بلوك|walls?",
+    "100"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "roller_door",
+   "ar": "باب رول أب معزول",
+   "unit": "nr",
+   "rate": 9800,
+   "all": [
+    "\\broller|\\broll.?up|\\bshutter|رول"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "fire_door_double",
+   "ar": "باب حديد مقاوم للحريق مزدوج",
+   "unit": "nr",
+   "rate": 4900,
+   "all": [
+    "door|باب|d0\\d",
+    "fire|حريق|steel|حديد",
+    "2000|1800|1600|double|مزدوج"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "fire_door",
+   "ar": "باب حديد مقاوم للحريق",
+   "unit": "nr",
+   "rate": 2900,
+   "all": [
+    "d0\\d|steel door|fire.?rated.*door|باب حديد|باب حريق|mild steel"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "wood_door",
+   "ar": "باب خشب مصمت (Flush)",
+   "unit": "nr",
+   "rate": 1650,
+   "all": [
+    "dr-?\\d|wood|flush|خشب"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "alu_window",
+   "ar": "نافذة ألمنيوم زجاج مزدوج",
+   "unit": "nr",
+   "rate": 1350,
+   "all": [
+    "w-?\\d|window|نافذة|شباك"
+   ],
+   "none": [
+    "ceiling|celling|strip|سقف|شرائح"
+   ],
+   "confidence": "b"
+  },
+  {
+   "key": "alu_window_m2",
+   "ar": "نوافذ ألمنيوم زجاج مزدوج",
+   "unit": "m2",
+   "rate": 560,
+   "all": [
+    "window|نافذة|شباك|alumin"
+   ],
+   "none": [
+    "ceiling|celling|strip|سقف|شرائح"
+   ],
+   "confidence": "b"
+  },
+  {
+   "key": "porcelain",
+   "ar": "بلاط بورسلين 60×60",
+   "unit": "m2",
+   "rate": 112,
+   "all": [
+    "porcelain|بورسلين"
+   ],
+   "none": [
+    "ceramic|سيراميك|terrazzo|تيرازو"
+   ],
+   "confidence": "b"
+  },
+  {
+   "key": "ceramic_wall",
+   "ar": "سيراميك جدران",
+   "unit": "m2",
+   "rate": 82,
+   "all": [
+    "ceramic|سيراميك",
+    "wall|جدار|حوائط"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "ceramic_floor",
+   "ar": "بلاط سيراميك أرضيات",
+   "unit": "m2",
+   "rate": 78,
+   "all": [
+    "ceramic|سيراميك"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "terrazzo",
+   "ar": "بلاط تيرازو",
+   "unit": "m2",
+   "rate": 98,
+   "all": [
+    "terrazzo|تيرازو"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "epoxy",
+   "ar": "أرضيات إيبوكسي",
+   "unit": "m2",
+   "rate": 48,
+   "all": [
+    "epoxy|إيبوكسي|ايبوكسي"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "granite_tread",
+   "ar": "جرانيت درج (نائمة)",
+   "unit": "ml",
+   "rate": 155,
+   "all": [
+    "granite|جرانيت",
+    "tread|trade|نائمة"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "granite_riser",
+   "ar": "جرانيت درج (قائمة)",
+   "unit": "ml",
+   "rate": 95,
+   "all": [
+    "granite|جرانيت",
+    "riser|قائمة"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "granite_m2",
+   "ar": "جرانيت",
+   "unit": "m2",
+   "rate": 285,
+   "all": [
+    "granite|جرانيت"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "plaster_ext",
+   "ar": "لياسة خارجية",
+   "unit": "m2",
+   "rate": 32,
+   "all": [
+    "plaster|لياسة",
+    "external|خارج"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "plaster_ceiling",
+   "ar": "لياسة أسقف",
+   "unit": "m2",
+   "rate": 30,
+   "all": [
+    "plaster|لياسة",
+    "ceiling|celling|سقف|أسقف"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "plaster",
+   "ar": "لياسة داخلية",
+   "unit": "m2",
+   "rate": 26,
+   "all": [
+    "plaster|لياسة"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "paint_ext",
+   "ar": "دهان خارجي",
+   "unit": "m2",
+   "rate": 32,
+   "all": [
+    "paint|دهان",
+    "external|خارج"
+   ],
+   "none": [
+    "epoxy|thermo|bitum"
+   ],
+   "confidence": "b"
+  },
+  {
+   "key": "paint_ceiling",
+   "ar": "دهان أسقف",
+   "unit": "m2",
+   "rate": 21,
+   "all": [
+    "paint|دهان",
+    "ceiling|celling|سقف"
+   ],
+   "none": [
+    "epoxy|thermo|bitum"
+   ],
+   "confidence": "b"
+  },
+  {
+   "key": "paint",
+   "ar": "دهان داخلي",
+   "unit": "m2",
+   "rate": 23,
+   "all": [
+    "paint|دهان"
+   ],
+   "none": [
+    "epoxy|thermo|bitum|steel|حديد"
+   ],
+   "confidence": "b"
+  },
+  {
+   "key": "alu_strip_ceiling",
+   "ar": "سقف شرائح ألمنيوم",
+   "unit": "m2",
+   "rate": 92,
+   "all": [
+    "alumin|ألمنيوم",
+    "strip|شرائح",
+    "ceiling|سقف"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "armstrong",
+   "ar": "سقف معلق 60×60 (أرمسترونج)",
+   "unit": "m2",
+   "rate": 78,
+   "all": [
+    "armstrong|mineral|tile ceiling|أرمسترونج|بلاطات سقف"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "gypsum_ceiling",
+   "ar": "سقف جبس بورد مقاوم للحريق",
+   "unit": "m2",
+   "rate": 98,
+   "all": [
+    "gypsum|جبس"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "mdp",
+   "ar": "لوحة توزيع رئيسية MDP",
+   "unit": "nr",
+   "rate": 62000,
+   "all": [
+    "\\bmdp\\b|main distribution|لوحة رئيسية"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "gdp",
+   "ar": "لوحة توزيع عامة GDP",
+   "unit": "nr",
+   "rate": 26000,
+   "all": [
+    "\\bgdp\\d*\\b"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "sdb",
+   "ar": "لوحة توزيع فرعية SDB",
+   "unit": "nr",
+   "rate": 7800,
+   "all": [
+    "\\bsdb|\\bsmdb|\\bdb-|sub.?distribution|لوحة فرعية"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "cable_95",
+   "ar": "كابل 4×95+50 مم² XLPE",
+   "unit": "ml",
+   "rate": 345,
+   "all": [
+    "95\\s*mm|95mm|4\\s*x\\s*95"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "cable_70",
+   "ar": "كابل 4×70+35 مم² XLPE",
+   "unit": "ml",
+   "rate": 265,
+   "all": [
+    "70\\s*mm|70mm|4\\s*x\\s*70"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "cable_25",
+   "ar": "كابل 4×25+16 مم² XLPE",
+   "unit": "ml",
+   "rate": 112,
+   "all": [
+    "4\\s*x\\s*25\\s*mm|4\\s*x\\s*25mm|4 x 25"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "cable_4x6",
+   "ar": "كابل 4×6+6 مم²",
+   "unit": "ml",
+   "rate": 36,
+   "all": [
+    "4\\s*x\\s*6"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "cable_3x6",
+   "ar": "كابل 3×6 مم²",
+   "unit": "ml",
+   "rate": 23,
+   "all": [
+    "3\\s*x\\s*6"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "cable_3x4",
+   "ar": "كابل 3×4 مم²",
+   "unit": "ml",
+   "rate": 17,
+   "all": [
+    "3\\s*x\\s*4\\b|3\\s*x\\s*4\\s*\\)"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "cable_3x25",
+   "ar": "كابل 3×2.5 مم² داخل مواسير",
+   "unit": "ml",
+   "rate": 10,
+   "all": [
+    "3\\s*x\\s*2\\.5"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "cat6",
+   "ar": "كابل بيانات CAT6 داخل مواسير",
+   "unit": "ml",
+   "rate": 13,
+   "all": [
+    "cat\\s*6"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "fa_cable",
+   "ar": "كابل إنذار حريق داخل مواسير EMT",
+   "unit": "ml",
+   "rate": 19,
+   "all": [
+    "fire alarm",
+    "cable"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "bare_copper",
+   "ar": "موصل نحاس عاري 35 مم²",
+   "unit": "ml",
+   "rate": 48,
+   "all": [
+    "bare copper|نحاس عاري"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "ind_socket_32",
+   "ar": "مقبس صناعي ثلاثي 32A",
+   "unit": "nr",
+   "rate": 620,
+   "all": [
+    "industrial|صناعي",
+    "32\\s*a"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "ind_socket_16",
+   "ar": "مقبس صناعي ثلاثي 16A",
+   "unit": "nr",
+   "rate": 460,
+   "all": [
+    "industrial|صناعي",
+    "16\\s*a"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "socket_gfci",
+   "ar": "مقبس GFCI",
+   "unit": "nr",
+   "rate": 190,
+   "all": [
+    "socket|مقبس|فيش",
+    "gfci"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "socket_duplex",
+   "ar": "مقبس مزدوج 13A",
+   "unit": "nr",
+   "rate": 150,
+   "all": [
+    "socket|مقبس|فيش",
+    "duplex|dublex|double|مزدوج"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "socket",
+   "ar": "مقبس مفرد 13A",
+   "unit": "nr",
+   "rate": 125,
+   "all": [
+    "socket|مقبس|فيش"
+   ],
+   "none": [
+    "telephone|data|wifi|tv"
+   ],
+   "confidence": "b"
+  },
+  {
+   "key": "exhaust_fan_small",
+   "ar": "مروحة شفط",
+   "unit": "nr",
+   "rate": 480,
+   "all": [
+    "exhaust fan|مروحة شفط|شفاط"
+   ],
+   "none": [
+    "l/s|centrifugal"
+   ],
+   "confidence": "b"
+  },
+  {
+   "key": "exhaust_fan_cent",
+   "ar": "مروحة شفط طاردة مركزية جدارية",
+   "unit": "nr",
+   "rate": 950,
+   "all": [
+    "exhaust|شفط",
+    "l/s|centrifugal"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "disconnect_32",
+   "ar": "مفتاح فصل 32A",
+   "unit": "nr",
+   "rate": 360,
+   "all": [
+    "disconnect|isolat|فصل",
+    "32\\s*a"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "disconnect",
+   "ar": "مفتاح فصل 20A",
+   "unit": "nr",
+   "rate": 260,
+   "all": [
+    "disconnect|isolat|فصل"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "switch_3g",
+   "ar": "مفتاح إنارة 3 جانج",
+   "unit": "nr",
+   "rate": 105,
+   "all": [
+    "switch|مفتاح",
+    "3\\s*gang"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "switch_2g",
+   "ar": "مفتاح إنارة 2 جانج",
+   "unit": "nr",
+   "rate": 85,
+   "all": [
+    "switch|مفتاح",
+    "2\\s*gang"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "switch_1g",
+   "ar": "مفتاح إنارة 1 جانج",
+   "unit": "nr",
+   "rate": 62,
+   "all": [
+    "switch|مفتاح",
+    "1\\s*gang|single|احادي"
+   ],
+   "none": [
+    "disconnect|isolat|float"
+   ],
+   "confidence": "b"
+  },
+  {
+   "key": "light_fixture",
+   "ar": "وحدة إنارة LED (حسب النوع)",
+   "unit": "nr",
+   "rate": 320,
+   "all": [
+    "light(ing)? fixture|luminaire|وحدة إنارة|كشاف"
+   ],
+   "none": [],
+   "confidence": "c"
+  },
+  {
+   "key": "tel_data",
+   "ar": "مخرج هاتف/بيانات IP",
+   "unit": "nr",
+   "rate": 260,
+   "all": [
+    "telephone|data|بيانات|هاتف",
+    "socket|outlet|مخرج"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "wifi",
+   "ar": "مخرج نقطة WiFi",
+   "unit": "nr",
+   "rate": 260,
+   "all": [
+    "wifi|wi-fi"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "camera",
+   "ar": "كاميرا مراقبة",
+   "unit": "nr",
+   "rate": 950,
+   "all": [
+    "camera|كاميرا|cctv"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "dvr",
+   "ar": "جهاز تسجيل DVR/NVR",
+   "unit": "nr",
+   "rate": 3600,
+   "all": [
+    "\\bdvr\\b|\\bnvr\\b|video recorder"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "smoke_det",
+   "ar": "كاشف دخان تقليدي",
+   "unit": "nr",
+   "rate": 185,
+   "all": [
+    "smoke|دخان",
+    "detect|كاشف"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "fa_bell",
+   "ar": "جرس إنذار حريق",
+   "unit": "nr",
+   "rate": 260,
+   "all": [
+    "fire alarm|إنذار",
+    "bell|جرس|sounder"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "facp",
+   "ar": "لوحة تحكم إنذار حريق تقليدية",
+   "unit": "nr",
+   "rate": 4800,
+   "all": [
+    "fire alarm|إنذار",
+    "panel|لوحة"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "earth_pit",
+   "ar": "حفرة تأريض مع قضيب نحاسي",
+   "unit": "nr",
+   "rate": 1850,
+   "all": [
+    "earth pit|earth rod|حفرة تأريض"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "thermo_weld",
+   "ar": "لحام حراري للكابلات",
+   "unit": "nr",
+   "rate": 160,
+   "all": [
+    "thermo.?weld|cadweld|exothermic"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "emergency_light",
+   "ar": "إنارة طوارئ ولوحات مخارج",
+   "unit": "ls",
+   "rate": 36000,
+   "all": [
+    "emergency|طوارئ",
+    "exit|مخرج"
+   ],
+   "none": [],
+   "confidence": "c"
+  },
+  {
+   "key": "split_cassette",
+   "ar": "مكيف سبليت كاسيت",
+   "unit": "nr",
+   "rate": 9200,
+   "all": [
+    "split|سبليت|مكيف",
+    "cassette|كاسيت"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "split_wall",
+   "ar": "مكيف سبليت جداري",
+   "unit": "nr",
+   "rate": 3600,
+   "all": [
+    "split|سبليت|مكيف",
+    "hi.?wall|wall|جداري"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "roof_drain",
+   "ar": "صفاية سطح حديد زهر 110مم",
+   "unit": "nr",
+   "rate": 460,
+   "all": [
+    "roof drain|صفاية سطح|مصرف سطح"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "floor_drain",
+   "ar": "صفاية أرضية بغطاء ستانلس",
+   "unit": "nr",
+   "rate": 185,
+   "all": [
+    "floor drain|\\bfd\\b|صفاية أرضية"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "upvc_6",
+   "ar": "مواسير UPVC 6 بوصة",
+   "unit": "ml",
+   "rate": 98,
+   "all": [
+    "upvc|pvc|يو بي في سي",
+    "6\"|6 inch|160\\s*mm|150\\s*mm"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "upvc_4",
+   "ar": "مواسير UPVC 4 بوصة",
+   "unit": "ml",
+   "rate": 62,
+   "all": [
+    "upvc|pvc",
+    "4\"|4 inch|110\\s*mm"
+   ],
+   "none": [
+    "drain"
+   ],
+   "confidence": "b"
+  },
+  {
+   "key": "upvc_3",
+   "ar": "مواسير UPVC 3 بوصة",
+   "unit": "ml",
+   "rate": 46,
+   "all": [
+    "upvc|pvc",
+    "3\"|3 inch|75\\s*mm|80\\s*mm"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "upvc_2",
+   "ar": "مواسير UPVC 2 بوصة",
+   "unit": "ml",
+   "rate": 31,
+   "all": [
+    "upvc|pvc",
+    "2\"|2 inch|50\\s*mm"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "ppr_50",
+   "ar": "مواسير PPR 50مم",
+   "unit": "ml",
+   "rate": 58,
+   "all": [
+    "ppr",
+    "50\\s*mm"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "ppr_25",
+   "ar": "مواسير PPR 25مم",
+   "unit": "ml",
+   "rate": 31,
+   "all": [
+    "ppr",
+    "25\\s*mm"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "ppr_20",
+   "ar": "مواسير PPR 20مم",
+   "unit": "ml",
+   "rate": 26,
+   "all": [
+    "ppr",
+    "20\\s*mm"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "transfer_pump",
+   "ar": "مجموعة مضخات نقل مياه (تشغيل + احتياط)",
+   "unit": "nr",
+   "rate": 16500,
+   "all": [
+    "pump|مضخ",
+    "transfer|نقل|standby|احتياط"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "booster_pump",
+   "ar": "مجموعة مضخة رفع ضغط",
+   "unit": "nr",
+   "rate": 9500,
+   "all": [
+    "booster|رفع ضغط"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "water_heater",
+   "ar": "سخان مياه كهربائي 50 لتر",
+   "unit": "nr",
+   "rate": 950,
+   "all": [
+    "water heater|سخان"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "sprinkler_m2",
+   "ar": "شبكة رشاشات آلية (لكل م²)",
+   "unit": "m2",
+   "rate": 58,
+   "all": [
+    "sprinkler|رشاش"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "fire_tank",
+   "ar": "خزان مياه حريق خرساني كامل",
+   "unit": "nr",
+   "rate": 235000,
+   "all": [
+    "fire water tank|خزان حريق|خزان مياه الحريق"
+   ],
+   "none": [],
+   "confidence": "c"
+  },
+  {
+   "key": "hose_stations",
+   "ar": "صناديق وخراطيم الحريق",
+   "unit": "ls",
+   "rate": 46000,
+   "all": [
+    "hose|خرطوم|خراطيم"
+   ],
+   "none": [],
+   "confidence": "c"
+  },
+  {
+   "key": "fdc",
+   "ar": "وصلة دفاع مدني (سيامي)",
+   "unit": "nr",
+   "rate": 6800,
+   "all": [
+    "siamese|\\bfdc\\b|سيامي"
+   ],
+   "none": [],
+   "confidence": "b"
+  },
+  {
+   "key": "extinguishers",
+   "ar": "طفايات حريق",
+   "unit": "ls",
+   "rate": 8500,
+   "all": [
+    "extinguisher|طفاي"
+   ],
+   "none": [],
+   "confidence": "c"
+  },
+  {
+   "key": "ff_testing",
+   "ar": "اختبارات واعتماد الدفاع المدني",
+   "unit": "ls",
+   "rate": 16000,
+   "all": [
+    "civil defen[cs]e|دفاع مدني",
+    "test|inspect|approv|اختبار|اعتماد"
+   ],
+   "none": [],
+   "confidence": "c"
+  },
+  {
+   "key": "septic_tank",
+   "ar": "بيارة/خزان تحليل كامل",
+   "unit": "nr",
+   "rate": 46000,
+   "all": [
+    "septic|بيارة|خزان تحليل"
+   ],
+   "none": [],
+   "confidence": "c"
+  },
+  {
+   "key": "ext_drainage",
+   "ar": "شبكة صرف خارجية وغرف تفتيش",
+   "unit": "ls",
+   "rate": 88000,
+   "all": [
+    "external drainage|drainage network|شبكة صرف"
+   ],
+   "none": [],
+   "confidence": "c"
+  }
+ ]
+}

@@ -388,7 +388,7 @@ class _Doc:
         for r_i, r in enumerate(rows):
             rc = (row_classes or {}).get(r_i, "")
             if rc in ("div", "sub"):
-                body.append(f'<tr class="{rc}"><td colspan="{len(headers)}">{_e(r[0])}</td></tr>'
+                body.append(f'<tr class="{rc}"><td colspan="{len(headers)}" dir="auto">{_e(r[0])}</td></tr>'
                             if rc == "div" else
                             '<tr class="sub">' + "".join(
                                 f'<td class="{"n" if i in num_cols else ""}">{_e(v)}</td>' for i, v in enumerate(r)) + "</tr>")
@@ -399,7 +399,8 @@ class _Doc:
                 if isinstance(v, tuple):
                     v, extra = v
                     cls += f" {extra}"
-                tds.append(f'<td class="{cls}">{_e(v)}</td>')
+                # نص إنجليزي في جدول عربي يأخذ اتجاهه («Plain concrete.» لا «.Plain concrete»)
+                tds.append(f'<td class="{cls}"{"" if i in num_cols else " dir=auto"}>{_e(v)}</td>')
             body.append("<tr>" + "".join(tds) + "</tr>")
         if total:
             body.append('<tr class="tot">' + "".join(
@@ -621,6 +622,9 @@ def _prepare(kind, proposal, settings) -> _Doc:
     d = _Doc(kind, proposal, settings)
     d.view = build_structure(proposal, settings)
     d.pv = pricing_view(d.data, settings)
+    from .boq_parser import pricing_quality
+    _q = pricing_quality(d.data.get("boq") or [])
+    d.draft = None if _q["ready"] else _q          # بنود بلا سعر ← المالي يُطبع «مسودة»
     d.weeks, d.months, d.duration = duration_view(d.data)
     d.prof = _profile(settings)
     d.media = _media(settings)
@@ -647,9 +651,21 @@ def _css(d: _Doc, header_name: str) -> str:
     return css
 
 
+_DRAFT_CSS = """
+.draftmark{position:fixed;top:40%;left:-10%;right:-10%;text-align:center;font-size:120px;font-weight:700;
+  color:rgba(192,57,43,.10);transform:rotate(-28deg);z-index:50;pointer-events:none;letter-spacing:8px}
+.draftbox{border:2px solid #c0392b;background:#fdf1ef;border-radius:8px;padding:12px 16px;margin:0 0 14px;
+  display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:#7a1f14}
+.draftbox b{font-size:14px}.draftbox i{font-style:normal;color:#5a2a24}
+"""
+
+
 def _wrap(d: _Doc, title: str, header_name: str) -> str:
+    draft = bool(getattr(d, "draft", None)) and d.kind == "financial"
     return (f'<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>{_e(title)}</title>'
-            f"<style>{_font_faces()}\n{_css(d, header_name)}</style></head><body>{''.join(d.parts)}</body></html>")
+            f"<style>{_font_faces()}\n{_css(d, header_name)}{_DRAFT_CSS if draft else ''}</style></head><body>"
+            + ('<div class="draftmark">مسودة · DRAFT</div>' if draft else "")
+            + f"{''.join(d.parts)}</body></html>")
 
 
 # =============================== العرض الفني ===============================
@@ -1043,6 +1059,11 @@ def _financial(d: _Doc, start_no: int):
                   else "PRICING FORM", "العرض المالي")
     lab = "المبلغ المقطوع — العرض الأساسي" if lump else "قيمة العرض — غير شاملة الضريبة"
     note = st.get("lump_note") or ("ثابت ونهائي غير خاضع لإعادة القياس" if lump else "تُحاسب الأعمال على الكميات المنفذة فعلياً")
+    if d.draft:
+        q = d.draft
+        x += (f'<div class="draftbox"><b>مسودة للمراجعة الداخلية — لا تُقدَّم للعميل</b>'
+              f'<span>{q["unpriced"]} بنداً من {q["lines"]} بلا سعر؛ القيمة أدناه ناقصة حتى تُسعَّر:</span>'
+              + "".join(f"<i>• {_e(n)}</i>" for n in q["unpriced_items"][:8]) + "</div>")
     x += (f'<div class="valuebox"><div class="t"><b>{lab}</b><small>{_e(note)}</small></div>'
           f'<div class="amt">{money(sub)}<span>SAR</span></div></div>')
     x += d.table(["م", "البند", "المبلغ (ر.س)"],
@@ -1204,6 +1225,14 @@ def _fin_groups(d: _Doc, loaded, sub) -> list:
     return []
 
 
+def _with_parent(l: dict) -> str:
+    """بند فرعي قصير («MDP»، «a- For floor…»، «DR-04») يُقرأ مع عنوانه الأب كما في جدول العميل."""
+    name, ctx = str(l.get("name") or ""), str(l.get("context") or "")
+    if ctx and len(name) < 45 and ctx.lower() not in name.lower():
+        return f"{name} — {ctx[:110]}{'…' if len(ctx) > 110 else ''}"
+    return name
+
+
 def _boq_table(d: _Doc, items, total_label) -> str:
     rows, classes = [], {}
     cur_div, div_sum, grand = None, 0.0, 0.0
@@ -1227,7 +1256,7 @@ def _boq_table(d: _Doc, items, total_label) -> str:
         if l.get("excluded"):
             rows.append([l.get("ref") or str(idx + 1), l.get("name"), l.get("unit"), qty_fmt(l.get("qty")), "—", ("خارج النطاق", "out")])
         else:
-            rows.append([l.get("ref") or str(idx + 1), l.get("name"), l.get("unit"), qty_fmt(l.get("qty")),
+            rows.append([l.get("ref") or str(idx + 1), _with_parent(l), l.get("unit"), qty_fmt(l.get("qty")),
                          money(l.get("unit_price")), money(tot)])
         for j, c in enumerate(l.get("children") or [], 1):
             rows.append([f"{l.get('ref') or idx + 1}.{j}", "↳ " + str(c.get("name", "")), c.get("unit", ""), qty_fmt(c.get("qty")),
