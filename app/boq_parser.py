@@ -164,6 +164,9 @@ def parse_boq_from_text(text: str) -> list[dict]:
     - الوصف الممتد على عدة صفوف يُضم لبنده، والعنوان/الوصف الأب («Torch applied
       membrane...»، «Main Distribution Boards...») يُحفظ سياقاً للبنود الفرعية تحته
       («a- For floor»، «MDP») فتُسعَّر بمعناها الكامل ويبقى نص العميل كما هو.
+    - سطر وصف التفّ على سطرين فعليين (شائع في نص مستخرج من PDF — لا خلية Excel، تلك
+      تُضم في file_extract.py): سطر بأعمدة أقل من عرض الترويسة يُضم للسطر التالي قبل
+      التحليل، فلا يضيع البند ولا يتحول اسمه «وحدته» بالخطأ.
     - بلا ترويسة: لا يُقبل صف بنداً إلا بوحدة قياس معروفة وثلاثة صفوف فأكثر.
     """
     items: list[dict] = []          # من جداول بترويسة صريحة
@@ -172,23 +175,26 @@ def parse_boq_from_text(text: str) -> list[dict]:
     explicit_table = False
     in_repo = False
     ctx, section, prev = "", "", None
+    pending = None                  # سطر ناقص الأعمدة ينتظر تتمته في السطر التالي
     for raw in (text or "").splitlines():
         stripped = raw.strip()
         if stripped.startswith(_REPO_MARK):
-            in_repo, columns = True, None
+            in_repo, columns, pending = True, None, None
             continue
         if stripped.startswith(_FILE_MARK):
-            in_repo, columns, ctx, section, prev = False, None, "", "", None
+            in_repo, columns, ctx, section, prev, pending = False, None, "", "", None, None
             continue
         if in_repo:
             continue
         # Tabs encode empty edge cells; stripping them would shift header indices.
         line = raw.strip(" \r") if "\t" in raw else stripped
         if line.lstrip().startswith(("##", "[ملف", "=====")):
-            columns, ctx, prev = None, "", None
+            columns, ctx, prev, pending = None, "", None, None
             continue
         if not line.strip():
             continue
+        if pending is not None:
+            line, pending = f"{pending} {line}", None
         fields = _split_fields(line)
         if len(fields) < 2:
             continue
@@ -204,6 +210,13 @@ def parse_boq_from_text(text: str) -> list[dict]:
             continue
         if columns is not None:
             di, ui, qi, width, ri = columns
+            # عمود الكمية نفسه غائب فعلياً عن هذا السطر (لا مجرد أعمدة اختيارية ناقصة
+            # كالسعر/الإجمالي في جدول متفاوت الأعمدة — ذلك سطر صحيح مكتمل) = غالباً
+            # نصف وصف انقطع بسطر PDF. نؤجله لنضمّه بسطره التالي (مرة واحدة؛ لا نسلسل
+            # التأجيل كي لا يبتلع سطوراً صحيحة تالية إن كان فعلاً سطراً شاذاً لا تتمة له).
+            if qi >= len(fields):
+                pending = line
+                continue
             cell = lambda i: fields[i].strip() if i is not None and i < len(fields) else ""
             name, unit_cell, qty_cell, ref_cell = cell(di), cell(ui), cell(qi), cell(ri)
             if not any(f.strip() for f in fields) or _is_total_label(name) or (
