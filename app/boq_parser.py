@@ -561,7 +561,51 @@ def price_project_boq(items: list[dict], similar_refs: list[dict] | None = None)
     return out
 
 
-def pricing_quality(boq: list[dict]) -> dict:
+def boq_file_report(project_text: str) -> list[dict]:
+    """لكل ملف مشروع: هل فيه جدول كميات؟ ولماذا لا؟ (ممسوح ضوئياً، تنسيق غير مدعوم،
+    نص بلا ترويسة كميات...) — يُعرض للمستخدم بدل عرض ببنود مختلقة."""
+    out, name, buf = [], None, []
+
+    def close():
+        if name is None:
+            return
+        text = "\n".join(buf)
+        compact = re.sub(r"\s", "", text)
+        if text.strip().startswith("[تنسيق غير مدعوم"):
+            note = "تنسيق غير مدعوم"
+        elif text.strip().startswith("[تعذر"):
+            note = "تعذر قراءة الملف (تالف أو محمي)"
+        elif len(compact) < 150:
+            note = "بلا نص تقريباً — ملف ممسوح ضوئياً أو مخططات؛ يحتاج OCR أو نسخة نصية"
+        elif _mojibake(text):
+            note = "نص عربي بترميز تالف (خطوط PDF غير قابلة للاستخراج) — يحتاج نسخة Excel/Word أو OCR"
+        elif parse_boq_from_text(f"{_FILE_MARK}: {name} =====\n{text}"):
+            note = "فيه جدول كميات"
+        else:
+            note = "لا جدول كميات (لا ترويسة «الوصف/الوحدة/الكمية» ولا صفوف بوحدات قياس)"
+        out.append({"file": name, "chars": len(compact), "note": note})
+
+    for line in (project_text or "").splitlines():
+        m = re.match(r"^=====\s*الملف:\s*(.+?)\s*=====\s*$", line.strip())
+        if m:
+            close()
+            name, buf = m.group(1), []
+        elif name is not None:
+            buf.append(line)
+    close()
+    if not out and (project_text or "").strip():
+        out.append({"file": "ملفات المشروع", "chars": len(project_text), "note": "لا جدول كميات"})
+    return out
+
+
+def _mojibake(text: str) -> bool:
+    """نص PDF عربي مستخرج بحروف عرض/رموز (ϕΎρϧ...) بدل الحروف العربية."""
+    greekish = len(re.findall(r"[\u0370-\u03ff\u02b0-\u02ff\ufe70-\ufeff]", text))
+    arabic = len(re.findall(r"[\u0621-\u064a]", text))
+    return greekish > 50 and greekish > arabic
+
+
+def pricing_quality(boq: list[dict], boq_mode: str | None = None) -> dict:
     """جاهزية التسعير للتقديم: البنود بلا سعر، ونصيب الأسعار المرجعية من القيمة.
 
     عرض نصف بنوده بلا سعر ليس «عرضاً بقيمة 742 ريالاً» — هو مسودة. هذه الأرقام تظهر
@@ -572,12 +616,16 @@ def pricing_quality(boq: list[dict]) -> dict:
     ref_value = sum(float(l.get("qty") or 0) * float(l.get("unit_price") or 0) for l in lines
                     if str(l.get("source", "")).startswith(("سعر مرجعي", "تقدير سوقي")))
     qty_issues = [l for l in lines if l.get("quantity_issue")]
+    # بنود ليست من جدول المشروع (احتياط قديم: مرجع/كلمات/ذكاء اصطناعي) أو لا جدول أصلاً
+    not_project = boq_mode in ("reference", "keywords", "ai", "missing")
     return {
+        "boq_mode": boq_mode or "",
+        "not_project_boq": not_project,
         "lines": len(lines), "unpriced": len(unpriced),
         "unpriced_items": [f"{l.get('ref') or ''} {l.get('name', '')}".strip()[:90] for l in unpriced[:12]],
         "quantity_issues": len(qty_issues),
         "reference_share_pct": round(ref_value / total * 100, 1) if total else 0.0,
-        "ready": bool(lines) and not unpriced,
+        "ready": bool(lines) and not unpriced and not not_project,
     }
 
 

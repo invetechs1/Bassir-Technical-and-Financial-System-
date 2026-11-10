@@ -397,7 +397,13 @@ function renderFin(d) {
     const ref = boq.filter((l) => String(l.source || "").startsWith("سعر مرجعي")).reduce((a, l) => a + (+l.qty || 0) * (+l.unit_price || 0), 0);
     return tot ? Math.round(ref / tot * 100) : 0;
   })();
-  const gate = unpriced.length
+  const notProject = ["reference", "keywords", "ai", "missing"].includes(d.boq_mode);
+  const files = (d.boq_files_report || []).map((r) => "• " + escH(r.file) + ": " + escH(r.note)).join("<br>");
+  const gate = notProject
+    ? `<div class="panel" style="border:2px solid var(--danger,#c0392b);background:rgba(192,57,43,.06)">
+        <h3>⛔ ${d.boq_mode === "missing" ? t("boq_missing_title") : t("boq_not_project_title")}</h3>
+        <p class="muted">${t("boq_missing_hint")}</p>${files ? `<p class="muted">${files}</p>` : ""}</div>`
+    : unpriced.length
     ? `<div class="panel" style="border:2px solid var(--danger,#c0392b);background:rgba(192,57,43,.06)">
         <h3>⛔ ${t("draft_gate_title")}: ${unpriced.length} ${t("draft_gate_of")} ${boq.length}</h3>
         <p class="muted">${t("draft_gate_hint")}</p>
@@ -755,6 +761,8 @@ async function loadEtimad() {
     q: $("#etQ").value.trim(),
     status: $("#etStatus").value,
     min_relevance: $("#etRelevant").checked ? 15 : 0,
+    sort: $("#etSort")?.value || "newest",
+    closed: $("#etClosed")?.checked ? 1 : 0,
   });
   const data = await api(`/api/etimad?${params}`);
   ET_TENDERS = data.tenders;
@@ -762,6 +770,7 @@ async function loadEtimad() {
   $("#etimadTable tbody").innerHTML = data.tenders.map((t3, idx) => `
     <tr>
       <td><a href="${safeUrl(t3.details_url)}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600">${escH(t3.name.slice(0, 70))}</a>
+        ${t3.published ? `<br><span class="muted" style="font-size:11px">🕒 ${t("et_published")} ${escH(t3.published)}</span>` : ""}
         ${t3.matched_ref ? `<br><span class="muted" style="font-size:11px">${t("closest_experience")} ${escH(t3.matched_ref.slice(0, 50))}</span>` : ""}</td>
       <td>${escH(t3.agency.slice(0, 35))}</td>
       <td class="num-cell">${t3.deadline || "—"}</td>

@@ -623,7 +623,7 @@ def _prepare(kind, proposal, settings) -> _Doc:
     d.view = build_structure(proposal, settings)
     d.pv = pricing_view(d.data, settings)
     from .boq_parser import pricing_quality
-    _q = pricing_quality(d.data.get("boq") or [])
+    _q = pricing_quality(d.data.get("boq") or [], d.data.get("boq_mode"))
     d.draft = None if _q["ready"] else _q          # بنود بلا سعر ← المالي يُطبع «مسودة»
     d.weeks, d.months, d.duration = duration_view(d.data)
     d.prof = _profile(settings)
@@ -1061,9 +1061,15 @@ def _financial(d: _Doc, start_no: int):
     note = st.get("lump_note") or ("ثابت ونهائي غير خاضع لإعادة القياس" if lump else "تُحاسب الأعمال على الكميات المنفذة فعلياً")
     if d.draft:
         q = d.draft
-        x += (f'<div class="draftbox"><b>مسودة للمراجعة الداخلية — لا تُقدَّم للعميل</b>'
-              f'<span>{q["unpriced"]} بنداً من {q["lines"]} بلا سعر؛ القيمة أدناه ناقصة حتى تُسعَّر:</span>'
-              + "".join(f"<i>• {_e(n)}</i>" for n in q["unpriced_items"][:8]) + "</div>")
+        if q.get("not_project_boq"):
+            why = ("لم يُعثر على جدول كميات في ملفات المشروع — ارفع جدول الكميات ثم أعد التوليد."
+                   if q.get("boq_mode") == "missing" else
+                   "بنود هذا العرض ليست من جدول كميات المشروع (احتياط من مشروع سابق/تقدير) — لا تصلح للتقديم.")
+            x += f'<div class="draftbox"><b>مسودة للمراجعة الداخلية — لا تُقدَّم للعميل</b><span>{_e(why)}</span></div>'
+        else:
+            x += (f'<div class="draftbox"><b>مسودة للمراجعة الداخلية — لا تُقدَّم للعميل</b>'
+                  f'<span>{q["unpriced"]} بنداً من {q["lines"]} بلا سعر؛ القيمة أدناه ناقصة حتى تُسعَّر:</span>'
+                  + "".join(f"<i>• {_e(n)}</i>" for n in q["unpriced_items"][:8]) + "</div>")
     x += (f'<div class="valuebox"><div class="t"><b>{lab}</b><small>{_e(note)}</small></div>'
           f'<div class="amt">{money(sub)}<span>SAR</span></div></div>')
     x += d.table(["م", "البند", "المبلغ (ر.س)"],

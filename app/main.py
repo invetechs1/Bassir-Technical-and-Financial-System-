@@ -1108,8 +1108,9 @@ def etimad_fetch(pages: int = 3):
 
 
 @app.get("/api/etimad")
-def etimad_list(status: str = "", q: str = "", min_relevance: int = 0):
-    return {"tenders": list_tenders(status, q, min_relevance), "session": has_session()}
+def etimad_list(status: str = "", q: str = "", min_relevance: int = 0, sort: str = "newest", closed: int = 0):
+    return {"tenders": list_tenders(status, q, min_relevance, sort=sort, include_closed=bool(closed)),
+            "session": has_session()}
 
 
 @app.put("/api/etimad/{tid}")
@@ -1283,6 +1284,7 @@ def _read_uploads_text(files: list[UploadFile]) -> str:
 def _build_proposal_data(title: str, client: str, entity_type: str, files_text: str):
     """خط إنتاج العرض الموحد — يستدعيه التوليد المباشر وتحليل/توليد الوكيلين،
     فما يعرضه الوكيلان في التحليل هو حرفياً ما يُبنى عند الاعتماد."""
+    project_text = files_text or ""     # ملفات المشروع وحدها، قبل إلحاق نصوص المستودع
     # إثراء السياق من المستودع المعرفي (عروض قديمة/منافسة مخزنة)
     repo_texts = find_relevant_repo_texts(f"{title}\n{files_text[:4000]}")
     if repo_texts:
@@ -1316,8 +1318,21 @@ def _build_proposal_data(title: str, client: str, entity_type: str, files_text: 
         {"id": m["id"], "ref_no": m["ref_no"], "title": m["title"], "score": m["score"]}
         for m in matches
     ]
-    from .boq_parser import pricing_quality
-    data["pricing_quality"] = pricing_quality(data.get("boq") or [])
+    # مشروع رُفعت ملفاته ولم يوجد فيها جدول كميات: لا تُختلق بنود من أي مصدر — لا جدول
+    # أقرب مشروع سابق ولا كلمات مفتاحية ولا تقدير الذكاء الاصطناعي (كان العرض يخرج ببنود
+    # «كأنه مشروع آخر»). العرض يبقى بلا جدول ومسودة، مع تقرير الملفات وسبب الغياب
+    from .boq_parser import boq_file_report, pricing_quality
+    if project_text.strip() and data.get("boq_mode") != "project":
+        report = boq_file_report(project_text)
+        data["boq_discarded"] = {"mode": data.get("boq_mode"), "lines": len(data.get("boq") or [])}
+        data["boq"] = []
+        data["boq_mode"] = "missing"
+        data["boq_files_report"] = report
+        data["financial"] = compute_financials([], db.get_settings())
+        data["engine_note"] = ("⛔ لم يُعثر على جدول كميات في ملفات المشروع — لم تُختلق بنود من مشروع آخر. "
+                               + " | ".join(f"{r['file']}: {r['note']}" for r in report)
+                               + " — ارفع ملف جدول الكميات (Excel أو PDF نصي) أو أدخل البنود يدوياً.")
+    data["pricing_quality"] = pricing_quality(data.get("boq") or [], data.get("boq_mode"))
     return data, matches
 
 
