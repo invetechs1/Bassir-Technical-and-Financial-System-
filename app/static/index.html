@@ -292,6 +292,11 @@
             <option value="أُنشئ عرض" data-i18n="et_status_created">أُنشئ عرض</option>
           </select>
           <label class="row" style="gap:6px;margin:0"><input type="checkbox" id="etRelevant" onchange="loadEtimad()" style="width:auto"> <span data-i18n="relevant_only_label">الملائمة لنشاط عزوم فقط</span></label>
+          <select id="etSort" onchange="loadEtimad()" style="max-width:190px">
+            <option value="newest" data-i18n="et_sort_newest">الأحدث نشراً أولاً</option>
+            <option value="relevance" data-i18n="et_sort_relevance">الأعلى ملاءمة أولاً</option>
+          </select>
+          <label class="row" style="gap:6px;margin:0"><input type="checkbox" id="etClosed" onchange="loadEtimad()" style="width:auto"> <span data-i18n="et_show_closed">إظهار المنتهية</span></label>
         </div>
         <div class="spinner" id="etSpinner"><div class="dot"></div><span data-i18n="fetch_spinner">جارٍ جلب المنافسات من منصة اعتماد...</span></div>
         <div class="t-wrap"><table id="etimadTable">

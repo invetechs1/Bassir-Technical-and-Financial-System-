@@ -2080,6 +2080,62 @@ check("عنوان فرصة «فرصة»: لا حالة ولا رقم ولا مد
       == "المجمع الصناعي"
       and _ct('<a><span>متاحة</span><h3>إنشاء مصنع حوطة سدير</h3><span>الرياض</span></a>') == "إنشاء مصنع حوطة سدير")
 
+# ---------- مشروع بلا جدول كميات في ملفاته: لا تُختلق بنود من مشروع آخر ----------
+# الحادثة: فرصة من منصة فرصة ملفاتها مخططات وكراسة بلا جدول كميات مقروء، فبُني العرض
+# المالي من جدول أقرب مشروع سابق («كأنه مشروع آخر»)
+_nb_files = [("files", ("drawings.txt", "ELECTRICAL PLANS\nScale: As Shown\nArchitect : Structure Eng:\n".encode(), "text/plain")),
+             ("files", ("scope.txt", ("نطاق العمل: إنشاء مستودع وتشطيبه بالكامل وأعمال الموقع العام والكهرباء "
+                                       "والتكييف وفق المخططات والمواصفات المعتمدة " * 4).encode(), "text/plain"))]
+_nb = c.post("/api/proposals/generate", data={"title": "تشطيبات وإنارة ولاندسكيب مجمع تجاري", "client": "جهة الفحص",
+                                              "entity_type": "private"}, files=_nb_files)
+_nbd = _nb.json()["data"]
+check("ملفات بلا جدول كميات ← لا بنود مختلقة (لا مرجع سابق ولا كلمات ولا تقدير)",
+      _nb.status_code == 200 and _nbd["boq_mode"] == "missing" and _nbd["boq"] == []
+      and "لم يُعثر على جدول كميات" in _nbd.get("engine_note", ""), str((_nbd.get("boq_mode"), len(_nbd.get("boq") or []))))
+check("تقرير الملفات يشرح السبب لكل ملف",
+      {r["file"] for r in _nbd.get("boq_files_report", [])} == {"drawings.txt", "scope.txt"}
+      and any("ممسوح" in r["note"] or "مخططات" in r["note"] for r in _nbd["boq_files_report"]))
+check("العرض بلا جدول غير جاهز للتقديم والمالي يُطبع مسودة",
+      not _nbd["pricing_quality"]["ready"] and _nbd["pricing_quality"]["not_project_boq"]
+      and "draftmark" in _bh(_nb.json(), {**_gs3(company_id=1), "_company_id": 1}, "financial"))
+_old_ref = {"title": "عرض قديم", "client": "x", "ref_no": "AZM-T-2", "created_at": "2026-11-01",
+            "data": {"boq": [{"name": "بند من مشروع آخر", "unit": "م2", "qty": 10, "unit_price": 50}],
+                     "boq_mode": "reference", "financial": {}}}
+check("العروض القديمة المبنية من مشروع سابق تُطبع مسودة بسببها",
+      "ليست من جدول كميات المشروع" in _bh(_old_ref, {**_gs3(company_id=1), "_company_id": 1}, "financial"))
+from app.boq_parser import boq_file_report as _bfr
+check("نص PDF عربي بترميز تالف يُشخَّص (لا «لا جدول» صامت)",
+      "ترميز تالف" in _bfr("===== الملف: scope.pdf =====\n" + "ϕΎρϧﺎϝϭΎϘϣϟ΍ﺎωϭέηϣϟ΍ﻣ" * 20)[0]["note"])
+c.delete(f"/api/proposals/{_nb.json()['id']}")
+
+# ---------- منافسات اعتماد: الأحدث نشراً أولاً والمنتهية مخفية ----------
+# البيانات الحقيقية: الواجهة تعيد الأحدث أولاً؛ لكن القائمة كانت تُرتَّب بالملاءمة فتغرق
+# منافسات اليوم (توريد/قطع غيار، ملاءمة 0–14%) تحت القديمة ولا تظهر
+_et._http_get = lambda url, timeout=30: {"totalCount": 3, "data": [
+    {"tenderIdString": "NEW1", "tenderName": "توريد بنزين 91 لسيارات البلدية", "agencyName": "بلدية",
+     "submitionDate": f"{_today.isoformat()}T14:10:27", "lastOfferPresentationDate": f"{(_today + _dt3.timedelta(days=15)).isoformat()}T09:59:00"},
+    {"tenderIdString": "NEW2", "tenderName": "إنشاء مبنى إداري وأعمال خرسانية ضخمة", "agencyName": "وزارة",
+     "submitionDate": f"{(_today - _dt3.timedelta(days=3)).isoformat()}T10:00:00", "lastOfferPresentationDate": f"{(_today + _dt3.timedelta(days=20)).isoformat()}T09:59:00"},
+]} if url.endswith("PageNumber=1") else {"data": [], "totalCount": 3}
+try:
+    _et.fetch_tenders(pages=1)
+    _lt = _et.list_tenders()
+    check("قائمة اعتماد: الأحدث نشراً أولاً (لا الأعلى ملاءمة) ومع تاريخ النشر",
+          [t["tender_key"] for t in _lt].index("NEW1") < [t["tender_key"] for t in _lt].index("NEW2")
+          and [t["published"] for t in _lt if t["published"]] == sorted([t["published"] for t in _lt if t["published"]], reverse=True)
+          and next(t for t in _lt if t["tender_key"] == "NEW1")["published"].startswith(_today.isoformat()),
+          str([(t["tender_key"][:6], t["published"]) for t in _lt[:4]]))
+    check("قائمة اعتماد: الترتيب بالملاءمة متاح اختيارياً",
+          _et.list_tenders(sort="relevance")[0]["relevance"] >= _et.list_tenders(sort="relevance")[-1]["relevance"])
+    with _gdb4() as _db:
+        _db.execute("INSERT OR IGNORE INTO etimad_tenders (company_id, tender_key, name, deadline, fetched_at) "
+                    "VALUES (1, 'OLD1', 'منافسة منتهية', '2020-01-01', '2020-01-01')")
+    check("قائمة اعتماد: المنتهية مخفية افتراضياً وتظهر عند الطلب",
+          "OLD1" not in [t["tender_key"] for t in _et.list_tenders()]
+          and "OLD1" in [t["tender_key"] for t in _et.list_tenders(include_closed=True)])
+finally:
+    _et._http_get = _orig_get
+
 # ---------- الخلاصة ----------
 passed = sum(1 for _, ok, _ in RESULTS if ok)
 failed = [(n, d) for n, ok, d in RESULTS if not ok]

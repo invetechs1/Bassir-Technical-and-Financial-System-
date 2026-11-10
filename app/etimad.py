@@ -48,11 +48,12 @@ CREATE TABLE IF NOT EXISTS etimad_tenders (
     status TEXT DEFAULT 'جديدة',
     raw TEXT DEFAULT '{}',
     fetched_at TEXT NOT NULL,
+    published TEXT DEFAULT '',
     UNIQUE (company_id, tender_key)
 );
 """
 _COLS = ("id, company_id, tender_key, name, agency, activity, tender_type, deadline, booklet_price, "
-         "details_url, relevance, matched_ref, status, raw, fetched_at")
+         "details_url, relevance, matched_ref, status, raw, fetched_at, published")
 
 
 def init_etimad_table():
@@ -60,11 +61,14 @@ def init_etimad_table():
     with get_db() as db:
         db.executescript(SCHEMA)
         _ensure_column(db, "etimad_tenders", "company_id", "INTEGER NOT NULL DEFAULT 1")
+        # تاريخ النشر في اعتماد — القائمة تُرتَّب به (الأحدث أولاً) لا بالملاءمة
+        _ensure_column(db, "etimad_tenders", "published", "TEXT DEFAULT ''")
         # ترقية: كان رقم المنافسة فريداً على مستوى النظام كله، فإذا جلبتها شركة أولاً
         # تتجاهلها البقية بصمت («0 جديدة» دائماً) — صار فريداً لكل شركة
         sql = (db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='etimad_tenders'")
                .fetchone() or {"sql": ""})["sql"] or ""
         if "UNIQUE (company_id, tender_key)" not in sql:
+            _ensure_column(db, "etimad_tenders", "published", "TEXT DEFAULT ''")
             db.executescript(f"""
                 ALTER TABLE etimad_tenders RENAME TO etimad_tenders_old;
                 {SCHEMA}
@@ -213,8 +217,8 @@ def fetch_tenders(pages: int = 3, page_size: int = 50) -> dict:
                 cur = db.execute(
                     "INSERT OR IGNORE INTO etimad_tenders "
                     "(company_id, tender_key, name, agency, activity, tender_type, deadline, booklet_price, "
-                    " details_url, relevance, matched_ref, raw, fetched_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " details_url, relevance, matched_ref, raw, fetched_at, published) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (cid(), key, name, agency,
                      str(_pick(t, "tenderActivityName", "activityName")),
                      str(_pick(t, "tenderTypeName", "tenderType")),
@@ -223,7 +227,8 @@ def fetch_tenders(pages: int = 3, page_size: int = 50) -> dict:
                      DETAILS_URL.format(urllib.parse.quote(key)),
                      matches[0]["score"] if matches else 0,
                      matches[0]["title"][:80] if matches else "",
-                     json.dumps(t, ensure_ascii=False)[:8000], now_iso()),
+                     json.dumps(t, ensure_ascii=False)[:8000], now_iso(),
+                     str(_pick(t, "submitionDate", "createdAt", "tenderPublishDate"))[:16].replace("T", " ")),
                 )
             if cur.rowcount:
                 stats["added"] += 1
@@ -243,19 +248,26 @@ def fetch_tenders(pages: int = 3, page_size: int = 50) -> dict:
             "order": "newest_last" if ascending else "newest_first", "message": " — ".join(parts)}
 
 
-def list_tenders(status: str = "", q: str = "", min_relevance: int = 0) -> list[dict]:
+def list_tenders(status: str = "", q: str = "", min_relevance: int = 0, sort: str = "newest",
+                 include_closed: bool = False) -> list[dict]:
+    """الأحدث نشراً أولاً (كان الترتيب بالملاءمة فتغرق منافسات اليوم تحت القديمة ولا
+    تظهر)، والمنتهية مواعيدها مخفية افتراضياً. sort=relevance للترتيب بالملاءمة."""
     init_etimad_table()
     query = ("SELECT id, tender_key, name, agency, activity, tender_type, deadline, "
-             "booklet_price, details_url, relevance, matched_ref, status, fetched_at "
+             "booklet_price, details_url, relevance, matched_ref, status, fetched_at, published "
              "FROM etimad_tenders WHERE company_id = ? AND relevance >= ?")
     params: list = [cid(), min_relevance]
+    if not include_closed:
+        query += " AND (deadline = '' OR deadline >= ?)"
+        params.append(datetime.now().strftime("%Y-%m-%d"))
     if status:
         query += " AND status = ?"
         params.append(status)
     if q:
         query += " AND (name LIKE ? OR agency LIKE ?)"
         params += [f"%{q}%", f"%{q}%"]
-    query += " ORDER BY relevance DESC, id DESC LIMIT 300"
+    query += (" ORDER BY relevance DESC, published DESC, id DESC" if sort == "relevance"
+              else " ORDER BY COALESCE(NULLIF(published, ''), fetched_at) DESC, id DESC") + " LIMIT 500"
     with get_db() as db:
         rows = db.execute(query, params).fetchall()
     return [dict(r) for r in rows]
