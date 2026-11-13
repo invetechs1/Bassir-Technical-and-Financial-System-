@@ -2134,6 +2134,12 @@ try:
     with _gdb4() as _db:
         _db.execute("INSERT OR IGNORE INTO etimad_tenders (company_id, tender_key, name, deadline, fetched_at) "
                     "VALUES (1, 'OLD1', 'منافسة منتهية', '2020-01-01', '2020-01-01')")
+    _new1 = next(t for t in _et.list_tenders() if t["tender_key"] == "NEW1")
+    c.put(f"/api/etimad/{_new1['id']}", json={"status": "مهتمون"})
+    _ej = c.get("/api/etimad", params={"status": "مهتمون"}).json()
+    check("قائمة اعتماد: «مهتمون» تُصفّى بضغطة مع عدد كل حالة وتاريخ النشر",
+          [t["tender_key"] for t in _ej["tenders"]] == ["NEW1"] and _ej["counts"].get("مهتمون") == 1
+          and _ej["tenders"][0]["published"], str(_ej.get("counts")))
     check("قائمة اعتماد: المنتهية مخفية افتراضياً وتظهر عند الطلب",
           "OLD1" not in [t["tender_key"] for t in _et.list_tenders()]
           and "OLD1" in [t["tender_key"] for t in _et.list_tenders(include_closed=True)])

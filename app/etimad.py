@@ -273,6 +273,19 @@ def list_tenders(status: str = "", q: str = "", min_relevance: int = 0, sort: st
     return [dict(r) for r in rows]
 
 
+def status_counts(include_closed: bool = False) -> dict:
+    """عدد المنافسات لكل حالة (جديدة/مهتمون/مستبعدة/أُنشئ عرض) لأزرار التصفية السريعة."""
+    init_etimad_table()
+    query = "SELECT status, COUNT(*) AS n FROM etimad_tenders WHERE company_id = ?"
+    params: list = [cid()]
+    if not include_closed:
+        query += " AND (deadline = '' OR deadline >= ?)"
+        params.append(datetime.now().strftime("%Y-%m-%d"))
+    with get_db() as db:
+        rows = db.execute(query + " GROUP BY status", params).fetchall()
+    return {r["status"]: r["n"] for r in rows}
+
+
 def update_tender_status(tid: int, status: str):
     with get_db() as db:
         db.execute("UPDATE etimad_tenders SET status = ? WHERE id = ? AND company_id = ?", (status, tid, cid()))
