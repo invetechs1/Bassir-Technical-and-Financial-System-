@@ -1977,8 +1977,12 @@ try:
     check("اعتماد: المنتهية مواعيدها لا تُضاف، والتكرار يُحصى «موجودة مسبقاً» مع رسالة تشرح النتيجة",
           _r2["added"] == 0 and _r2["existing"] == _r1["added"] and "موجودة مسبقاً" in _r2["message"], str(_r2)[:200])
     with _gdb4() as _db:
-        _old = _db.execute("SELECT COUNT(*) AS n FROM etimad_tenders WHERE company_id = 1 AND deadline < ?",
-                           (_today.isoformat(),)).fetchone()["n"]
+        # الموعد الفارغ (منافسة حقيقية لم يُنشر لها موعد تقديم بعد) ليس «منتهياً» — نفس
+        # تعريف list_tenders نفسه (deadline = '' OR deadline >= اليوم) لا نصاً فارغاً
+        # يُقارَن أصغر من أي تاريخ بترتيب السلاسل النصية في SQLite فيُحسَب خطأً منتهياً.
+        _old = _db.execute(
+            "SELECT COUNT(*) AS n FROM etimad_tenders WHERE company_id = 1 "
+            "AND deadline != '' AND deadline < ?", (_today.isoformat(),)).fetchone()["n"]
     check("اعتماد: لا منافسة منتهية في القائمة", _old == 0, str(_old))
     # شركة أخرى تجلب نفس المنافسات — كانت تُتجاهل بصمت لأن رقم المنافسة فريد على مستوى النظام
     _tok = _ten._company_id.set(_cid5)
