@@ -770,9 +770,9 @@ async function loadEtimad() {
   $("#etimadTable tbody").innerHTML = data.tenders.map((t3, idx) => `
     <tr>
       <td><a href="${safeUrl(t3.details_url)}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600">${escH(t3.name.slice(0, 70))}</a>
-        ${t3.published ? `<br><span class="muted" style="font-size:11px">🕒 ${t("et_published")} ${escH(t3.published)}</span>` : ""}
         ${t3.matched_ref ? `<br><span class="muted" style="font-size:11px">${t("closest_experience")} ${escH(t3.matched_ref.slice(0, 50))}</span>` : ""}</td>
       <td>${escH(t3.agency.slice(0, 35))}</td>
+      <td class="num-cell">${escH(t3.published || "—")}</td>
       <td class="num-cell">${t3.deadline || "—"}</td>
       <td><span class="tag ${t3.relevance >= 30 ? "src" : t3.relevance >= 15 ? "est" : "draft"}">${t3.relevance}%</span></td>
       <td><select onchange="setEtStatus(${t3.id}, this.value)" style="padding:4px 8px;font-size:12px">
@@ -781,11 +781,26 @@ async function loadEtimad() {
         <button class="btn sm ghost" onclick="etToProposal(${idx})">${t("create_proposal_btn")}</button>
       </td>
     </tr>`).join("") ||
-    `<tr><td colspan="6" class="muted">${t("empty_tenders")}</td></tr>`;
+    `<tr><td colspan="7" class="muted">${t("empty_tenders")}</td></tr>`;
+  renderEtChips(data.counts || {});
+}
+
+// أزرار تصفية سريعة بالحالة مع العدد — «مهتمون» بضغطة بدل القائمة المنسدلة
+function renderEtChips(counts) {
+  const cur = $("#etStatus").value;
+  const total = Object.values(counts).reduce((a, n) => a + n, 0);
+  const chip = (val, label, n) => `<button class="btn sm ${cur === val ? "" : "ghost"}" onclick="setEtFilter('${val}')">${label} <b>(${n})</b></button>`;
+  $("#etChips").innerHTML = chip("", t("all_statuses"), total)
+    + ET_STATUSES.map((s) => chip(s, (s === "مهتمون" ? "⭐ " : "") + t(ET_STATUS_KEY[s]), counts[s] || 0)).join("");
+}
+
+function setEtFilter(val) {
+  $("#etStatus").value = val;
+  loadEtimad();
 }
 
 function setEtStatus(id, status) {
-  api(`/api/etimad/${id}`, { method: "PUT", json: { status } }).then(() => toast(t("msg_status_updated")));
+  api(`/api/etimad/${id}`, { method: "PUT", json: { status } }).then(() => { toast(t("msg_status_updated")); loadEtimad(); });
 }
 
 let ET_TENDERS = [];

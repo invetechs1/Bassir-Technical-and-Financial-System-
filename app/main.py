@@ -1109,8 +1109,9 @@ def etimad_fetch(pages: int = 3):
 
 @app.get("/api/etimad")
 def etimad_list(status: str = "", q: str = "", min_relevance: int = 0, sort: str = "newest", closed: int = 0):
+    from .etimad import status_counts
     return {"tenders": list_tenders(status, q, min_relevance, sort=sort, include_closed=bool(closed)),
-            "session": has_session()}
+            "counts": status_counts(include_closed=bool(closed)), "session": has_session()}
 
 
 @app.put("/api/etimad/{tid}")

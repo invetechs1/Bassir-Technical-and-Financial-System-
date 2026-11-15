@@ -893,6 +893,7 @@ const I18N = {
   boq_missing_title: { ar: "لم يُعثر على جدول كميات في ملفات المشروع — لم تُختلق بنود", en: "No BoQ found in the project files — no items were invented" },
   boq_not_project_title: { ar: "بنود هذا العرض ليست من جدول كميات المشروع (احتياط قديم) — لا يصلح للتقديم", en: "These items are not from the project's BoQ (old fallback) — not fit to submit" },
   boq_missing_hint: { ar: "ارفع ملف جدول الكميات (Excel أو PDF نصي) وأعد التوليد، أو أدخل البنود يدوياً. حالة كل ملف:", en: "Upload the BoQ file (Excel or text PDF) and regenerate, or enter items manually. Status of each file:" },
+  th_published: { ar: "تاريخ النشر", en: "Published" },
   et_sort_newest: { ar: "الأحدث نشراً أولاً", en: "Newest first" },
   et_sort_relevance: { ar: "الأعلى ملاءمة أولاً", en: "Most relevant first" },
   et_show_closed: { ar: "إظهار المنتهية", en: "Show closed" },
