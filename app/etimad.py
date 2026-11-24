@@ -14,7 +14,7 @@ import re
 import ssl
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from .config import DATA_DIR
 from .database import get_db, now_iso
@@ -270,7 +270,23 @@ def list_tenders(status: str = "", q: str = "", min_relevance: int = 0, sort: st
               else " ORDER BY COALESCE(NULLIF(published, ''), fetched_at) DESC, id DESC") + " LIMIT 500"
     with get_db() as db:
         rows = db.execute(query, params).fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["added"] = _riyadh(d.get("fetched_at"))
+        out.append(d)
+    return out
+
+
+def _riyadh(iso: str | None) -> str:
+    """وقت إضافة المنافسة للنظام بتوقيت الرياض (يُخزَّن UTC) — يقارَن مباشرة بتاريخ النشر."""
+    try:
+        dt = datetime.fromisoformat(str(iso))
+    except (TypeError, ValueError):
+        return str(iso or "")[:16]
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone(timedelta(hours=3)))
+    return dt.strftime("%Y-%m-%d %H:%M")
 
 
 def status_counts(include_closed: bool = False) -> dict:

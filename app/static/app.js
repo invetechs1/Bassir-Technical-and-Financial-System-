@@ -773,6 +773,7 @@ async function loadEtimad() {
         ${t3.matched_ref ? `<br><span class="muted" style="font-size:11px">${t("closest_experience")} ${escH(t3.matched_ref.slice(0, 50))}</span>` : ""}</td>
       <td>${escH(t3.agency.slice(0, 35))}</td>
       <td class="num-cell">${escH(t3.published || "—")}</td>
+      <td class="num-cell">${escH(t3.added || "—")}</td>
       <td class="num-cell">${t3.deadline || "—"}</td>
       <td><span class="tag ${t3.relevance >= 30 ? "src" : t3.relevance >= 15 ? "est" : "draft"}">${t3.relevance}%</span></td>
       <td><select onchange="setEtStatus(${t3.id}, this.value)" style="padding:4px 8px;font-size:12px">
@@ -781,7 +782,7 @@ async function loadEtimad() {
         <button class="btn sm ghost" onclick="etToProposal(${idx})">${t("create_proposal_btn")}</button>
       </td>
     </tr>`).join("") ||
-    `<tr><td colspan="7" class="muted">${t("empty_tenders")}</td></tr>`;
+    `<tr><td colspan="8" class="muted">${t("empty_tenders")}</td></tr>`;
   renderEtChips(data.counts || {});
 }
 

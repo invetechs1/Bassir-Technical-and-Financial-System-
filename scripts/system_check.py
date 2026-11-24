@@ -2140,6 +2140,10 @@ try:
     check("قائمة اعتماد: «مهتمون» تُصفّى بضغطة مع عدد كل حالة وتاريخ النشر",
           [t["tender_key"] for t in _ej["tenders"]] == ["NEW1"] and _ej["counts"].get("مهتمون") == 1
           and _ej["tenders"][0]["published"], str(_ej.get("counts")))
+    _added = _ej["tenders"][0].get("added", "")
+    _now_ksa = (_dt3.datetime.now(_dt3.timezone.utc) + _dt3.timedelta(hours=3)).strftime("%Y-%m-%d")
+    check("قائمة اعتماد: تاريخ إضافة المنافسة للنظام بتوقيت الرياض",
+          _added.startswith(_now_ksa) and len(_added) == 16, _added)
     check("قائمة اعتماد: المنتهية مخفية افتراضياً وتظهر عند الطلب",
           "OLD1" not in [t["tender_key"] for t in _et.list_tenders()]
           and "OLD1" in [t["tender_key"] for t in _et.list_tenders(include_closed=True)])
