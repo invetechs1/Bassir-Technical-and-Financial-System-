@@ -23,6 +23,12 @@ from .tenancy import cid
 VISITOR_API = "https://tenders.etimad.sa/Tender/AllSupplierTendersForVisitorAsync"
 VISITOR_API_FALLBACK = "https://tenders.etimad.sa/Tender/AllTendersForVisitorAsync"
 DETAILS_URL = "https://tenders.etimad.sa/Tender/DetailsForVisitor?STenderId={}"
+# التأهيل المسبق قسم مستقل في اعتماد (ليس نوع منافسة) — اكتُشف واختُبر على المنصة نفسها
+PREQUAL_API = "https://tenders.etimad.sa/Qualification/AllPreQualificationsAsync"
+PREQUAL_DETAILS_URL = "https://tenders.etimad.sa/Qualification/PrequalificationVisitorDetails/{}"
+DIRECT_PURCHASE_TYPE_ID = 2        # tenderTypeId «شراء مباشر» في واجهة الزوار
+KINDS = ("tender", "direct", "prequal")
+_PAGE_DELAY = 3.0                  # ثوانٍ بين الصفحات — الطلبات المتلاحقة تُرفض (HTTP 400)
 COOKIES_FILE = DATA_DIR / "etimad_cookies.json"
 
 _HEADERS = {
@@ -49,11 +55,12 @@ CREATE TABLE IF NOT EXISTS etimad_tenders (
     raw TEXT DEFAULT '{}',
     fetched_at TEXT NOT NULL,
     published TEXT DEFAULT '',
+    kind TEXT DEFAULT 'tender',
     UNIQUE (company_id, tender_key)
 );
 """
 _COLS = ("id, company_id, tender_key, name, agency, activity, tender_type, deadline, booklet_price, "
-         "details_url, relevance, matched_ref, status, raw, fetched_at, published")
+         "details_url, relevance, matched_ref, status, raw, fetched_at, published, kind")
 
 
 def init_etimad_table():
@@ -63,12 +70,16 @@ def init_etimad_table():
         _ensure_column(db, "etimad_tenders", "company_id", "INTEGER NOT NULL DEFAULT 1")
         # تاريخ النشر في اعتماد — القائمة تُرتَّب به (الأحدث أولاً) لا بالملاءمة
         _ensure_column(db, "etimad_tenders", "published", "TEXT DEFAULT ''")
+        # نوع القائمة: منافسات / شراء مباشر / تأهيل مسبق — كل منها صفحة مستقلة
+        _ensure_column(db, "etimad_tenders", "kind", "TEXT DEFAULT 'tender'")
+        db.execute("UPDATE etimad_tenders SET kind = 'direct' WHERE kind = 'tender' AND tender_type = 'شراء مباشر'")
         # ترقية: كان رقم المنافسة فريداً على مستوى النظام كله، فإذا جلبتها شركة أولاً
         # تتجاهلها البقية بصمت («0 جديدة» دائماً) — صار فريداً لكل شركة
         sql = (db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='etimad_tenders'")
                .fetchone() or {"sql": ""})["sql"] or ""
         if "UNIQUE (company_id, tender_key)" not in sql:
             _ensure_column(db, "etimad_tenders", "published", "TEXT DEFAULT ''")
+            _ensure_column(db, "etimad_tenders", "kind", "TEXT DEFAULT 'tender'")
             db.executescript(f"""
                 ALTER TABLE etimad_tenders RENAME TO etimad_tenders_old;
                 {SCHEMA}
@@ -136,12 +147,51 @@ def _total(data) -> int:
 
 
 def _published(t: dict) -> datetime | None:
-    return _parse_date(_pick(t, "submitionDate", "tenderPublishDate", "publishDate", "insertDate", "createdAt"))
+    return _parse_date(_pick(t, "submitionDate", "tenderPublishDate", "publishDate", "insertDate", "createdAt",
+                             "createdDate"))
 
 
-def _get_page(page: int, page_size: int, errors: list):
-    params = urllib.parse.urlencode({"PageSize": page_size, "PageNumber": page})
-    for api in (VISITOR_API, VISITOR_API_FALLBACK):
+def _url_id(raw: str) -> str:
+    """معرّف اعتماد مشفّر Base64 تصل فيه «+» مسافةً في JSON — تُعاد «+» قبل ترميز الرابط."""
+    return urllib.parse.quote(raw.replace(" ", "+"), safe="")
+
+
+def _row_fields(t: dict, kind: str) -> dict | None:
+    """حقول السجل الموحدة من صف اعتماد — المنافسات والتأهيل بأسماء حقول مختلفة."""
+    if kind == "prequal":
+        raw_key = str(_pick(t, "tenderIdString", "tenderId", default=""))
+        name = str(_pick(t, "qualificationName", "tenderName", "name"))
+        if not raw_key or not name:
+            return None
+        return {"key": f"PQ:{raw_key}", "name": name, "agency": str(_pick(t, "agencyName", "agency")),
+                "activity": str(_pick(t, "activityDescription", "tenderActivityName")),
+                "tender_type": str(_pick(t, "qualificationTypeName", default="تأهيل مسبق")),
+                "deadline_raw": _pick(t, "lastOfferPresentationDate", "offersCheckingDate"),
+                "booklet": "", "url": PREQUAL_DETAILS_URL.format(_url_id(raw_key)),
+                "published": str(_pick(t, "createdDate", "submitionDate"))[:16].replace("T", " "),
+                "kind": "prequal"}
+    key = str(_pick(t, "tenderIdString", "tenderId", "id", default=""))
+    name = str(_pick(t, "tenderName", "name"))
+    if not key or not name:
+        return None
+    ttype = str(_pick(t, "tenderTypeName", "tenderType"))
+    is_direct = str(_pick(t, "tenderTypeId", default="")) == str(DIRECT_PURCHASE_TYPE_ID) or ttype == "شراء مباشر"
+    return {"key": key, "name": name, "agency": str(_pick(t, "agencyName", "agency")),
+            "activity": str(_pick(t, "tenderActivityName", "activityName")), "tender_type": ttype,
+            "deadline_raw": _pick(t, "lastOfferPresentationDate", "offersDeadline", "lastEnqueriesDate"),
+            "booklet": str(_pick(t, "condetionalBookletPrice", "bookletPrice", "financialFees")),
+            "url": DETAILS_URL.format(_url_id(key)),
+            "published": str(_pick(t, "submitionDate", "createdAt", "tenderPublishDate"))[:16].replace("T", " "),
+            "kind": "direct" if is_direct else "tender"}
+
+
+def _get_page(page: int, page_size: int, errors: list, kind: str = "tender"):
+    q = {"PageSize": page_size, "PageNumber": page}
+    if kind == "direct":
+        q["TenderTypeId"] = DIRECT_PURCHASE_TYPE_ID
+    params = urllib.parse.urlencode(q)
+    apis = (PREQUAL_API,) if kind == "prequal" else (VISITOR_API, VISITOR_API_FALLBACK)
+    for api in apis:
         try:
             return _http_get(f"{api}?{params}")
         except Exception as exc:
@@ -149,7 +199,7 @@ def _get_page(page: int, page_size: int, errors: list):
     return None
 
 
-def fetch_tenders(pages: int = 3, page_size: int = 50) -> dict:
+def fetch_tenders(pages: int = 3, page_size: int = 24, kind: str = "tender") -> dict:
     """جلب أحدث المنافسات المفتوحة من واجهة الزوار وتخزين الجديد منها مع درجة الملاءمة.
 
     واجهة الزوار بلا فلاتر تُعيد كل منافسات المنصة (~288 ألفاً بكل حالاتها) وبترتيب لا
@@ -160,10 +210,12 @@ def fetch_tenders(pages: int = 3, page_size: int = 50) -> dict:
     from .database import list_proposals_full
     from .similarity import find_similar
 
+    import time
     init_etimad_table()
+    kind = kind if kind in KINDS else "tender"
     pages = max(1, min(int(pages or 3), 10))
     errors: list = []
-    first = _get_page(1, page_size, errors)
+    first = _get_page(1, page_size, errors, kind)
     if first is None:
         return {
             "ok": False, "added": 0, "scanned": 0,
@@ -189,7 +241,9 @@ def fetch_tenders(pages: int = 3, page_size: int = 50) -> dict:
     stats = {"scanned": 0, "added": 0, "existing": 0, "expired": 0}
     read = 0
     for page in order:
-        data = first if page == 1 else _get_page(page, page_size, errors)
+        if page != 1 and _PAGE_DELAY:
+            time.sleep(_PAGE_DELAY)
+        data = first if page == 1 else _get_page(page, page_size, errors, kind)
         rows = _rows(data) if data is not None else []
         if not rows:
             break
@@ -197,11 +251,10 @@ def fetch_tenders(pages: int = 3, page_size: int = 50) -> dict:
         new_here = 0
         for t in rows:
             stats["scanned"] += 1
-            key = str(_pick(t, "tenderIdString", "tenderId", "id", default=""))
-            name = str(_pick(t, "tenderName", "name"))
-            if not key or not name:
+            f = _row_fields(t, kind)
+            if not f:
                 continue
-            deadline_raw = _pick(t, "lastOfferPresentationDate", "offersDeadline", "lastEnqueriesDate")
+            key, name, deadline_raw = f["key"], f["name"], f["deadline_raw"]
             dl = _parse_date(deadline_raw)
             if dl and dl.date() < now.date():
                 stats["expired"] += 1
@@ -211,24 +264,20 @@ def fetch_tenders(pages: int = 3, page_size: int = 50) -> dict:
                               (cid(), key)).fetchone():
                     stats["existing"] += 1
                     continue
-            agency = str(_pick(t, "agencyName", "agency"))
+            agency = f["agency"]
             matches = find_similar(f"{name} {agency}", top_n=1, proposals=proposals)
             with get_db() as db:
                 cur = db.execute(
                     "INSERT OR IGNORE INTO etimad_tenders "
                     "(company_id, tender_key, name, agency, activity, tender_type, deadline, booklet_price, "
-                    " details_url, relevance, matched_ref, raw, fetched_at, published) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (cid(), key, name, agency,
-                     str(_pick(t, "tenderActivityName", "activityName")),
-                     str(_pick(t, "tenderTypeName", "tenderType")),
+                    " details_url, relevance, matched_ref, raw, fetched_at, published, kind) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (cid(), key, name, agency, f["activity"], f["tender_type"],
                      (dl.strftime("%Y-%m-%d") if dl else str(deadline_raw)[:16]),
-                     str(_pick(t, "condetionalBookletPrice", "bookletPrice", "financialFees")),
-                     DETAILS_URL.format(urllib.parse.quote(key)),
+                     f["booklet"], f["url"],
                      matches[0]["score"] if matches else 0,
                      matches[0]["title"][:80] if matches else "",
-                     json.dumps(t, ensure_ascii=False)[:8000], now_iso(),
-                     str(_pick(t, "submitionDate", "createdAt", "tenderPublishDate"))[:16].replace("T", " ")),
+                     json.dumps(t, ensure_ascii=False)[:8000], now_iso(), f["published"], f["kind"]),
                 )
             if cur.rowcount:
                 stats["added"] += 1
@@ -236,7 +285,8 @@ def fetch_tenders(pages: int = 3, page_size: int = 50) -> dict:
         # من البداية: نكمل ما دامت الصفحات تأتي بجديد، ونقف عند أول صفحة بلا جديد بعد الحد
         if not ascending and read >= pages and new_here == 0:
             break
-    parts = [f"فُحصت {stats['scanned']} منافسة من {read} صفحة"]
+    noun = {"prequal": "دعوة تأهيل", "direct": "شراء مباشر"}.get(kind, "منافسة")
+    parts = [f"فُحصت {stats['scanned']} {noun} من {read} صفحة"]
     if total:
         parts.append(f"إجمالي المنصة {total:,}")
     parts.append(f"جديدة {stats['added']}")
@@ -249,14 +299,14 @@ def fetch_tenders(pages: int = 3, page_size: int = 50) -> dict:
 
 
 def list_tenders(status: str = "", q: str = "", min_relevance: int = 0, sort: str = "newest",
-                 include_closed: bool = False) -> list[dict]:
+                 include_closed: bool = False, kind: str = "tender") -> list[dict]:
     """الأحدث نشراً أولاً (كان الترتيب بالملاءمة فتغرق منافسات اليوم تحت القديمة ولا
     تظهر)، والمنتهية مواعيدها مخفية افتراضياً. sort=relevance للترتيب بالملاءمة."""
     init_etimad_table()
     query = ("SELECT id, tender_key, name, agency, activity, tender_type, deadline, "
-             "booklet_price, details_url, relevance, matched_ref, status, fetched_at, published "
-             "FROM etimad_tenders WHERE company_id = ? AND relevance >= ?")
-    params: list = [cid(), min_relevance]
+             "booklet_price, details_url, relevance, matched_ref, status, fetched_at, published, kind "
+             "FROM etimad_tenders WHERE company_id = ? AND relevance >= ? AND COALESCE(kind, 'tender') = ?")
+    params: list = [cid(), min_relevance, kind if kind in KINDS else "tender"]
     if not include_closed:
         query += " AND (deadline = '' OR deadline >= ?)"
         params.append(datetime.now().strftime("%Y-%m-%d"))
@@ -289,17 +339,42 @@ def _riyadh(iso: str | None) -> str:
     return dt.strftime("%Y-%m-%d %H:%M")
 
 
-def status_counts(include_closed: bool = False) -> dict:
+def status_counts(include_closed: bool = False, kind: str = "tender") -> dict:
     """عدد المنافسات لكل حالة (جديدة/مهتمون/مستبعدة/أُنشئ عرض) لأزرار التصفية السريعة."""
     init_etimad_table()
-    query = "SELECT status, COUNT(*) AS n FROM etimad_tenders WHERE company_id = ?"
-    params: list = [cid()]
+    query = "SELECT status, COUNT(*) AS n FROM etimad_tenders WHERE company_id = ? AND COALESCE(kind, 'tender') = ?"
+    params: list = [cid(), kind if kind in KINDS else "tender"]
     if not include_closed:
         query += " AND (deadline = '' OR deadline >= ?)"
         params.append(datetime.now().strftime("%Y-%m-%d"))
     with get_db() as db:
         rows = db.execute(query + " GROUP BY status", params).fetchall()
     return {r["status"]: r["n"] for r in rows}
+
+
+def kind_counts() -> dict:
+    """عدد المفتوح في كل قائمة — لعدّادات القائمة الجانبية."""
+    init_etimad_table()
+    with get_db() as db:
+        rows = db.execute("SELECT COALESCE(kind, 'tender') AS k, COUNT(*) AS n FROM etimad_tenders "
+                          "WHERE company_id = ? AND (deadline = '' OR deadline >= ?) GROUP BY k",
+                          (cid(), datetime.now().strftime("%Y-%m-%d"))).fetchall()
+    return {r["k"]: r["n"] for r in rows}
+
+
+def get_tender(tid: int) -> dict | None:
+    init_etimad_table()
+    with get_db() as db:
+        r = db.execute("SELECT * FROM etimad_tenders WHERE id = ? AND company_id = ?", (int(tid), cid())).fetchone()
+    if not r:
+        return None
+    d = dict(r)
+    try:
+        d["raw"] = json.loads(d.get("raw") or "{}")
+    except ValueError:
+        d["raw"] = {}
+    d["added"] = _riyadh(d.get("fetched_at"))
+    return d
 
 
 def update_tender_status(tid: int, status: str):

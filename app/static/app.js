@@ -112,13 +112,16 @@ function go(page) {
     return;
   }
   $$(".page").forEach((p) => p.classList.remove("active"));
-  $(`#page-${page}`).classList.add("active");
+  // الشراء المباشر والتأهيل المسبق صفحتان تشتركان في قالب صفحة اعتماد بنوع مختلف
+  const ET_PAGE_KIND = { etimad: "tender", direct: "direct", prequal: "prequal" };
+  if (ET_PAGE_KIND[page]) ET_KIND = ET_PAGE_KIND[page];
+  $(`#page-${ET_PAGE_KIND[page] ? "etimad" : page}`).classList.add("active");
   $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.page === page));
   if (page === "dashboard") loadDashboard();
   if (page === "proposals") loadProposals();
   if (page === "prices") loadPrices();
   if (page === "library") loadLibrary();
-  if (page === "etimad") loadEtimad();
+  if (ET_PAGE_KIND[page]) { applyEtKind(); loadEtimad(); }
   if (page === "forsah") loadForsah();
   if (page === "leads") loadLeads();
   if (page === "repo") loadRepo();
@@ -142,6 +145,8 @@ async function loadNavCounts() {
     setCount("cntLibrary", c.library);
     setCount("cntRepo", c.repo_files);
     setCount("cntEtimad", c.etimad);
+    setCount("cntDirect", c.direct);
+    setCount("cntPrequal", c.prequal);
     setCount("cntForsah", c.forsah);
     setCount("cntLeads", c.leads);
     setCount("cntDocs", c.docs);
@@ -740,11 +745,24 @@ async function removeLibrary(id) {
 const ET_STATUSES = ["جديدة", "مهتمون", "مستبعدة", "أُنشئ عرض"];
 const ET_STATUS_KEY = { "جديدة": "et_status_new", "مهتمون": "et_status_interested", "مستبعدة": "et_status_excluded", "أُنشئ عرض": "et_status_created" };
 
+let ET_KIND = "tender";
+const ET_KIND_TEXT = {
+  tender: { title: "etimad_title", sub: "etimad_sub", btn: "fetch_btn" },
+  direct: { title: "direct_title", sub: "direct_sub", btn: "direct_fetch_btn" },
+  prequal: { title: "prequal_title", sub: "prequal_sub", btn: "prequal_fetch_btn" },
+};
+function applyEtKind() {
+  const k = ET_KIND_TEXT[ET_KIND];
+  $("#etTitle").textContent = t(k.title);
+  $("#etSub").textContent = t(k.sub);
+  $("#etimadFetchBtn").textContent = t(k.btn);
+}
+
 async function fetchEtimad() {
   $("#etimadFetchBtn").disabled = true;
   $("#etSpinner").classList.add("on");
   try {
-    const r = await api("/api/etimad/fetch?pages=3", { method: "POST" });
+    const r = await api(`/api/etimad/fetch?pages=3&kind=${ET_KIND}`, { method: "POST" });
     if (r.ok) toast(r.message && getLang() === "ar" ? `✅ ${r.message}` : `${t("msg_fetch_ok")} ${r.scanned} ${t("msg_fetch_ok_mid")} ${r.added} ${t("msg_fetch_ok_end")}`);
     else toast(r.error, true);
     loadEtimad();
@@ -763,6 +781,7 @@ async function loadEtimad() {
     min_relevance: $("#etRelevant").checked ? 15 : 0,
     sort: $("#etSort")?.value || "newest",
     closed: $("#etClosed")?.checked ? 1 : 0,
+    kind: ET_KIND,
   });
   const data = await api(`/api/etimad?${params}`);
   ET_TENDERS = data.tenders;
@@ -779,7 +798,9 @@ async function loadEtimad() {
       <td><select onchange="setEtStatus(${t3.id}, this.value)" style="padding:4px 8px;font-size:12px">
         ${ET_STATUSES.map((s) => `<option value="${s}" ${s === t3.status ? "selected" : ""}>${t(ET_STATUS_KEY[s])}</option>`).join("")}</select></td>
       <td>
-        <button class="btn sm ghost" onclick="etToProposal(${idx})">${t("create_proposal_btn")}</button>
+        ${ET_KIND === "prequal"
+          ? `<button class="btn sm ${t3.has_dossier ? "ghost" : "gold"}" onclick="openPrequal(${idx})">${t3.has_dossier ? "✓ " + t("pq_open_btn") : t("pq_row_btn")}</button>`
+          : `<button class="btn sm ghost" onclick="etToProposal(${idx})">${t("create_proposal_btn")}</button>`}
       </td>
     </tr>`).join("") ||
     `<tr><td colspan="8" class="muted">${t("empty_tenders")}</td></tr>`;
@@ -805,6 +826,59 @@ function setEtStatus(id, status) {
 }
 
 let ET_TENDERS = [];
+
+/* ---------- وكيل التأهيل المسبق ---------- */
+let PQ_TENDER = null;
+function closePrequal() { $("#prequalModal").style.display = "none"; }
+async function openPrequal(idx) {
+  PQ_TENDER = ET_TENDERS[idx];
+  if (!PQ_TENDER) return;
+  $("#pqInvite").textContent = `${PQ_TENDER.name} — ${PQ_TENDER.agency} — ${t("th_deadline")}: ${PQ_TENDER.deadline || "—"}`;
+  $("#pqFiles").value = ""; $("#pqNotes").value = ""; $("#pqResult").innerHTML = "";
+  $("#prequalModal").style.display = "flex";
+  try { renderPrequal(await api(`/api/prequal/${PQ_TENDER.id}`)); } catch (e) { /* لم يُبنَ بعد */ }
+}
+async function buildPrequal() {
+  if (!PQ_TENDER) return;
+  const form = new FormData();
+  form.append("notes", $("#pqNotes").value.trim());
+  for (const f of $("#pqFiles").files) form.append("files", f);
+  $("#pqBuildBtn").disabled = true; $("#pqSpinner").classList.add("on");
+  try {
+    renderPrequal(await api(`/api/prequal/${PQ_TENDER.id}/build`, { method: "POST", body: form }));
+    toast(t("pq_built"));
+    loadEtimad();
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    $("#pqBuildBtn").disabled = false; $("#pqSpinner").classList.remove("on");
+  }
+}
+const PQ_CRIT = { experience: "pq_c_experience", financial: "pq_c_financial", staff: "pq_c_staff", equipment: "pq_c_equipment",
+  quality: "pq_c_quality", legal: "pq_c_legal", local: "pq_c_local" };
+function renderPrequal(r) {
+  const color = { green: "#1E7A46", amber: "#B7791F", red: "#B03A2E" }[r.tone] || "#555";
+  const id = PQ_TENDER.id;
+  const bars = Object.keys(PQ_CRIT).map((k) => `<div class="fin-row"><span>${t(PQ_CRIT[k])} <span class="muted">(${r.weights[k] || 0}%)</span></span>
+      <span style="flex:1;margin:0 10px;height:8px;background:var(--line);border-radius:6px;overflow:hidden"><i style="display:block;height:100%;width:${r.scores[k] || 0}%;background:${color}"></i></span>
+      <b class="num-cell">${r.scores[k] || 0}%</b></div>`).join("");
+  const gaps = (r.gaps || []).map((g) => `<tr><td><span class="tag ${g.priority === "حرجة" ? "draft" : g.priority === "عالية" ? "est" : "src"}">${escH(g.priority)}</span></td><td>${escH(g.gap)}</td><td>${escH(g.action)}</td></tr>`).join("");
+  const sims = (r.similar || []).map((p) => `<li>${escH(p.name)} <span class="muted">— ${escH(p.client || "")} (${p.score}%)</span></li>`).join("");
+  $("#pqResult").innerHTML = `
+    <div class="panel" style="background:${color};color:#fff;display:flex;justify-content:space-between;align-items:center">
+      <div><b style="font-size:18px">${escH(r.verdict)}</b><br><small>${escH(r.fit?.note || "")} · ${escH(r.category || "")}</small></div>
+      <b style="font-size:34px">${r.total}%</b></div>
+    <p class="muted">${t("pq_source")}: ${escH(r.requirements_source)}${r.days_left != null ? ` · ${t("pq_days_left")}: <b>${r.days_left}</b>` : ""} · ${t("pq_engine")}: ${r.engine === "claude" ? "Claude" : t("engine_template")}</p>
+    <div class="panel"><h3>${t("pq_scores_title")}</h3>${bars}</div>
+    ${gaps ? `<div class="panel"><h3>${t("pq_gaps_title")}</h3><div class="t-wrap"><table><thead><tr><th>${t("pq_priority")}</th><th>${t("pq_gap")}</th><th>${t("pq_action")}</th></tr></thead><tbody>${gaps}</tbody></table></div></div>` : ""}
+    ${sims ? `<div class="panel"><h3>${t("pq_similar_title")}</h3><ul>${sims}</ul></div>` : ""}
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <button class="btn" onclick="window.open('/api/prequal/${id}/pdf?kind=dossier','_blank')">⬇️ ${t("pq_pdf_dossier")}</button>
+      <button class="btn ghost" onclick="window.open('/api/prequal/${id}/preview?kind=dossier','_blank')">👁️ ${t("pq_preview_dossier")}</button>
+      <button class="btn ghost" onclick="window.open('/api/prequal/${id}/pdf?kind=assessment','_blank')">🔒 ${t("pq_pdf_assessment")}</button>
+      <button class="btn ghost" onclick="window.open('/api/prequal/${id}/preview?kind=assessment','_blank')">👁️ ${t("pq_preview_assessment")}</button>
+    </div>`;
+}
 function etToProposal(idx) {
   const t3 = ET_TENDERS[idx];
   if (!t3) return;

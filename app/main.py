@@ -52,6 +52,8 @@ def startup():
     init_leads_tables()
     from .company_profile import init_profile_tables
     init_profile_tables()
+    from .prequal import init_prequal_tables
+    init_prequal_tables()
     _convert_legacy_logos()
     _cleanup_stale_exports()
     if os.environ.get("AZOOM_DISABLE_BACKGROUND") != "1":
@@ -186,7 +188,7 @@ async def auth_guard(request: Request, call_next):
 
     # بوابات الميزات: 402 لا 403 — الواجهة تعرض دعوة الترقية
     limits = tenancy.PLAN_LIMITS.get(company_row.get("plan", "trial"), tenancy.PLAN_LIMITS["trial"])
-    if _under(path, ("/api/etimad", "/api/forsah", "/api/leads")) and not limits.get("integrations"):
+    if _under(path, ("/api/etimad", "/api/forsah", "/api/leads", "/api/prequal")) and not limits.get("integrations"):
         return JSONResponse({"detail": "ربط اعتماد وفرصة ووكيل فرص السوق متاح في الخطة الاحترافية فأعلى — رقّوا الاشتراك."},
                             status_code=402)
     if _under(path, ("/api/style-profile", "/api/paragraph-bank", "/api/paragraphs",
@@ -615,6 +617,8 @@ def status():
         "library": len(db.list_library()),
         "repo_files": stats["repo_files"],
         "etimad": len(list_tenders()),
+        "direct": len(list_tenders(kind="direct")),
+        "prequal": len(list_tenders(kind="prequal")),
         "forsah": len(list_projects()),
         "leads": pipeline_stats()["total"],
         "docs": len(db.list_company_docs()),
@@ -1103,15 +1107,100 @@ def paragraph_approve(pid: int, body: dict):
 # ------------------------ منافسات اعتماد ------------------------
 
 @app.post("/api/etimad/fetch")
-def etimad_fetch(pages: int = 3):
-    return fetch_tenders(pages=max(1, min(pages, 10)))
+def etimad_fetch(pages: int = 3, kind: str = "tender"):
+    """kind: tender (المنافسات) | direct (الشراء المباشر) | prequal (التأهيل المسبق)."""
+    return fetch_tenders(pages=max(1, min(pages, 10)), kind=kind)
 
 
 @app.get("/api/etimad")
-def etimad_list(status: str = "", q: str = "", min_relevance: int = 0, sort: str = "newest", closed: int = 0):
-    from .etimad import status_counts
-    return {"tenders": list_tenders(status, q, min_relevance, sort=sort, include_closed=bool(closed)),
-            "counts": status_counts(include_closed=bool(closed)), "session": has_session()}
+def etimad_list(status: str = "", q: str = "", min_relevance: int = 0, sort: str = "newest", closed: int = 0,
+                kind: str = "tender"):
+    from .etimad import kind_counts, status_counts
+    tenders = list_tenders(status, q, min_relevance, sort=sort, include_closed=bool(closed), kind=kind)
+    if kind == "prequal":
+        from .prequal import dossier_tender_ids
+        built = dossier_tender_ids()
+        for t in tenders:
+            t["has_dossier"] = t["id"] in built
+    return {"tenders": tenders, "counts": status_counts(include_closed=bool(closed), kind=kind),
+            "kinds": kind_counts(), "session": has_session()}
+
+
+# ------------------------ وكيل التأهيل المسبق ------------------------
+
+def _prequal_tender(tid: int) -> dict:
+    from .etimad import get_tender
+    t = get_tender(tid)
+    if not t:
+        raise HTTPException(404, "الدعوة غير موجودة")
+    return t
+
+
+@app.post("/api/prequal/{tid}/build")
+def prequal_build(tid: int, notes: str = Form(""), files: list[UploadFile] = File(default=[])):
+    """يبني ملف التأهيل: كراسة التأهيل المرفوعة (اختيارية) + بيانات الشركة المخزنة."""
+    from .prequal import build_dossier, save_dossier
+    tender = _prequal_tender(tid)
+    doc_text = _read_uploads_text(files) if files else ""
+    dossier = build_dossier(tender, doc_text=doc_text, notes=notes[:2000])
+    dossier["dossier_id"] = save_dossier(tid, dossier)
+    if tender.get("status") in ("جديدة", "مهتمون"):
+        update_tender_status(tid, "أُنشئ عرض")
+    return _prequal_summary(dossier)
+
+
+def _prequal_summary(d: dict) -> dict:
+    a = d["assessment"]
+    return {"ok": True, "dossier_id": d.get("dossier_id"), "built_at": d.get("built_at"),
+            "engine": d["writing"].get("engine"), "verdict": a["verdict"], "tone": a["tone"], "total": a["total"],
+            "scores": a["scores"], "weights": d["weights"], "gaps": a["gaps"], "fit": d["fit"],
+            "category": d["category_label"], "requirements": len(d["requirements"]),
+            "requirements_source": d["requirements_source"], "similar": [
+                {"name": p["name"], "client": p.get("client"), "score": p["score"]} for p in d["experience"]["selected"][:6]],
+            "days_left": d.get("days_left"), "panel": d["panel"]}
+
+
+@app.get("/api/prequal/{tid}")
+def prequal_get(tid: int):
+    from .prequal import latest_dossier
+    _prequal_tender(tid)
+    d = latest_dossier(tid)
+    if not d:
+        raise HTTPException(404, "لم يُبنَ ملف تأهيل لهذه الدعوة بعد")
+    return _prequal_summary(d)
+
+
+def _prequal_doc(tid: int, kind: str) -> dict:
+    from .prequal import latest_dossier
+    if kind not in ("dossier", "assessment"):
+        raise HTTPException(400, "kind: dossier أو assessment")
+    _prequal_tender(tid)
+    d = latest_dossier(tid)
+    if not d:
+        raise HTTPException(404, "لم يُبنَ ملف تأهيل لهذه الدعوة بعد")
+    return d
+
+
+@app.get("/api/prequal/{tid}/pdf")
+def prequal_pdf(tid: int, kind: str = "dossier"):
+    from .prequal_pdf import render_pdf
+    d = _prequal_doc(tid, kind)
+    try:
+        content = render_pdf(d, _branded_settings(), kind)
+    except Exception as exc:
+        raise HTTPException(503, "تعذّر إنشاء PDF — ثبّت المتصفح على الخادم: "
+                                 "playwright install --with-deps chromium" + f" ({str(exc)[:120]})")
+    label = "Prequalification" if kind == "dossier" else "Readiness-Internal"
+    return _download(content, "application/pdf", f"PQ-{tid}-{label}.pdf")
+
+
+@app.get("/api/prequal/{tid}/preview")
+def prequal_preview(tid: int, kind: str = "dossier"):
+    from .prequal_pdf import build_html
+    d = _prequal_doc(tid, kind)
+    return Response(build_html(d, _branded_settings(), kind), media_type="text/html; charset=utf-8",
+                    headers={"Cache-Control": "no-store",
+                             "Content-Security-Policy": "default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'"})
 
 
 @app.put("/api/etimad/{tid}")

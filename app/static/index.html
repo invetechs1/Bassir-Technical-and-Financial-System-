@@ -33,6 +33,8 @@
     <button class="nav-btn" data-page="execution" data-i18n="nav_execution">تنفيذ المشاريع</button>
     <div class="nav-group" data-i18n="navgrp_opportunities">الفرص</div>
     <button class="nav-btn" data-page="etimad" data-i18n="nav_etimad">منافسات اعتماد<span class="nav-count" id="cntEtimad">—</span></button>
+    <button class="nav-btn" data-page="direct" data-i18n="nav_direct">الشراء المباشر<span class="nav-count" id="cntDirect">—</span></button>
+    <button class="nav-btn" data-page="prequal" data-i18n="nav_prequal">التأهيل المسبق<span class="nav-count" id="cntPrequal">—</span></button>
     <button class="nav-btn" data-page="forsah" data-i18n="nav_forsah">مشاريع منصة فرصة<span class="nav-count" id="cntForsah">—</span></button>
     <button class="nav-btn" data-page="leads" data-i18n="nav_leads">فرص القطاع الخاص<span class="nav-count" id="cntLeads">—</span></button>
     <div class="nav-group" data-i18n="navgrp_company">الشركة</div>
@@ -275,7 +277,7 @@
     <!-- منافسات اعتماد -->
     <section class="page" id="page-etimad">
       <div class="page-head">
-        <div><h2 data-i18n="etimad_title">منافسات اعتماد</h2><p data-i18n="etimad_sub">جلب المنافسات المطروحة من منصة اعتماد وترتيبها حسب ملاءمتها لنشاط عزوم — وافق على منافسة ليحلل النظام فرصتها ويبني عرضها</p></div>
+        <div><h2 id="etTitle" data-i18n="etimad_title">منافسات اعتماد</h2><p id="etSub" data-i18n="etimad_sub">جلب المنافسات المطروحة من منصة اعتماد وترتيبها حسب ملاءمتها لنشاط عزوم — وافق على منافسة ليحلل النظام فرصتها ويبني عرضها</p></div>
         <button class="btn gold" id="etimadFetchBtn" onclick="fetchEtimad()" data-i18n="fetch_btn">⬇️ جلب المنافسات من اعتماد</button>
       </div>
       <div class="panel" id="etimadSessionNote" style="display:none">
@@ -1091,6 +1093,28 @@
       <button class="btn ghost" onclick="closeOnboarding()" data-i18n="onb_later_btn">لاحقاً</button>
       <button class="btn" onclick="finishOnboarding()" data-i18n="onb_finish_btn">✅ إنهاء التهيئة</button>
     </footer>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="prequalModal" style="display:none" onclick="if(event.target===this) closePrequal()">
+  <div class="modal" style="width:760px;max-height:90vh;overflow:auto">
+    <header>
+      <div>
+        <h3 data-i18n="pq_modal_title">🏅 ملف التأهيل المسبق</h3>
+        <p id="pqInvite" class="muted"></p>
+      </div>
+      <button class="btn sm ghost" onclick="closePrequal()">✕</button>
+    </header>
+    <div class="body">
+      <p class="muted" data-i18n="pq_how">يبني فريق الخبراء ملف التأهيل من بيانات شركتك المخزنة (الملف التعريفي، المشاريع وقيمها، الوثائق وتواريخ انتهائها، الكوادر والمعدات). ارفع كراسة/شروط التأهيل من اعتماد ليبني الملف على اشتراطات الجهة وأوزانها بالضبط.</p>
+      <div><label data-i18n="pq_files_label">كراسة التأهيل وشروطه (PDF / Word / Excel) — اختياري لكنه يرفع الدقة</label>
+        <input type="file" id="pqFiles" multiple accept=".pdf,.docx,.xlsx,.xlsm,.txt"></div>
+      <div><label data-i18n="pq_notes_label">ملاحظات للفريق (اختياري)</label>
+        <textarea id="pqNotes" rows="2" data-i18n-ph="pq_notes_ph" placeholder="مثال: نتقدم بتحالف مع شركة كذا، أو ركّزوا على خبرتنا في المشاريع العسكرية"></textarea></div>
+      <div class="mt"><button class="btn gold" id="pqBuildBtn" onclick="buildPrequal()" data-i18n="pq_build_btn">🏅 ابنِ ملف التأهيل</button>
+        <span class="spinner" id="pqSpinner"><span class="dot"></span><span data-i18n="pq_building">فريق الخبراء يعمل على الملف...</span></span></div>
+      <div id="pqResult" class="mt"></div>
+    </div>
   </div>
 </div>
 

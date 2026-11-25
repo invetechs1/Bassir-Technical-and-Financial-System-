@@ -11,6 +11,7 @@
 import atexit
 import io
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -491,6 +492,7 @@ check("خطة تجريبية للشركة الجديدة", me4.get("plan") == "t
 
 # بوابات الميزات: التجريبي بلا اعتماد/فرصة ولا محرك أسلوب → 402
 check("بوابة الميزات: اعتماد 402 للخطة التجريبية", c4.get("/api/etimad").status_code == 402)
+check("بوابة الميزات: وكيل التأهيل المسبق 402 للخطة التجريبية", c4.post("/api/prequal/1/build").status_code == 402)
 check("بوابة الميزات: بصمة الكتابة 402 للخطة التجريبية",
       c4.get("/api/style-profile").status_code == 402)
 check("عزوم (مؤسسي) تصل لاعتماد طبيعياً", c.get("/api/etimad").status_code == 200)
@@ -1969,11 +1971,12 @@ def _fake_get(url, timeout=30):
 import urllib.parse
 _orig_get = _et._http_get
 _et._http_get = _fake_get
+_et._PAGE_DELAY = 0          # الإنتاج يتمهل 3 ثوانٍ بين الصفحات (اعتماد ترفض المتلاحقة) — لا داعي في الفحص
 try:
     _r1 = _et.fetch_tenders(pages=2)
     _r2 = _et.fetch_tenders(pages=2)
     check("اعتماد: يكتشف أن الأحدث في آخر الصفحات ويجلب منافسات مفتوحة جديدة",
-          _r1["ok"] and _r1["order"] == "newest_last" and _r1["added"] >= 50, str(_r1)[:200])
+          _r1["ok"] and _r1["order"] == "newest_last" and _r1["added"] >= 40, str(_r1)[:200])   # صفحتان × 24 (حد المنصة)
     check("اعتماد: المنتهية مواعيدها لا تُضاف، والتكرار يُحصى «موجودة مسبقاً» مع رسالة تشرح النتيجة",
           _r2["added"] == 0 and _r2["existing"] == _r1["added"] and "موجودة مسبقاً" in _r2["message"], str(_r2)[:200])
     with _gdb4() as _db:
@@ -2147,6 +2150,115 @@ try:
     check("قائمة اعتماد: المنتهية مخفية افتراضياً وتظهر عند الطلب",
           "OLD1" not in [t["tender_key"] for t in _et.list_tenders()]
           and "OLD1" in [t["tender_key"] for t in _et.list_tenders(include_closed=True)])
+finally:
+    _et._http_get = _orig_get
+
+# ---------- الشراء المباشر والتأهيل المسبق (صفحتان جديدتان) ووكيل التأهيل ----------
+# معرّفات حقيقية اختُبرت على المنصة: tenderTypeId=2 «شراء مباشر» عبر TenderTypeId، والتأهيل
+# المسبق قسم مستقل /Qualification/AllPreQualificationsAsync بحقول qualificationName/createdDate
+_seen_urls = []
+_ksa_tomorrow = (_dt3.date.today() + _dt3.timedelta(days=14)).isoformat()
+
+
+def _fake_kinds(url, timeout=30):
+    _seen_urls.append(url)
+    if not re.search(r"PageNumber=1(&|$)", url):
+        return {"data": [], "totalCount": 3}
+    if "AllPreQualificationsAsync" in url:
+        return {"totalCount": 3, "data": [
+            {"tenderIdString": "PQ1 abc==", "qualificationName": "مشروع إنشاء وتجهيز مباني الكتيبة الأولى بميناء القوات البحرية",
+             "agencyName": "القوات البحرية", "qualificationTypeName": "تأهيل مسبق",
+             "createdDate": "2026-11-22T11:24:00", "lastOfferPresentationDate": f"{_ksa_tomorrow}T11:20:00"},
+            {"tenderIdString": "PQ2", "qualificationName": "تفعيل الأدوات التقنية لأتمتة حوكمة البيانات والحوسبة السحابية",
+             "agencyName": "وزارة الخارجية", "qualificationTypeName": "تأهيل مسبق",
+             "createdDate": "2026-11-17T16:13:00", "lastOfferPresentationDate": f"{_ksa_tomorrow}T20:00:00"},
+            {"tenderIdString": "PQ3", "qualificationName": "تأهيل منتهي", "agencyName": "جهة",
+             "createdDate": "2026-10-01T10:00:00", "lastOfferPresentationDate": "2020-01-01T10:00:00"}]}
+    if "TenderTypeId=2" in url:
+        return {"totalCount": 1, "data": [
+            {"tenderIdString": "DP1", "tenderName": "توريد وتركيب مكيفات لمبنى إداري", "agencyName": "أمانة",
+             "tenderTypeId": 2, "tenderTypeName": "شراء مباشر", "submitionDate": f"{_today.isoformat()}T09:00:00",
+             "lastOfferPresentationDate": f"{_ksa_tomorrow}T09:59:00"}]}
+    return {"totalCount": 2, "data": [
+        {"tenderIdString": "MIX1", "tenderName": "توريد زيوت لسيارات البلدية", "agencyName": "بلدية", "tenderTypeId": 2,
+         "tenderTypeName": "شراء مباشر", "submitionDate": f"{_today.isoformat()}T10:00:00",
+         "lastOfferPresentationDate": f"{_ksa_tomorrow}T09:59:00"},
+        {"tenderIdString": "MIX2", "tenderName": "إنشاء مدرسة ابتدائية", "agencyName": "وزارة التعليم", "tenderTypeId": 1,
+         "tenderTypeName": "منافسة عامة", "submitionDate": f"{_today.isoformat()}T10:05:00",
+         "lastOfferPresentationDate": f"{_ksa_tomorrow}T09:59:00"}]} if url.endswith("PageNumber=1") else {"data": [], "totalCount": 2}
+
+
+_et._http_get = _fake_kinds
+try:
+    _rd = c.post("/api/etimad/fetch", params={"kind": "direct", "pages": 1}).json()
+    _rp = c.post("/api/etimad/fetch", params={"kind": "prequal", "pages": 1}).json()
+    _rt = c.post("/api/etimad/fetch", params={"kind": "tender", "pages": 1}).json()
+    check("الشراء المباشر يُجلب بفلتر TenderTypeId=2 والتأهيل من قسمه المستقل",
+          any("TenderTypeId=2" in u for u in _seen_urls) and any("AllPreQualificationsAsync" in u for u in _seen_urls)
+          and _rd["added"] == 1 and _rp["added"] == 2 and _rp["expired"] == 1, str((_rd, _rp))[:250])
+    _ld = c.get("/api/etimad", params={"kind": "direct"}).json()
+    _lp = c.get("/api/etimad", params={"kind": "prequal"}).json()
+    _lt = c.get("/api/etimad", params={"kind": "tender"}).json()
+    check("كل نوع في صفحته: الشراء المباشر الوارد في قائمة المنافسات العامة يُصنَّف «شراء مباشر»",
+          {t["tender_key"] for t in _ld["tenders"]} >= {"DP1", "MIX1"} and "MIX2" in {t["tender_key"] for t in _lt["tenders"]}
+          and "MIX1" not in {t["tender_key"] for t in _lt["tenders"]} and _lp["kinds"].get("prequal") == 2,
+          str((_ld["kinds"], [t["tender_key"] for t in _lt["tenders"]][:5])))
+    _pq1 = next(t for t in _lp["tenders"] if t["tender_key"] == "PQ:PQ1 abc==")
+    check("رابط دعوة التأهيل صحيح («+» المشفّرة في المعرّف لا تصير مسافة)",
+          _pq1["details_url"].endswith("PrequalificationVisitorDetails/PQ1%2Babc%3D%3D") and _pq1["published"].startswith("2026-11-22"))
+    _st = c.get("/api/status").json()
+    check("عدادات القائمة الجانبية للشراء المباشر والتأهيل", _st.get("direct", 0) >= 2 and _st.get("prequal") == 2)
+
+    # وكيل التأهيل: دعوة إنشاءات عسكرية بحرية ← ضمن النطاق، خبرات عسكرية مختارة، نواقص حقيقية
+    _b = c.post(f"/api/prequal/{_pq1['id']}/build", data={"notes": ""}).json()
+    check("وكيل التأهيل: دعوة إنشاءات ضمن نشاط الشركة بدرجة وحكم ومعايير موزونة (100%)",
+          _b["fit"]["in_scope"] and 0 < _b["total"] <= 100 and sum(_b["weights"].values()) == 100
+          and set(_b["scores"]) == {"experience", "financial", "staff", "equipment", "quality", "legal", "local"}, str(_b)[:200])
+    check("خبير الخبرات يختار المشاريع العسكرية للدعوة العسكرية (المجال لا الكلمات فقط)",
+          any(any(k in s["name"] for k in ("الجنود", "الأسلحة", "الحرس")) and s["score"] >= 60 for s in _b["similar"]),
+          str(_b["similar"])[:250])
+    check("النواقص مرتبة بالأولوية وكل منها بإجراء محدد، ولا تكرار للقوائم المالية",
+          _b["gaps"] and [g["priority"] for g in _b["gaps"]] == sorted([g["priority"] for g in _b["gaps"]],
+                                                                       key=lambda p: {"حرجة": 0, "عالية": 1, "متوسطة": 2}[p])
+          and all(g["action"] for g in _b["gaps"]) and sum("القوائم المالية" in g["gap"] for g in _b["gaps"]) == 1)
+    _pq2 = next(t for t in _lp["tenders"] if t["tender_key"] == "PQ:PQ2")
+    _b2 = c.post(f"/api/prequal/{_pq2['id']}/build", data={"notes": ""}).json()
+    check("وكيل التأهيل صريح: دعوة تقنية معلومات خارج نشاط المقاول ← «لا يُنصح بالتقدم منفرداً»",
+          not _b2["fit"]["in_scope"] and _b2["total"] <= 40 and "لا يُنصح" in _b2["verdict"], str(_b2)[:200])
+    # كراسة تأهيل مرفوعة: الاشتراطات والأوزان المعلنة تحلّ محل الافتراضية
+    _booklet = ("معايير التأهيل:\n1- الخبرة في تنفيذ مشاريع مماثلة لا تقل عن 3 مشاريع خلال 10 سنوات (40 درجة)\n"
+                "2- القدرة المالية: تقديم القوائم المالية المدققة لآخر 3 سنوات (30 درجة)\n"
+                "3- الكوادر الفنية: إرفاق السير الذاتية لمدير المشروع والمهندسين (20 درجة)\n"
+                "4- يجب تقديم شهادة الأيزو 9001 سارية (10 درجة)\n")
+    _b3 = c.post(f"/api/prequal/{_pq1['id']}/build", data={"notes": ""},
+                 files=[("files", ("booklet.txt", _booklet.encode(), "text/plain"))]).json()
+    check("كراسة التأهيل المرفوعة: الاشتراطات تُستخرج وأوزان الجهة المعلنة تُعتمد",
+          _b3["requirements"] == 4 and _b3["weights"]["experience"] == 40 and _b3["weights"]["financial"] == 30
+          and _b3["requirements_source"] == "كراسة التأهيل المرفوعة", str((_b3["requirements"], _b3["weights"])))
+    # وثيقة منتهية/تنتهي قبل الموعد تُكشف
+    _zk = [d for d in c.get("/api/docs").json() if "زكاة" in d["name"]]
+    for _d in _zk:      # كل نسخ شهادة الزكاة تنتهي بعد 3 أيام (قبل موعد التقديم بعد 14 يوماً)
+        c.post("/api/docs", json={**_d, "expiry_date": (_dt3.date.today() + _dt3.timedelta(days=3)).isoformat()})
+    if not _zk:
+        c.post("/api/docs", json={"name": "شهادة الزكاة والدخل", "number": "Z-1", "issuer": "هيئة الزكاة",
+                                  "issue_date": "2025-01-01", "expiry_date": (_dt3.date.today() + _dt3.timedelta(days=3)).isoformat()})
+    _b4 = c.post(f"/api/prequal/{_pq1['id']}/build", data={"notes": ""}).json()
+    check("مدقق الامتثال يكشف وثيقة تنتهي قبل موعد التقديم كنقص حرج",
+          any("الزكاة" in g["gap"] and "قبل موعد التقديم" in g["gap"] and g["priority"] == "حرجة" for g in _b4["gaps"]),
+          str([g["gap"] for g in _b4["gaps"]])[:250])
+    _hd = c.get(f"/api/prequal/{_pq1['id']}/preview", params={"kind": "dossier"}).text
+    _ha = c.get(f"/api/prequal/{_pq1['id']}/preview", params={"kind": "assessment"}).text
+    check("ملف التأهيل للجهة: أقسامه كاملة ومصفوفة الامتثال، بلا درجات ولا نواقص داخلية",
+          all(k in _hd for k in ("خطاب التقديم", "الملخص التنفيذي", "الخبرات والمشاريع المماثلة", "القدرة المالية",
+                                 "مصفوفة الامتثال", "الوثائق النظامية المرفقة")) and "تقرير داخلي" not in _hd
+          and "النواقص وخطة سدها" not in _hd)
+    check("تقرير الجاهزية الداخلي: الحكم والدرجات والنواقص وملاحظات فريق الخبراء العشرة",
+          all(k in _ha for k in ("تقرير جاهزية التأهيل", "النواقص وخطة سدها", "ملاحظات فريق المراجعة", "تقرير داخلي"))
+          and _ha.count("<tr>") >= 20)
+    if os.environ.get("AZOOM_CHROMIUM_PATH") or shutil.which("chromium"):
+        _pdf = c.get(f"/api/prequal/{_pq1['id']}/pdf", params={"kind": "dossier"})
+        check("ملف التأهيل PDF حقيقي بتصميم الشركة", _pdf.status_code == 200 and _pdf.content[:4] == b"%PDF"
+              and len(_pdf.content) > 50_000, str(_pdf.status_code))
 finally:
     _et._http_get = _orig_get
 
